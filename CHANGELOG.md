@@ -13,6 +13,12 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Changed
 
+- Spearman and Ridge sensitivity now evaluate numerical parameters only. Nominal
+  categorical parameters (including numeric-looking Optuna choices) are explicitly
+  marked `Unsupported (categorical)` in charts, heatmaps, CSV and reports, never
+  scored or ranked. Ridge R² is labeled numerical-only and is absent when no
+  numerical parameters are supported. Existing numerical missingness handling is unchanged.
+
 - Auto surrogate selection now prefers Ridge, LightGBM, GP-FITC, then GP-VFE
   among candidates within an inclusive absolute mean CV R² gap of 0.01 from
   the maximum finite score. This explicit preference is not a universal cost

@@ -267,13 +267,28 @@ impl ImportanceChart {
                     (COLOR_FIT_HIGH(), "")
                 };
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(egui::RichText::new(format!("R² = {r2:.3}{warning}")).color(color));
+                    let scope = if self.metric == ImportanceMetric::Ridge {
+                        " (numerical-only)"
+                    } else {
+                        ""
+                    };
+                    ui.label(
+                        egui::RichText::new(format!("R²{scope} = {r2:.3}{warning}")).color(color),
+                    );
                 });
             }
         });
 
         if self.computing {
             return;
+        }
+
+        if let Some(result) = sensitivity.filter(|_| self.metric.is_signed()) {
+            show_unsupported(
+                ui,
+                &result.unsupported_categorical,
+                result.param_names.is_empty(),
+            );
         }
 
         let scores = match self.metric {
@@ -352,6 +367,15 @@ impl ImportanceChart {
 
 fn group_header(text: &str) -> egui::RichText {
     egui::RichText::new(text).weak().small()
+}
+
+pub(super) fn show_unsupported(ui: &mut egui::Ui, names: &[String], no_numeric: bool) {
+    for name in names {
+        ui.label(format!("{name}: Unsupported (categorical)"));
+    }
+    if no_numeric && !names.is_empty() {
+        ui.label("No supported numerical parameters");
+    }
 }
 
 /// Retrieves R² for RfAnova / Mdi / Shap / Permutation (first objective's value, for display)
@@ -463,6 +487,47 @@ mod tests {
     use crate::state::app_state::{MdiResult, RfAnovaResult, RidgeResult, SensitivityResult};
 
     #[test]
+    fn categorical_ui_is_explicit_unranked_and_r_squared_is_numerical_only() {
+        for mixed in [false, true] {
+            for metric in [ImportanceMetric::Spearman, ImportanceMetric::Ridge] {
+                let mut result = make_result_with_ridge(&["x"], vec![0.8]);
+                result.unsupported_categorical = vec!["cat".into()];
+                if !mixed {
+                    result.param_names.clear();
+                    result.spearman.clear();
+                    result.ridge.clear();
+                }
+                let sorted = compute_sorted_importance(&result, &metric, 0);
+                assert_eq!(sorted.len(), usize::from(mixed));
+                assert!(sorted.iter().all(|(name, _)| name == "x"));
+                let ctx = egui::Context::default();
+                let mut chart = ImportanceChart {
+                    metric,
+                    ..Default::default()
+                };
+                let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    chart.show(ui, Some(&result), None, &["obj".into()], false);
+                });
+                let text = output
+                    .shapes
+                    .iter()
+                    .filter_map(|s| match &s.shape {
+                        egui::epaint::Shape::Text(t) => Some(t.galley.text()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                assert!(text.contains("cat: Unsupported (categorical)"), "{text}");
+                assert_eq!(text.contains("No supported numerical parameters"), !mixed);
+                assert_eq!(
+                    text.contains("R² (numerical-only)"),
+                    mixed && metric == ImportanceMetric::Ridge
+                );
+            }
+        }
+    }
+
+    #[test]
     fn cache_ids_are_distinct() {
         let metrics = [
             ImportanceMetric::Spearman,
@@ -534,6 +599,7 @@ mod tests {
     fn make_result(params: &[&str], scores: Vec<f64>) -> SensitivityResult {
         SensitivityResult {
             param_names: params.iter().map(|s| s.to_string()).collect(),
+            unsupported_categorical: vec![],
             spearman: vec![scores],
             ridge: vec![],
             rf_anova: None,
@@ -547,6 +613,7 @@ mod tests {
     fn make_result_with_ridge(params: &[&str], beta: Vec<f64>) -> SensitivityResult {
         SensitivityResult {
             param_names: params.iter().map(|s| s.to_string()).collect(),
+            unsupported_categorical: vec![],
             spearman: vec![vec![0.5; params.len()]],
             ridge: vec![RidgeResult {
                 beta,
@@ -563,6 +630,7 @@ mod tests {
     fn make_result_with_rf_anova(params: &[&str], importances: Vec<Vec<f64>>) -> SensitivityResult {
         SensitivityResult {
             param_names: params.iter().map(|s| s.to_string()).collect(),
+            unsupported_categorical: vec![],
             spearman: vec![vec![0.5; params.len()]],
             ridge: vec![],
             rf_anova: Some(RfAnovaResult {
@@ -579,6 +647,7 @@ mod tests {
     fn make_result_with_mdi(params: &[&str], importances: Vec<Vec<f64>>) -> SensitivityResult {
         SensitivityResult {
             param_names: params.iter().map(|s| s.to_string()).collect(),
+            unsupported_categorical: vec![],
             spearman: vec![vec![0.5; params.len()]],
             ridge: vec![],
             rf_anova: None,
@@ -727,6 +796,7 @@ mod tests {
         use crate::state::app_state::PermutationResult;
         let result = SensitivityResult {
             param_names: vec!["p0".to_string(), "p1".to_string()],
+            unsupported_categorical: vec![],
             spearman: vec![],
             ridge: vec![],
             rf_anova: None,

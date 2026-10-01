@@ -309,6 +309,8 @@ pub struct ConvergencePoint {
 /// Parameter importance section.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ImportanceSection {
+    /// Nominal parameters have no Spearman score and are never ranked.
+    pub unsupported_categorical: Vec<String>,
     /// Name of the importance-computation method (e.g. `"spearman_abs"`).
     pub method: String,
     /// Objective name that importance was evaluated against.

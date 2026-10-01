@@ -5,6 +5,7 @@
 #[derive(Debug, Clone)]
 pub struct SensitivityResult {
     pub param_names: Vec<String>,
+    pub unsupported_categorical: Vec<String>,
     pub spearman: Vec<Vec<f64>>,
     pub ridge: Vec<RidgeResult>,
     pub rf_anova: Option<RfAnovaResult>,
@@ -44,6 +45,7 @@ pub type PermutationResult = TreeImportanceResult;
 #[derive(Debug, Clone)]
 pub struct HeatmapMatrix {
     pub param_names: Vec<String>,
+    pub unsupported_categorical: Vec<String>,
     pub objective_names: Vec<String>,
     pub values: Vec<Vec<f64>>,
     /// Whether values are signed (diverging display) or non-negative (sequential display, column-normalized).
@@ -53,7 +55,7 @@ pub struct HeatmapMatrix {
 impl HeatmapMatrix {
     /// Whether the matrix's dimensions are consistent with param_names / objective_names.
     pub fn is_well_formed(&self) -> bool {
-        !self.param_names.is_empty()
+        (!self.param_names.is_empty() || !self.unsupported_categorical.is_empty())
             && !self.objective_names.is_empty()
             && self.values.len() == self.param_names.len()
             && self

@@ -12,6 +12,8 @@ pub enum SensitivityKind {
 #[derive(Debug, Clone, Default)]
 pub struct SensitivityResult {
     pub param_names: Vec<String>,
+    /// Nominal parameters excluded from Spearman/Ridge, not measured zero effects.
+    pub unsupported_categorical: Vec<String>,
     pub objective_names: Vec<String>,
     pub spearman: Vec<Vec<f64>>,
     pub ridge: Vec<RidgeResult>,

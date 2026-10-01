@@ -336,6 +336,7 @@ mod tests {
             (0u8, 0, false),
             SensitivityResult {
                 param_names: vec!["x".to_string()],
+                unsupported_categorical: vec![],
                 spearman: vec![vec![0.9]],
                 ridge: vec![],
                 rf_anova: None,

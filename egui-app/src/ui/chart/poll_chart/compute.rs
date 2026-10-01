@@ -234,7 +234,11 @@ pub(super) fn compute_sensitivity_heatmap(
     use crate::state::results::HeatmapMatrix;
     use crate::ui::widgets::importance_chart::{core_sensitivity_metric, SOBOL_SAMPLE_COUNT};
 
-    let param_names = df.param_col_names().to_vec();
+    let (param_names, unsupported_categorical): (Vec<_>, Vec<_>) = df
+        .param_col_names()
+        .iter()
+        .cloned()
+        .partition(|name| !metric.is_signed() || df.get_numeric_column(name).is_some());
     let objective_names = df.objective_col_names().to_vec();
     let n_params = param_names.len();
     let n_objs = objective_names.len();
@@ -276,6 +280,7 @@ pub(super) fn compute_sensitivity_heatmap(
         feasible_only,
         result: HeatmapMatrix {
             param_names,
+            unsupported_categorical,
             objective_names,
             values,
             signed,
@@ -321,5 +326,62 @@ fn single_obj_param_score(
             .copied()
             .unwrap_or(0.0),
         ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal | ImportanceMetric::Ard => 0.0,
+    }
+}
+
+#[cfg(test)]
+mod categorical_tests {
+    use super::*;
+    use crate::ui::widgets::importance_chart::{core_sensitivity_metric, ImportanceMetric};
+    use tunny_core::dataframe::{DataFrame, TrialRow};
+
+    #[test]
+    fn heatmap_transports_only_numerical_scores_and_explicit_unsupported_names() {
+        for mixed in [false, true] {
+            let rows: Vec<_> = (0..12)
+                .map(|i| TrialRow {
+                    trial_id: i,
+                    trial_number: i,
+                    param_display: [("cat".into(), (i % 3) as f64), ("x".into(), i as f64)].into(),
+                    param_category_label: [(
+                        "cat".into(),
+                        ["steel", "wood", "glass"][i as usize % 3].into(),
+                    )]
+                    .into(),
+                    objective_values: vec![i as f64, -(i as f64)],
+                    user_attrs_numeric: Default::default(),
+                    user_attrs_string: Default::default(),
+                    user_attrs_json: Default::default(),
+                    constraint_values: vec![],
+                })
+                .collect();
+            let params = if mixed {
+                vec!["cat".into(), "x".into()]
+            } else {
+                vec!["cat".into()]
+            };
+            let df =
+                DataFrame::from_trials(&rows, &params, &["f1".into(), "f2".into()], &[], &[], 0);
+            for metric in [ImportanceMetric::Spearman, ImportanceMetric::Ridge] {
+                let AppMessage::SensitivityHeatmapDone { result, .. } =
+                    compute_sensitivity_heatmap(metric, false, &df)
+                else {
+                    panic!("expected heatmap");
+                };
+                assert_eq!(result.unsupported_categorical, vec!["cat"]);
+                assert_eq!(result.param_names.len(), usize::from(mixed));
+                assert_eq!(result.values.len(), usize::from(mixed));
+                if mixed {
+                    assert_eq!(result.param_names, vec!["x"]);
+                    let core = core_sensitivity_metric(metric).unwrap();
+                    for obj in 0..2 {
+                        assert_eq!(
+                            result.values[0][obj],
+                            single_obj_param_score(&core.compute(&df, obj).unwrap(), metric, 0)
+                        );
+                    }
+                }
+            }
+        }
     }
 }

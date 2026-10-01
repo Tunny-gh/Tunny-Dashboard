@@ -19,15 +19,18 @@ pub(super) fn build_importance(
     }
     let y: Vec<f64> = objectives.iter().map(|o| o[0]).collect();
     let mut scores: Vec<(String, f64)> = Vec::new();
+    let mut unsupported_categorical = Vec::new();
     for name in &meta.param_names {
         if let Some(col) = df.get_numeric_column(name) {
             let s = spearman_pairwise(col, &y).abs();
             if s.is_finite() {
                 scores.push((name.clone(), s));
             }
+        } else if df.get_string_column(name).is_some() {
+            unsupported_categorical.push(name.clone());
         }
     }
-    if scores.is_empty() {
+    if scores.is_empty() && unsupported_categorical.is_empty() {
         return None;
     }
     scores.sort_by(|a, b| {
@@ -36,6 +39,7 @@ pub(super) fn build_importance(
             .then(a.0.cmp(&b.0))
     });
     Some(ImportanceSection {
+        unsupported_categorical,
         method: "spearman_abs".to_string(),
         objective_name: meta.objective_names[0].clone(),
         scores,

@@ -152,6 +152,15 @@ pub(super) fn render_importance(
         td(s, &format_number(*score), true);
         s.push_str("</tr>\n");
     }
+    for name in &sec.unsupported_categorical {
+        s.push_str("<tr>");
+        td(s, name, false);
+        td(s, "Unsupported (categorical)", false);
+        s.push_str("</tr>\n");
+    }
+    if sec.scores.is_empty() && !sec.unsupported_categorical.is_empty() {
+        s.push_str("<tr><td colspan=\"2\">No numerical scores available</td></tr>\n");
+    }
     s.push_str("</tbody>\n");
     close_table(s);
 }

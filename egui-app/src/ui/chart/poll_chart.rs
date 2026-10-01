@@ -310,6 +310,7 @@ fn poll_importance_chart(
                         key,
                         result: SensitivityResult {
                             param_names: r.param_names,
+                            unsupported_categorical: vec![],
                             spearman: vec![],
                             ridge: vec![],
                             rf_anova: None,
@@ -365,6 +366,7 @@ fn poll_importance_chart(
                     key,
                     result: SensitivityResult {
                         param_names: r.param_names,
+                        unsupported_categorical: r.unsupported_categorical,
                         spearman,
                         ridge: r
                             .ridge

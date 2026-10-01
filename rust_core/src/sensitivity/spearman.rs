@@ -1,4 +1,3 @@
-use super::data::get_param_numeric_values;
 use super::metric_trait::SensitivityMetric;
 use super::types::SensitivityResult;
 use crate::dataframe::DataFrame;
@@ -8,12 +7,16 @@ pub struct SpearmanMetric;
 
 impl SensitivityMetric for SpearmanMetric {
     fn compute(&self, df: &DataFrame, obj_idx: usize) -> Option<SensitivityResult> {
-        let param_names = df.param_col_names().to_vec();
+        let (param_names, unsupported_categorical): (Vec<_>, Vec<_>) = df
+            .param_col_names()
+            .iter()
+            .cloned()
+            .partition(|name| df.get_numeric_column(name).is_some());
         let objective_names = df.objective_col_names().to_vec();
         let n = df.row_count();
 
         let objective_name = objective_names.get(obj_idx)?.clone();
-        if n < 2 || param_names.is_empty() {
+        if n < 2 || df.param_col_names().is_empty() {
             return None;
         }
 
@@ -24,14 +27,12 @@ impl SensitivityMetric for SpearmanMetric {
 
         let spearman: Vec<Vec<f64>> = param_names
             .iter()
-            .map(|name| {
-                let x = get_param_numeric_values(df, name, n).unwrap_or_else(|| vec![0.0; n]);
-                vec![compute_spearman(&x, &y)]
-            })
+            .map(|name| vec![compute_spearman(df.get_numeric_column(name).unwrap(), &y)])
             .collect();
 
         Some(SensitivityResult {
             param_names,
+            unsupported_categorical,
             objective_names: vec![objective_name],
             spearman,
             ..Default::default()

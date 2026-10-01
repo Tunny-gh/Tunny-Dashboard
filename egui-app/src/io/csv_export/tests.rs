@@ -182,6 +182,7 @@ fn importance_csv_has_expected_columns() {
     let mut state = AppState::default();
     let result = SensitivityResult {
         param_names: vec!["x".into(), "y".into()],
+        unsupported_categorical: vec![],
         spearman: vec![vec![0.9, 0.3]],
         ridge: vec![RidgeResult {
             beta: vec![0.8, 0.2],
@@ -204,12 +205,95 @@ fn importance_csv_has_expected_columns() {
 }
 
 #[test]
+fn categorical_csv_outputs_are_explicit_for_mixed_and_all_categorical_inputs() {
+    use crate::state::results::{HeatmapMatrix, RidgeResult, SensitivityResult};
+    use crate::ui::widgets::importance_chart::ImportanceMetric;
+    for mixed in [false, true] {
+        for metric in [ImportanceMetric::Spearman, ImportanceMetric::Ridge] {
+            let mut state = AppState::default();
+            let mut widgets = WidgetStates::default();
+            widgets.importance.metric = metric;
+            widgets.importance.objective_index = 1; // cache contains one objective, not index 1
+            widgets.sensitivity_heatmap.metric = metric;
+            let names = if mixed { vec!["x".into()] } else { vec![] };
+            state.importance_cache.insert(
+                (metric.cache_id(), 1, false),
+                SensitivityResult {
+                    param_names: names.clone(),
+                    unsupported_categorical: vec!["cat".into()],
+                    spearman: if mixed { vec![vec![0.9]] } else { vec![] },
+                    ridge: if mixed {
+                        vec![RidgeResult {
+                            beta: vec![0.9],
+                            r_squared: 0.8,
+                        }]
+                    } else {
+                        vec![]
+                    },
+                    rf_anova: None,
+                    mdi: None,
+                    shap: None,
+                    permutation: None,
+                    ard: None,
+                },
+            );
+            state.sensitivity_heatmap_cache.insert(
+                (metric.cache_id(), false),
+                HeatmapMatrix {
+                    param_names: names,
+                    unsupported_categorical: vec!["cat".into()],
+                    objective_names: vec!["obj".into()],
+                    values: if mixed { vec![vec![0.9]] } else { vec![] },
+                    signed: true,
+                },
+            );
+            let importance = build_importance_csv(&state, &widgets).unwrap();
+            assert!(has_csv_data(&ChartId::ImportanceChart, &state, &widgets));
+            assert!(has_csv_data(&ChartId::SensitivityHeatmap, &state, &widgets));
+            assert!(
+                importance.contains(&format!("cat,Unsupported (categorical),{}", metric.label()))
+            );
+            assert_eq!(importance.contains("x,0.9"), mixed);
+            assert!(!importance.contains("cat,0"));
+            let heatmap = build_sensitivity_csv(&state, &widgets).unwrap();
+            assert!(heatmap.contains("cat,Unsupported (categorical)"));
+            assert_eq!(heatmap.contains("x,0.9"), mixed);
+            assert!(!heatmap.contains("cat,0"));
+        }
+    }
+}
+
+#[test]
+fn unsupported_names_do_not_bypass_heatmap_dimension_validation() {
+    use crate::state::results::HeatmapMatrix;
+    let mut state = AppState::default();
+    let widgets = WidgetStates::default();
+    state.sensitivity_heatmap_cache.insert(
+        (0, false),
+        HeatmapMatrix {
+            param_names: vec!["x".into()],
+            unsupported_categorical: vec!["cat".into()],
+            objective_names: vec!["obj".into()],
+            values: vec![],
+            signed: true,
+        },
+    );
+    assert!(!has_csv_data(
+        &ChartId::SensitivityHeatmap,
+        &state,
+        &widgets
+    ));
+    assert!(build_sensitivity_csv(&state, &widgets).is_none());
+}
+
+#[test]
 fn importance_csv_quotes_param_name_with_comma() {
     use crate::state::app_state::SensitivityResult;
     use crate::state::results::RidgeResult;
     let mut state = AppState::default();
     let result = SensitivityResult {
         param_names: vec!["x,y".into()],
+        unsupported_categorical: vec![],
         spearman: vec![vec![0.9]],
         ridge: vec![RidgeResult {
             beta: vec![0.8],
@@ -234,6 +318,7 @@ fn importance_csv_guards_param_name_starting_with_equals() {
     let mut state = AppState::default();
     let result = SensitivityResult {
         param_names: vec!["=SUM(A1)".into()],
+        unsupported_categorical: vec![],
         spearman: vec![vec![0.9]],
         ridge: vec![RidgeResult {
             beta: vec![0.8],
@@ -260,6 +345,7 @@ fn sensitivity_csv_has_objective_columns_in_header() {
         (widgets.sensitivity_heatmap.metric.cache_id(), false),
         HeatmapMatrix {
             param_names: vec!["x".into(), "y".into()],
+            unsupported_categorical: vec![],
             objective_names: vec!["f1".into(), "f2".into()],
             values: vec![vec![0.9, 0.3], vec![0.5, 0.7]],
             signed: true,

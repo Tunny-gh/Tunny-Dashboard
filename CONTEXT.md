@@ -32,3 +32,7 @@ Wholly unobserved trailing constraints cannot be inferred from this count.
 
 For the classification decision and its rationale, see
 [ADR-0007](docs/adr/0007-distinguish-three-constraint-feasibility-states.md).
+
+**Nominal categorical parameter**: A parameter whose category identity implies
+no numerical order or distance. Optuna categorical choices remain nominal even
+when their labels look numeric.
