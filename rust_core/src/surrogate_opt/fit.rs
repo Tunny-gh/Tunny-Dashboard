@@ -2,12 +2,12 @@
 //! subsampling, cross-validation, and the final full-data fit. This core is
 //! shared by the single- and multi-objective entry points.
 
-use super::model_selection::{model_display_name, select_best_model_tracked};
+use super::model_selection::{model_display_name, select_model_candidates_tracked};
 use super::models;
 use super::progress::FitProgress;
 use super::types::{ConstraintData, SurrogateFitRequest, TrainedSurrogate};
 use super::validation;
-use super::{AUTO_CANDIDATES, MAX_TRAIN_FOR_FIT, MIN_TRIALS_FOR_SURROGATE_OPT};
+use super::{SurrogateModelKind, AUTO_CANDIDATES, MAX_TRAIN_FOR_FIT, MIN_TRIALS_FOR_SURROGATE_OPT};
 use crate::math::rng::SeededRng;
 
 /// Performs common input validation (returns (n, n_dims) on success).
@@ -161,11 +161,11 @@ pub(crate) fn subsample_fit_request(req: &SurrogateFitRequest) -> Option<Surroga
 /// `inc_done`: for auto selection, per-candidate validation (1 holdout + k CV)
 /// times the number of candidates, plus the main validation (1 + k), plus 1 for
 /// the final model, plus the number of constraints.
-pub(crate) fn estimate_fit_count(req: &SurrogateFitRequest) -> usize {
+fn estimate_fit_count(req: &SurrogateFitRequest, candidate_count: usize) -> usize {
     let k = req.y.len().min(5);
     let validate = 1 + k;
     let auto = if req.auto_select {
-        AUTO_CANDIDATES.len() * validate
+        candidate_count * validate
     } else {
         0
     };
@@ -187,6 +187,35 @@ pub fn fit_surrogate_with_validation_tracked(
     req: &SurrogateFitRequest,
     progress: &FitProgress,
 ) -> Result<TrainedSurrogate, String> {
+    fit_with_candidates_tracked(req, progress, &AUTO_CANDIDATES)
+}
+
+/// Interim adaptive EI/EHVI eligibility: both acquisitions require predictive
+/// variance. Compare only finite eligible GP scores; never coerce an Auto winner.
+/// Unrestricted adaptive Auto needs a separate proposal policy (Issue #211).
+pub(crate) fn fit_adaptive_surrogate_tracked(
+    req: &SurrogateFitRequest,
+    progress: &FitProgress,
+) -> Result<TrainedSurrogate, String> {
+    fit_with_candidates_tracked(
+        req,
+        progress,
+        &[SurrogateModelKind::GpFitc, SurrogateModelKind::GpVfe],
+    )
+    .map_err(|error| {
+        if error == "All candidate models failed validation" {
+            "No eligible GP-FITC or GP-VFE model has a finite validation score".to_string()
+        } else {
+            error
+        }
+    })
+}
+
+fn fit_with_candidates_tracked(
+    req: &SurrogateFitRequest,
+    progress: &FitProgress,
+    candidates: &[SurrogateModelKind],
+) -> Result<TrainedSurrogate, String> {
     validate_inputs(&req.x_matrix, &req.y)?;
 
     // Subsample large data before fitting (validation fits the same model
@@ -196,8 +225,8 @@ pub fn fit_surrogate_with_validation_tracked(
     let subsampled = subsample_fit_request(req);
     let req = subsampled.as_ref().unwrap_or(req);
 
-    progress.set_total(estimate_fit_count(req));
-    fit_validated_inner(req, progress, "")
+    progress.set_total(estimate_fit_count(req, candidates.len()));
+    fit_validated_candidates_inner(req, progress, "", candidates)
 }
 
 /// The core of validation + full-data fitting (assumes the caller has already
@@ -211,12 +240,28 @@ pub(crate) fn fit_validated_inner(
     progress: &FitProgress,
     stage_prefix: &str,
 ) -> Result<TrainedSurrogate, String> {
-    // For auto selection, cross-validate AUTO_CANDIDATES to decide the best
+    fit_validated_candidates_inner(req, progress, stage_prefix, &AUTO_CANDIDATES)
+}
+
+fn fit_validated_candidates_inner(
+    req: &SurrogateFitRequest,
+    progress: &FitProgress,
+    stage_prefix: &str,
+    candidates: &[SurrogateModelKind],
+) -> Result<TrainedSurrogate, String> {
+    // For auto selection, cross-validate the eligible candidates to decide the best
     // model. All subsequent fitting, validation, and constraint models use the
     // concrete chosen model kind (this stays consistent automatically since
     // SurrogateModelKind has no "Auto" variant).
     let (model_kind, model_selection) = if req.auto_select {
-        let report = select_best_model_tracked(&req.x_matrix, &req.y, 42, progress, stage_prefix)?;
+        let report = select_model_candidates_tracked(
+            &req.x_matrix,
+            &req.y,
+            42,
+            progress,
+            stage_prefix,
+            candidates,
+        )?;
         let chosen = report.chosen;
         (chosen, Some(report))
     } else {

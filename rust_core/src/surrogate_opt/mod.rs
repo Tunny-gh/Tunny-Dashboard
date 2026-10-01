@@ -36,6 +36,7 @@ pub use validation::SurrogateValidationReport;
 pub use model_selection::{select_best_model, ModelSelectionReport};
 
 // ── fit.rs ───────────────────────────────────────────────────────────────
+pub(crate) use fit::fit_adaptive_surrogate_tracked;
 pub use fit::{fit_surrogate_with_validation, fit_surrogate_with_validation_tracked};
 pub(crate) use fit::{fit_validated_inner, subsample_indices, take_rows, validate_inputs};
 
@@ -71,12 +72,12 @@ pub const MIN_TRIALS_FOR_SURROGATE_OPT: usize = 10;
 /// 7 times), so this cuts wait time substantially for large studies.
 pub const MAX_TRAIN_FOR_FIT: usize = 2000;
 
-/// Candidate models for automatic model selection (Auto). The candidate with the
-/// highest CV R² is chosen.
+/// Candidate models for automatic model selection (Auto), in preference order.
 ///
-/// The order is arranged "simplest / lowest-cost model first" (Ridge -> GP-FITC ->
-/// GP-VFE -> LightGBM). On a tie, the candidate earlier in this order is preferred
-/// (tie-break).
+/// First determine the highest finite mean CV R², then prefer the earliest
+/// candidate with an absolute gap <= 0.01: Ridge -> LightGBM -> GP-FITC -> GP-VFE.
+/// This is an explicit policy, not a universal cost ranking; cost depends on the
+/// problem. The tolerance does not imply statistical equivalence or 1% accuracy.
 ///
 /// GpMoe is excluded from the candidates:
 ///   - It searches the cluster count via CV, so its per-candidate validation cost
@@ -86,9 +87,9 @@ pub const MAX_TRAIN_FOR_FIT: usize = 2000;
 ///     when the response is known to be discontinuous or multimodal.
 pub const AUTO_CANDIDATES: [SurrogateModelKind; 4] = [
     SurrogateModelKind::Ridge,
+    SurrogateModelKind::Lgbm,
     SurrogateModelKind::GpFitc,
     SurrogateModelKind::GpVfe,
-    SurrogateModelKind::Lgbm,
 ];
 
 /// Default resolution of the slice grid.

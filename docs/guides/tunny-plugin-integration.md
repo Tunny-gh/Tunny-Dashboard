@@ -68,6 +68,13 @@ Semantics the dashboard implements, matching Tunny's published behavior:
   Rhino.Compute → refit. This is the dashboard-side realization of the
   "analyze → suggest → run → re-analyze" loop, so no Tunny-side execution or
   enqueue support is required for it.
+  As an interim exception to general Auto, adaptive selection evaluates only
+  GP-FITC then GP-VFE: EI/EHVI require predictive variance. Before final fitting,
+  choose the first GP within an inclusive absolute mean CV R² gap of 0.01 from
+  the best finite eligible GP score. Failed/non-finite GPs are excluded; no finite
+  eligible GP is an error, not a fallback strategy. Selection reports contain
+  only evaluated GPs. Unrestricted adaptive Auto is tracked in
+  [#211](https://github.com/Tunny-gh/Tunny-Dashboard/issues/211).
 
 ## 2. Compatibility requests — please keep these stable
 

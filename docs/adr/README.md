@@ -79,3 +79,4 @@ order:
 | 0005 | [Present trial user attributes by key](0005-present-user-attributes-by-key.md) | Accepted | 2026-09-29 |
 | 0006 | [Represent missing numeric parameters as NaN](0006-represent-missing-numeric-parameters-as-nan.md) | Accepted | 2026-09-30 |
 | 0007 | [Distinguish three constraint feasibility states](0007-distinguish-three-constraint-feasibility-states.md) | Accepted | 2026-09-30 |
+| 0008 | [Auto surrogate selection preference](0008-auto-surrogate-selection-preference.md) | Accepted | 2026-10-01 |

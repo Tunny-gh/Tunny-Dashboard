@@ -13,6 +13,17 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Changed
 
+- Auto surrogate selection now prefers Ridge, LightGBM, GP-FITC, then GP-VFE
+  among candidates within an inclusive absolute mean CV R² gap of 0.01 from
+  the maximum finite score. This explicit preference is not a universal cost
+  ranking; failed and non-finite candidates remain excluded.
+- Adaptive sampling now selects only GP-FITC then GP-VFE before final fitting,
+  because both single-objective EI and multi-objective EHVI require predictive
+  variance. The same inclusive 0.01 tolerance is measured against the best finite
+  eligible GP score, not unrestricted Auto's best score. No finite eligible GP
+  remains an error; reports list only evaluated GPs. This is an interim exception;
+  unrestricted adaptive Auto is tracked in #211. Adaptive fitting shares run
+  cancellation while keeping trial progress counters separate.
 - Trial details now use aligned key/value rows with subtle stripes and separators,
   clearer section boundaries, and indented array elements. Expanded arrays show
   an item count in the parent row.
@@ -31,6 +42,8 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- Auto surrogate selection now compares tolerance against the global best finite
+  CV R², rather than a stale intermediate selection (#195).
 - Constraint feasibility now distinguishes **Feasible**, **Infeasible**, and
   **Feasibility unverified**. Missing, partial, invalid, or non-finite evaluations
   no longer become satisfied zeros; finite positive violations still establish
