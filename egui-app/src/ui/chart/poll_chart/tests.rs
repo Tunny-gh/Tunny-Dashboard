@@ -42,6 +42,43 @@ fn study(id: u32, constraints: Vec<Vec<f64>>, constrained: bool) -> StudyContext
     }
 }
 
+#[test]
+fn mcdm_dispatch_propagates_negative_weight_failure_before_empty_front() {
+    use crate::state::messages::McdmChartSource;
+    use crate::state::results::McdmMethod;
+    use crate::ui::widgets::mcdm_chart::{McdmComputeRequest, McdmControls};
+
+    let ctx = study(1, vec![], false);
+    for &method in McdmMethod::all() {
+        for weights in [[2.0, -1.0], [-1.0, -1.0], [f64::NAN, f64::NEG_INFINITY]] {
+            let mut controls = McdmControls {
+                pending_compute: Some(McdmComputeRequest {
+                    method,
+                    weights: weights.to_vec(),
+                    v: 0.5,
+                }),
+                ..Default::default()
+            };
+            let (tx, rx) = mpsc::sync_channel(1);
+            mcdm::dispatch_mcdm_compute(
+                &mut controls,
+                &ctx,
+                &ctx.meta.objective_names,
+                &ctx.meta.directions,
+                McdmChartSource::Rank,
+                &tx,
+            );
+            assert!(controls.pending_compute.is_none());
+            match rx.recv_timeout(Duration::from_secs(30)).unwrap() {
+                AppMessage::McdmFailed { message, .. } => {
+                    assert_eq!(message, "Criterion weights must be nonnegative")
+                }
+                _ => panic!("Negative weights must fail, never produce a cacheable result"),
+            }
+        }
+    }
+}
+
 fn poll(
     base: &StudyContext,
     comparison: &StudyContext,

@@ -92,7 +92,7 @@ impl McdmControls {
     }
 
     /// Returns the cache key corresponding to the current settings.
-    pub fn cache_key(&self) -> McdmCacheKey {
+    pub fn cache_key(&self) -> Result<McdmCacheKey, String> {
         McdmCacheKey::from_settings(self.method, self.weight_mode, &self.weights, self.v_param)
     }
 
@@ -150,10 +150,9 @@ impl McdmControls {
                     .add_enabled(!self.computing, egui::Button::new("Run"))
                     .clicked()
                 {
-                    let normalized = normalize_weights(&self.weights);
                     self.pending_compute = Some(McdmComputeRequest {
                         method: self.method,
-                        weights: normalized,
+                        weights: self.weights.clone(),
                         v: self.v_param,
                     });
                     self.computing = true;
@@ -190,11 +189,19 @@ impl McdmControls {
                                 self.weights[i] = w;
                             }
                         }
-                        ui.label(format!("(norm: {:.2})", normalized[i]));
+                        if let Ok(weights) = &normalized {
+                            ui.label(format!("(norm: {:.2})", weights[i]));
+                        }
                     });
                 }
-                let norm_sum: f64 = normalized.iter().sum();
-                ui.label(format!("Sum: {:.2}", norm_sum));
+                match normalized {
+                    Ok(weights) => {
+                        ui.label(format!("Sum: {:.2}", weights.iter().sum::<f64>()));
+                    }
+                    Err(message) => {
+                        ui.colored_label(COLOR_EMPTY_STATE(), message);
+                    }
+                }
 
                 if self.method == McdmMethod::Vikor {
                     ui.horizontal(|ui| {

@@ -582,6 +582,39 @@ fn make_topsis_mcdm(trial_rows_len: usize) -> crate::state::app_state::McdmResul
 }
 
 #[test]
+fn negative_mcdm_settings_cannot_export_a_cached_uniform_ranking() {
+    let mut state = AppState {
+        current_study: Some(make_study(
+            vec![],
+            vec!["x".into(), "y".into()],
+            vec![Direction::Minimize; 2],
+        )),
+        ..Default::default()
+    };
+    let mut widgets = WidgetStates::default();
+    widgets.trial_table.mode = TrialTableMode::Mcdm;
+    widgets.mcdm_chart.controls.weights = vec![0.0, 0.0];
+    let key = widgets.mcdm_chart.controls.cache_key().unwrap();
+    state.mcdm_cache.insert(key, make_topsis_mcdm(0));
+    assert!(mcdm_result_for_chart(&ChartId::McdmRankChart, &state, &widgets).is_some());
+    for weights in [vec![-1.0, -1.0], vec![f64::NAN, -1.0]] {
+        widgets.mcdm_chart.controls.weights = weights.clone();
+        widgets.scatter_chart.controls.weights = weights.clone();
+        widgets.mcdm_scatter_3d.controls.weights = weights.clone();
+        widgets.trial_table.mcdm.controls.weights = weights;
+        for chart in [
+            ChartId::McdmRankChart,
+            ChartId::McdmScatterChart,
+            ChartId::McdmScatterChart3D,
+        ] {
+            assert!(mcdm_result_for_chart(&chart, &state, &widgets).is_none());
+        }
+        assert!(!has_trial_table_csv(&state, &widgets));
+        assert!(build_trial_table_csv(&state, &widgets).is_none());
+    }
+}
+
+#[test]
 fn mcdm_rank_csv_has_correct_header_and_method_topsis() {
     let mut state = AppState::default();
     let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);

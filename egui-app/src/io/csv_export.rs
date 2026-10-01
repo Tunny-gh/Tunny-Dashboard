@@ -48,7 +48,7 @@ pub(super) fn mcdm_result_for_chart<'a>(
         ChartId::McdmScatterChart3D => widgets.mcdm_scatter_3d.controls.cache_key(),
         _ => return None,
     };
-    app_state.mcdm_cache.get(&key)
+    app_state.mcdm_cache.get(&key.ok()?)
 }
 
 /// Consolidates the boilerplate guard used at the start of many `build_*_csv` functions
@@ -128,7 +128,7 @@ pub fn build_trial_table_csv(app_state: &AppState, widgets: &WidgetStates) -> Op
             build_cluster_csv_from_result(cr, app_state)
         }
         TrialTableMode::Mcdm => {
-            let key = widgets.trial_table.mcdm.controls.cache_key();
+            let key = widgets.trial_table.mcdm.controls.cache_key().ok()?;
             let result = app_state.mcdm_cache.get(&key)?;
             build_mcdm_table_csv(result, app_state)
         }
@@ -152,7 +152,8 @@ pub fn has_trial_table_csv(app_state: &AppState, widgets: &WidgetStates) -> bool
         }
         TrialTableMode::Mcdm => {
             let key = widgets.trial_table.mcdm.controls.cache_key();
-            app_state.current_study.is_some() && app_state.mcdm_cache.contains_key(&key)
+            app_state.current_study.is_some()
+                && key.is_ok_and(|key| app_state.mcdm_cache.contains_key(&key))
         }
     }
 }
