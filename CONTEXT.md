@@ -36,3 +36,7 @@ For the classification decision and its rationale, see
 **Nominal categorical parameter**: A parameter whose category identity implies
 no numerical order or distance. Optuna categorical choices remain nominal even
 when their labels look numeric.
+
+**Criterion weight**: The nonnegative relative importance of an objective in
+multi-criteria decision-making (MCDM). Objective direction specifies whether to
+minimize or maximize, not the weight's sign.

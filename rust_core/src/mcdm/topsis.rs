@@ -52,7 +52,7 @@ pub fn compute_topsis(
     // unnormalized weights (or a degenerate sum) — mirrors VIKOR. TOPSIS scores
     // are invariant to a positive weight scale, so this only guards edge cases
     // (all-zero / NaN weights) and keeps the API symmetric across MCDM methods.
-    let weights = super::normalize_weights(weights);
+    let weights = super::normalize_weights(weights)?;
     let weights = weights.as_slice();
 
     let valid_indices = super::filter_valid_indices(values, n_trials, n_objectives);

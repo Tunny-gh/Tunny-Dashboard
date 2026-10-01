@@ -591,7 +591,7 @@ impl ArtifactGallery {
         }
 
         let key = self.mcdm.cache_key();
-        let Some(result) = app_state.mcdm_cache.get(&key) else {
+        let Some(result) = key.ok().and_then(|key| app_state.mcdm_cache.get(&key)) else {
             ui.centered_and_justified(|ui| {
                 ui.label(egui::RichText::new("No MCDM result for this setting. Press Run.").weak());
             });

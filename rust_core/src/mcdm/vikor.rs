@@ -39,7 +39,7 @@ pub fn compute_vikor(
 
     // Weights are expected to sum to 1, but defend against callers that pass
     // unnormalized weights (or a degenerate sum) instead of erroring out.
-    let weights = super::normalize_weights(weights);
+    let weights = super::normalize_weights(weights)?;
     let weights = weights.as_slice();
 
     let valid_indices = super::filter_valid_indices(values, n_trials, n_objectives);

@@ -99,6 +99,10 @@ pub(super) fn dispatch_mcdm_compute(
 
     let tx = tx.clone();
     crate::app::spawn_task(tx, move || {
+        let key = match key {
+            Ok(key) => key,
+            Err(message) => return AppMessage::McdmFailed { source, message },
+        };
         let computed = compute_mcdm_result(
             method,
             v,

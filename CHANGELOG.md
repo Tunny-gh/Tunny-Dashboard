@@ -48,6 +48,10 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- MCDM rankings reject negative criterion weights instead of accepting them or
+  silently replacing them with uniform weights. Nonnegative weights retain their
+  existing normalization, including uniform weights for a zero or nonfinite sum.
+
 - Auto surrogate selection now compares tolerance against the global best finite
   CV R², rather than a stale intermediate selection (#195).
 - Constraint feasibility now distinguishes **Feasible**, **Infeasible**, and

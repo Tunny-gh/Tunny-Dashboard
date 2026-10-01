@@ -55,17 +55,22 @@ impl McdmCacheKey {
         weight_mode: WeightMode,
         weights: &[f64],
         v: f64,
-    ) -> Self {
-        Self::from_normalized(method, weight_mode, &normalize_weights(weights), v)
+    ) -> Result<Self, String> {
+        Ok(Self::from_normalized(
+            method,
+            weight_mode,
+            &normalize_weights(weights)?,
+            v,
+        ))
     }
 
-    /// Builds a key from a compute request (weights already normalized).
-    pub fn from_request(req: &McdmComputeRequest, weight_mode: WeightMode) -> Self {
-        Self::from_normalized(req.method, weight_mode, &req.weights, req.v)
+    /// Builds a key from a compute request, validating and normalizing weights.
+    pub fn from_request(req: &McdmComputeRequest, weight_mode: WeightMode) -> Result<Self, String> {
+        Self::from_settings(req.method, weight_mode, &req.weights, req.v)
     }
 }
 
 /// Returns normalized weights (delegates to `tunny_core::mcdm::normalize_weights`).
-pub fn normalize_weights(weights: &[f64]) -> Vec<f64> {
+pub fn normalize_weights(weights: &[f64]) -> Result<Vec<f64>, String> {
     tunny_core::mcdm::normalize_weights(weights)
 }

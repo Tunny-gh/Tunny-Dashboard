@@ -128,7 +128,7 @@ impl TrialTable {
             return;
         };
         let key = self.mcdm.controls.cache_key();
-        let result = app_state.mcdm_cache.get(&key);
+        let result = key.ok().and_then(|key| app_state.mcdm_cache.get(&key));
         let pinned = app_state.pinned_trials.clone();
         let pin_toggled = self.mcdm.show(
             ui,

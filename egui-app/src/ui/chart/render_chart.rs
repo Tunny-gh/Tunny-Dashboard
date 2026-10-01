@@ -309,15 +309,17 @@ pub(crate) fn render_chart(
         }
         ChartId::McdmRankChart => {
             let key = widgets.mcdm_chart.controls.cache_key();
-            widgets
-                .mcdm_chart
-                .show(ui, obj_names, app_state.mcdm_cache.get(&key));
+            widgets.mcdm_chart.show(
+                ui,
+                obj_names,
+                key.ok().and_then(|key| app_state.mcdm_cache.get(&key)),
+            );
         }
         ChartId::McdmScatterChart => {
             let key = widgets.scatter_chart.controls.cache_key();
             widgets.scatter_chart.show(
                 ui,
-                app_state.mcdm_cache.get(&key),
+                key.ok().and_then(|key| app_state.mcdm_cache.get(&key)),
                 &ctx.view,
                 param_names,
                 obj_names,
@@ -331,7 +333,7 @@ pub(crate) fn render_chart(
             let key = widgets.mcdm_scatter_3d.controls.cache_key();
             widgets.mcdm_scatter_3d.show(
                 ui,
-                app_state.mcdm_cache.get(&key),
+                key.ok().and_then(|key| app_state.mcdm_cache.get(&key)),
                 &ctx.view,
                 param_names,
                 obj_names,

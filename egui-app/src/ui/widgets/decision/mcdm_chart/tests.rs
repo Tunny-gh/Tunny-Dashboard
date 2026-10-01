@@ -100,21 +100,21 @@ fn mcdm_top_n_values() {
 
 #[test]
 fn normalize_weights_equal() {
-    let result = normalize_weights(&[0.5, 0.5]);
+    let result = normalize_weights(&[0.5, 0.5]).unwrap();
     assert!((result[0] - 0.5).abs() < 1e-9);
     assert!((result[1] - 0.5).abs() < 1e-9);
 }
 
 #[test]
 fn normalize_weights_unequal() {
-    let result = normalize_weights(&[1.0, 3.0]);
+    let result = normalize_weights(&[1.0, 3.0]).unwrap();
     assert!((result[0] - 0.25).abs() < 1e-9);
     assert!((result[1] - 0.75).abs() < 1e-9);
 }
 
 #[test]
 fn normalize_weights_three_equal() {
-    let result = normalize_weights(&[2.0, 2.0, 2.0]);
+    let result = normalize_weights(&[2.0, 2.0, 2.0]).unwrap();
     for w in &result {
         assert!((w - 1.0 / 3.0).abs() < 1e-9);
     }
@@ -122,15 +122,140 @@ fn normalize_weights_three_equal() {
 
 #[test]
 fn normalize_weights_zero_fallback() {
-    let result = normalize_weights(&[0.0, 0.0]);
+    let result = normalize_weights(&[0.0, 0.0]).unwrap();
     assert!((result[0] - 0.5).abs() < 1e-9);
     assert!((result[1] - 0.5).abs() < 1e-9);
 }
 
 #[test]
 fn normalize_weights_empty() {
-    let result = normalize_weights(&[]);
+    let result = normalize_weights(&[]).unwrap();
     assert!(result.is_empty());
+}
+
+#[test]
+fn controls_run_preserves_negative_weights_for_error_propagation() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+    let mut controls = McdmControls {
+        weights: vec![2.0, -1.0],
+        ..Default::default()
+    };
+    let names = vec!["cost".to_string(), "performance".to_string()];
+    let run = |controls: &mut McdmControls, input: egui::RawInput| {
+        ctx.run_ui(input, |ui| {
+            controls.show_controls(ui, &names, "negative_weights");
+        })
+    };
+    let output = run(
+        &mut controls,
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+    );
+    let button = output
+        .platform_output
+        .accesskit_update
+        .unwrap()
+        .nodes
+        .into_iter()
+        .find(|(_, node)| {
+            node.role() == egui::accesskit::Role::Button && node.label() == Some("Run")
+        })
+        .expect("Run button must be available")
+        .0;
+    let _ = run(
+        &mut controls,
+        egui::RawInput {
+            screen_rect: Some(screen),
+            events: vec![egui::Event::AccessKitActionRequest(
+                egui::accesskit::ActionRequest {
+                    action: egui::accesskit::Action::Click,
+                    target_tree: egui::accesskit::TreeId::ROOT,
+                    target_node: button,
+                    data: None,
+                },
+            )],
+            ..Default::default()
+        },
+    );
+    assert!(controls.computing);
+    let request = controls
+        .pending_compute
+        .take()
+        .expect("Run must queue a request");
+    assert_eq!(request.weights, vec![2.0, -1.0]);
+    assert!(McdmCacheKey::from_request(&request, controls.weight_mode).is_err());
+}
+
+#[test]
+fn negative_weights_cannot_produce_a_cache_key() {
+    for &method in McdmMethod::all() {
+        for weights in [
+            [2.0, -1.0],
+            [-1.0, -1.0],
+            [f64::NAN, -1.0],
+            [f64::NAN, f64::NEG_INFINITY],
+            [1.0, -1e-12],
+        ] {
+            let expected = normalize_weights(&weights).unwrap_err();
+            let controls = McdmControls {
+                method,
+                weights: weights.to_vec(),
+                ..Default::default()
+            };
+            assert_eq!(controls.cache_key().unwrap_err(), expected);
+            let request = McdmComputeRequest {
+                method,
+                weights: weights.to_vec(),
+                v: 0.5,
+            };
+            assert_eq!(
+                McdmCacheKey::from_request(&request, WeightMode::Manual).unwrap_err(),
+                expected
+            );
+        }
+    }
+}
+
+#[test]
+fn request_and_settings_cache_keys_use_the_same_normalization() {
+    for &method in McdmMethod::all() {
+        for weights in [
+            [0.0, 0.0],
+            [2.0, 6.0],
+            [0.0, 2.0],
+            [f64::NAN, 1.0],
+            [f64::INFINITY, 1.0],
+            [f64::MAX, f64::MAX],
+        ] {
+            let controls = McdmControls {
+                method,
+                weights: weights.to_vec(),
+                ..Default::default()
+            };
+            let request = McdmComputeRequest {
+                method,
+                weights: weights.to_vec(),
+                v: 0.5,
+            };
+            let normalized_request = McdmComputeRequest {
+                method,
+                weights: normalize_weights(&weights).unwrap(),
+                v: 0.5,
+            };
+            assert_eq!(
+                controls.cache_key().unwrap(),
+                McdmCacheKey::from_request(&request, WeightMode::Manual).unwrap()
+            );
+            assert_eq!(
+                controls.cache_key().unwrap(),
+                McdmCacheKey::from_request(&normalized_request, WeightMode::Manual).unwrap()
+            );
+        }
+    }
 }
 
 #[test]
@@ -301,7 +426,7 @@ fn multi_obj_data() -> Vec<Vec<f64>> {
 fn topsis_full_pipeline_equal_weights() {
     let data = multi_obj_data();
     let objectives: Vec<f64> = data.iter().flat_map(|r| r.iter().copied()).collect();
-    let weights = normalize_weights(&[1.0, 1.0]);
+    let weights = normalize_weights(&[1.0, 1.0]).unwrap();
     let is_minimize = vec![true, true];
 
     let core_result =
@@ -331,11 +456,11 @@ fn topsis_weight_bias_changes_ranking() {
     let objectives: Vec<f64> = data.iter().flat_map(|r| r.iter().copied()).collect();
     let is_minimize = vec![true, true];
 
-    let weights_obj0 = normalize_weights(&[1.0, 0.0]);
+    let weights_obj0 = normalize_weights(&[1.0, 0.0]).unwrap();
     let r0 =
         tunny_core::topsis::compute_topsis(&objectives, 5, 2, &weights_obj0, &is_minimize).unwrap();
 
-    let weights_obj1 = normalize_weights(&[0.0, 1.0]);
+    let weights_obj1 = normalize_weights(&[0.0, 1.0]).unwrap();
     let r1 =
         tunny_core::topsis::compute_topsis(&objectives, 5, 2, &weights_obj1, &is_minimize).unwrap();
 
@@ -348,7 +473,7 @@ fn topsis_weight_bias_changes_ranking() {
 #[test]
 fn topsis_single_objective_works() {
     let objectives: Vec<f64> = (0..5).map(|i| i as f64 * 0.2).collect();
-    let weights = normalize_weights(&[1.0]);
+    let weights = normalize_weights(&[1.0]).unwrap();
     let is_minimize = vec![true];
 
     let result = tunny_core::topsis::compute_topsis(&objectives, 5, 1, &weights, &is_minimize);
@@ -363,7 +488,7 @@ fn mcdm_chart_run_button_sets_pending_compute() {
     assert!(chart.controls.pending_compute.is_none());
     assert!(!chart.controls.computing);
 
-    let normalized = normalize_weights(&[1.0, 1.0]);
+    let normalized = normalize_weights(&[1.0, 1.0]).unwrap();
     chart.controls.pending_compute = Some(McdmComputeRequest {
         method: McdmMethod::Topsis,
         weights: normalized,
@@ -395,7 +520,7 @@ fn mcdm_compute_request_vikor_includes_v() {
 fn top_n_toggle_updates_display() {
     let data = multi_obj_data();
     let objectives: Vec<f64> = data.iter().flat_map(|r| r.iter().copied()).collect();
-    let weights = normalize_weights(&[1.0, 1.0]);
+    let weights = normalize_weights(&[1.0, 1.0]).unwrap();
     let is_minimize = vec![true, true];
 
     let core_result =

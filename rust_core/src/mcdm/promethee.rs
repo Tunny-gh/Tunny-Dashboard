@@ -34,7 +34,7 @@ pub fn compute_promethee(
     // unnormalized weights (or a degenerate sum) — mirrors VIKOR / TOPSIS.
     // π(a,b) = Σ_j w_j·P_j is a weighted mean only when Σw = 1, so this also
     // guarantees Φ+, Φ- ∈ [0,1] and Φnet ∈ [-1,1].
-    let weights = super::normalize_weights(weights);
+    let weights = super::normalize_weights(weights)?;
     let weights = weights.as_slice();
 
     let valid_indices = super::filter_valid_indices(values, n_trials, n_objectives);
