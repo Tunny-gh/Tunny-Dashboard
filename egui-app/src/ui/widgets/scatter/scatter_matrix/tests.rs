@@ -52,7 +52,8 @@ fn tc_cav_scatter_matrix_show_infeasible_default_true() {
 fn tc_cav_split_feasibility_no_constraints_all_feasible() {
     use tunny_core::dataframe::Feasibility;
     let feas = Feasibility::from_column(None);
-    let (f, inf) = split_feasibility_indices(3, feas);
+    let (f, inf, unverified) = split_feasibility_indices(3, feas);
+    assert!(unverified.is_empty());
     assert_eq!(f, vec![0, 1, 2]);
     assert!(inf.is_empty());
 }
@@ -62,9 +63,26 @@ fn tc_cav_split_feasibility_mixed() {
     use tunny_core::dataframe::Feasibility;
     let col = vec![1.0_f64, 0.0, 1.0];
     let feas = Feasibility::from_column(Some(&col));
-    let (f, inf) = split_feasibility_indices(3, feas);
+    let (f, inf, unverified) = split_feasibility_indices(3, feas);
+    assert!(unverified.is_empty());
     assert_eq!(f, vec![0, 2]);
     assert_eq!(inf, vec![1]);
+}
+
+#[test]
+fn unverified_is_not_partitioned_as_infeasible() {
+    let col = [1.0, f64::NAN, 0.0];
+    let feas = tunny_core::dataframe::Feasibility::from_column(Some(&col));
+    assert_eq!(
+        split_feasibility_indices(3, feas),
+        (vec![0], vec![2], vec![1])
+    );
+    let mut rows = Vec::new();
+    crate::ui::widgets::trial_detail_modal::push_feasible_row(&mut rows, feas, 1);
+    assert_eq!(
+        rows,
+        vec![("Feasibility".into(), "Feasibility unverified".into())]
+    );
 }
 
 #[test]
@@ -72,7 +90,8 @@ fn tc_cav_split_feasibility_all_infeasible() {
     use tunny_core::dataframe::Feasibility;
     let col = vec![0.0_f64, 0.0];
     let feas = Feasibility::from_column(Some(&col));
-    let (f, inf) = split_feasibility_indices(2, feas);
+    let (f, inf, unverified) = split_feasibility_indices(2, feas);
+    assert!(unverified.is_empty());
     assert!(f.is_empty());
     assert_eq!(inf, vec![0, 1]);
 }

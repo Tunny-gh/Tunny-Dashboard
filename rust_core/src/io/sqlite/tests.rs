@@ -382,9 +382,89 @@ fn parse_single_study_extracts_constraints() {
     let c2 = df.get_numeric_column("c2").unwrap();
     assert_eq!(c1[0], 1.0);
     assert_eq!(c2[0], -2.0);
-    // trial 6 has no constraints row -> defaults to 0.0
-    assert_eq!(c1[1], 0.0);
-    assert_eq!(c2[1], 0.0);
+    // Trial 6 has no evaluation, not observed zeros.
+    assert!(c1[1].is_nan());
+    assert!(c2[1].is_nan());
+    assert_eq!(
+        df.feasibility().state(1),
+        crate::dataframe::FeasibilityState::Unverified
+    );
+}
+
+#[test]
+fn python_constraint_tokens_and_noncomplete_schema_are_ingested() {
+    use crate::dataframe::FeasibilityState::*;
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+    conn.execute("UPDATE trial_system_attributes SET value_json = '[NaN,0.5,Infinity,-Infinity]' WHERE trial_id = 5", []).unwrap();
+    conn.execute("INSERT INTO trial_system_attributes (trial_id,key,value_json) VALUES (7,'constraints','[-1,-2,-3,-4,-5]')", []).unwrap();
+    let (meta, df, _) = parse_single_study(file.path(), 2).unwrap();
+    assert!(meta.has_constraints);
+    assert_eq!(df.row_count(), 2);
+    assert_eq!(df.constraint_col_names().len(), 5);
+    assert_eq!(df.feasibility().state(0), Infeasible);
+    assert_eq!(df.feasibility().state(1), Unverified);
+    assert_eq!(df.get_numeric_column("c2").unwrap()[0], 0.5);
+    for name in ["c1", "c3", "c4"] {
+        assert!(df.get_numeric_column(name).unwrap()[0].is_nan());
+    }
+    conn.execute("UPDATE trial_system_attributes SET value_json = '[NaN,Infinity,-Infinity]' WHERE trial_id = 5", []).unwrap();
+    let (_, df, _) = parse_single_study(file.path(), 2).unwrap();
+    assert_eq!(df.constraint_col_names().len(), 5);
+    assert_eq!(df.feasibility().state(0), Unverified);
+    conn.execute("DELETE FROM trial_system_attributes", [])
+        .unwrap();
+    conn.execute("INSERT INTO trial_system_attributes (trial_id,key,value_json) VALUES (4,'constraints','[]')", []).unwrap();
+    let (meta, df, _) = parse_single_study(file.path(), 1).unwrap();
+    assert!(meta.has_constraints);
+    assert_eq!(df.row_count(), 3);
+    assert!(df.constraint_col_names().is_empty());
+    assert_eq!(
+        df.feasibility().partition_indices(3),
+        (vec![], vec![], vec![0, 1, 2])
+    );
+    conn.execute("UPDATE trial_system_attributes SET value_json = '[NaN,Infinity,-Infinity,1]' WHERE trial_id = 4", []).unwrap();
+    let (_, df, _) = parse_single_study(file.path(), 1).unwrap();
+    assert_eq!(df.constraint_col_names().len(), 4);
+    assert_eq!(
+        df.feasibility().partition_indices(3),
+        (vec![], vec![], vec![0, 1, 2])
+    );
+    conn.execute("UPDATE trials SET state = 'PRUNED' WHERE study_id = 1", [])
+        .unwrap();
+    let (meta, df, _) = parse_single_study(file.path(), 1).unwrap();
+    assert!(meta.has_constraints);
+    assert_eq!(df.row_count(), 0);
+    assert_eq!(df.constraint_col_names().len(), 4);
+}
+
+#[test]
+fn constraint_json_positions_and_attribute_only_study_are_preserved() {
+    use crate::dataframe::FeasibilityState::*;
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+    conn.execute("UPDATE trial_system_attributes SET value_json = '[null,-2,\"invalid\"]' WHERE trial_id = 5", []).unwrap();
+    conn.execute("INSERT INTO trial_system_attributes (trial_id,key,value_json) VALUES (6,'constraints','[1,null]')", []).unwrap();
+    let (_, df, _) = parse_single_study(file.path(), 2).unwrap();
+    assert_eq!(df.constraint_col_names().len(), 3);
+    assert!(df.get_numeric_column("c1").unwrap()[0].is_nan());
+    assert_eq!(df.get_numeric_column("c2").unwrap()[0], -2.0);
+    assert!(df.get_numeric_column("c3").unwrap()[0].is_nan());
+    assert_eq!(df.feasibility().state(0), Unverified);
+    assert_eq!(df.feasibility().state(1), Infeasible);
+    conn.execute("UPDATE trial_system_attributes SET value_json = '[]'", [])
+        .unwrap();
+    let (meta, df, _) = parse_single_study(file.path(), 2).unwrap();
+    assert!(meta.has_constraints);
+    assert!(df.constraint_col_names().is_empty());
+    assert_eq!(
+        df.feasibility().partition_indices(2),
+        (vec![], vec![], vec![0, 1])
+    );
 }
 
 #[test]

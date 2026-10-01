@@ -192,7 +192,11 @@ pub(crate) fn fallback_axis_id(options: &[AxisOption], nth: usize) -> String {
 /// `trial_id` is used to determine graying-out for the selection filter (PCP brush, etc.).
 pub(super) type ScatterPoint = (f64, f64, Color32, u32);
 /// Return type alias for `compute_scatter_points`.
-type ScatterPointsResult = (Vec<ScatterPoint>, Vec<(f64, f64)>, ScatterMetadata);
+type ScatterPointsResult = (
+    Vec<ScatterPoint>,
+    Vec<(f64, f64, tunny_core::dataframe::FeasibilityState)>,
+    ScatterMetadata,
+);
 
 /// Computes the MCDM scatter plot points
 /// - Extract axis values -> continuous coloring via colormap
@@ -228,7 +232,7 @@ pub(crate) fn compute_scatter_points(
     let colored_range = top_n.max(1);
 
     let mut feasible_pts: Vec<ScatterPoint> = Vec::with_capacity(n_trials);
-    let mut infeasible_pts: Vec<(f64, f64)> = Vec::new();
+    let mut infeasible_pts = Vec::new();
 
     for (i, &rank) in rank_map.iter().enumerate() {
         let x = match x_vals.get(i).copied() {
@@ -241,7 +245,7 @@ pub(crate) fn compute_scatter_points(
         };
 
         if !feas.is_feasible(i) {
-            infeasible_pts.push((x, y));
+            infeasible_pts.push((x, y, feas.state(i)));
             continue;
         }
         // Rank -> color (colormap within top_n, gray outside; shared with 3D · D-6)

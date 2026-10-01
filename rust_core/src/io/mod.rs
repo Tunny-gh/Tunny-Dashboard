@@ -3,6 +3,7 @@ pub mod datetime;
 pub mod export;
 pub mod flat_csv;
 pub mod journal;
+pub(crate) mod optuna_json;
 pub mod rdb;
 pub mod sqlite;
 pub mod storage;

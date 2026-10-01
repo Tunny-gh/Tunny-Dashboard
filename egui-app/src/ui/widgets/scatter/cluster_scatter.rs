@@ -196,8 +196,13 @@ impl ClusterScatter {
         let mut cluster_points: BTreeMap<i32, Vec<[f64; 2]>> = BTreeMap::new();
         let mut unselected_pts: Vec<[f64; 2]> = Vec::new();
         let mut infeasible_pts: Vec<[f64; 2]> = Vec::new();
+        let mut unverified_pts = Vec::new();
         let mut other_pts: Vec<[f64; 2]> = Vec::new();
         for (i, &[x, y]) in plot_points.iter().enumerate() {
+            if feas.state(i) == tunny_core::dataframe::FeasibilityState::Unverified {
+                unverified_pts.push([x as f64, y as f64]);
+                continue;
+            }
             if !feas.is_feasible(i) {
                 infeasible_pts.push([x as f64, y as f64]);
                 continue;
@@ -240,6 +245,13 @@ impl ClusterScatter {
                     });
                 }
                 // Draw infeasible points at the very back.
+                if !unverified_pts.is_empty() {
+                    plot_ui.points(
+                        egui_plot::Points::new("Feasibility unverified", unverified_pts)
+                            .color(crate::theme::chart_colors::COLOR_UNVERIFIED())
+                            .radius(3.0),
+                    );
+                }
                 if !infeasible_pts.is_empty() {
                     plot_ui.points(
                         egui_plot::Points::new("", infeasible_pts)

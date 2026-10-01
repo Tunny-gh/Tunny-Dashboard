@@ -66,7 +66,7 @@ fn pareto_data() -> (Vec<ScatterPoint>, Vec<ScatterPoint>) {
             trial_number: i,
             x,
             y,
-            feasible: true,
+            feasible: tunny_core::dataframe::FeasibilityState::Feasible,
         });
     }
     // Non-dominated front: 12 monotonic points where larger x means smaller y.
@@ -77,7 +77,7 @@ fn pareto_data() -> (Vec<ScatterPoint>, Vec<ScatterPoint>) {
             trial_number: 1000 + i,
             x: t * 9.5 + 0.2,
             y: (1.0 - t).powf(1.3) * 9.5 + 0.1,
-            feasible: true,
+            feasible: tunny_core::dataframe::FeasibilityState::Feasible,
         });
     }
     (background, front)

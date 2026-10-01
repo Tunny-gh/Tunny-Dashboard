@@ -256,7 +256,7 @@ pub fn parse_single_study_rows(
     backend.query_for_each(
         "SELECT tsa.trial_id, tsa.value_json \
          FROM trial_system_attributes tsa JOIN trials t ON tsa.trial_id = t.trial_id \
-         WHERE t.study_id = ? AND t.state = 'COMPLETE' AND tsa.key = 'constraints'",
+         WHERE t.study_id = ? AND tsa.key = 'constraints'",
         &[SqlParam::I64(sid)],
         &mut |row| {
             let trial_id = row[0].as_i64().ok_or_else(|| {
@@ -265,17 +265,20 @@ pub fn parse_single_study_rows(
             let value_json = row[1].as_text().ok_or_else(|| {
                 "Failed to read trial_system_attributes: value_json is not text".to_string()
             })?;
-            let Ok(Value::Array(values)) = serde_json::from_str::<Value>(value_json) else {
-                return Ok(());
+            has_constraints = true;
+            let constraints: Vec<f64> = match crate::io::optuna_json::parse(value_json) {
+                Ok(Value::Array(values)) => values
+                    .iter()
+                    .map(|v| v.as_f64().unwrap_or(f64::NAN))
+                    .collect(),
+                _ => Vec::new(),
             };
-            let constraints: Vec<f64> = values.iter().filter_map(Value::as_f64).collect();
+            max_constraints = max_constraints.max(constraints.len());
             let Ok(trial_id) = u32::try_from(trial_id) else {
                 return Ok(());
             };
             if let Some(trial) = accum.get_mut(&trial_id) {
-                max_constraints = max_constraints.max(constraints.len());
                 trial.constraint_values = constraints;
-                has_constraints = true;
             }
             Ok(())
         },
@@ -460,7 +463,7 @@ pub fn parse_single_study(
         extras,
     } = parse_single_study_rows(backend, study_id)?;
 
-    let df = DataFrame::from_trials(
+    let mut df = DataFrame::from_trials(
         &rows,
         &param_names,
         &objective_names,
@@ -468,6 +471,9 @@ pub fn parse_single_study(
         &user_attr_string_names,
         max_constraints,
     );
+    if meta.has_constraints {
+        df.mark_constrained();
+    }
 
     Ok((meta, df, extras))
 }

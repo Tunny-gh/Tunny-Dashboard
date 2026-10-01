@@ -167,7 +167,8 @@ fn compute_hypervolume(
 /// Without constraints, all rows go through `nd_sort`. With constraints,
 /// only feasible rows are ranked; infeasible rows are given ranks after the
 /// max feasible rank, ordered by ascending constraint violation
-/// (`constraint_sum`). Hypervolume is `Some` only when there are 2+
+/// (`constraint_sum`). Unverified rows follow both groups in input order.
+/// Hypervolume is `Some` only when there are 2+
 /// objectives and the Pareto front has 2+ points. Returns an empty result if
 /// there is no active study.
 pub fn compute_pareto_ranks(is_minimize: &[bool]) -> ParetoResult {
@@ -218,7 +219,7 @@ pub fn compute_pareto_ranks(is_minimize: &[bool]) -> ParetoResult {
         }
 
         // With constraints: separate feasible/infeasible flow
-        let (feasible_indices, infeasible_indices) = feas.partition_indices(n);
+        let (feasible_indices, infeasible_indices, unverified_indices) = feas.partition_indices(n);
         let feasible_objectives: Vec<Vec<f64>> = feasible_indices
             .iter()
             .map(|&i| objectives[i].clone())
@@ -252,6 +253,10 @@ pub fn compute_pareto_ranks(is_minimize: &[bool]) -> ParetoResult {
 
         for (violation_rank, (orig_idx, _)) in infeasible_with_sum.iter().enumerate() {
             ranks[*orig_idx] = max_feasible_rank + 1 + violation_rank as u32;
+        }
+        for (offset, orig_idx) in unverified_indices.iter().enumerate() {
+            ranks[*orig_idx] =
+                max_feasible_rank + 1 + infeasible_with_sum.len() as u32 + offset as u32;
         }
 
         let pareto_indices: Vec<u32> = feasible_indices

@@ -318,6 +318,37 @@ fn tc_201_p01_ndsort_1000_points_under_100ms() {
 // ================================================================
 
 #[test]
+fn three_state_pareto_groups_keep_unverified_input_order() {
+    let rows = vec![
+        make_row_constrained(0, vec![0.0, 0.0], vec![]),
+        make_row_constrained(1, vec![1.0, 2.0], vec![-1.0, 0.0]),
+        make_row_constrained(2, vec![0.1, 0.1], vec![2.0, 0.0]),
+        make_row_constrained(3, vec![0.2, 0.2], vec![f64::NEG_INFINITY, -1.0]),
+        make_row_constrained(4, vec![2.0, 3.0], vec![-1.0, 0.0]),
+        make_row_constrained(5, vec![0.3, 0.3], vec![1.0, 0.0]),
+        make_row_constrained(6, vec![-1.0, -1.0], vec![-100.0]),
+    ];
+    setup_study_constrained(rows, &["obj0", "obj1"], 2);
+    let result = compute_pareto_ranks(&[true, true]);
+    assert_eq!(result.pareto_indices, vec![1]);
+    assert_eq!(result.ranks, vec![4, 0, 3, 5, 1, 2, 6]);
+}
+
+#[test]
+fn positive_with_missing_is_infeasible_and_all_unverified_has_no_front() {
+    let rows = vec![
+        make_row_constrained(0, vec![0.0, 0.0], vec![]),
+        make_row_constrained(1, vec![1.0, 2.0], vec![1.0, f64::NAN]),
+        make_row_constrained(2, vec![2.0, 1.0], vec![f64::INFINITY, -1.0]),
+    ];
+    setup_study_constrained(rows, &["obj0", "obj1"], 2);
+    let result = compute_pareto_ranks(&[true, true]);
+    assert!(result.pareto_indices.is_empty());
+    assert_eq!(result.ranks, vec![2, 1, 3]);
+    assert!(result.hypervolume.is_none());
+}
+
+#[test]
 fn tc_cav_01_infeasible_excluded_from_pareto_front() {
     // feasible [1,2] and [2,1] (both on Pareto front)
     // infeasible [0,0] (would dominate if feasible, constraint_sum=1.0)

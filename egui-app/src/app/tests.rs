@@ -64,6 +64,7 @@ fn convergence_done_maps_to_compute_sync() {
     // spinner keeps spinning.
     use crate::state::app_state::ConvergenceHistory;
     let msg = AppMessage::IndicatorHistoryDone {
+        source_df: std::sync::Arc::new(tunny_core::dataframe::DataFrame::empty()),
         indicator: tunny_core::indicators::MoIndicator::Hypervolume,
         base: ConvergenceHistory {
             trial_ids: vec![],

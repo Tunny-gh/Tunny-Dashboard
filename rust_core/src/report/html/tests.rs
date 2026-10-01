@@ -4,7 +4,7 @@ use super::render_html;
 use crate::data::dataframe::{DataFrame, TrialRow};
 use crate::data::extras::{StudyExtras, TrialExtra, TrialState};
 use crate::io::journal::parser::{OptimizationDirection, StudyMeta};
-use crate::report::model::Outcome;
+use crate::report::model::{FindingKind, Outcome};
 use crate::report::{
     build_study_report, render_markdown, ReportLang, ReportOptions, ReportSource, StudyReport,
 };
@@ -393,7 +393,10 @@ fn all_infeasible_falls_back_and_marks_violations() {
     let html = render_html(&report, ReportLang::En);
 
     // The column header carries the semantics.
-    assert!(html.contains("max constraint (≤0 = feasible)"), "列ヘッダ");
+    assert!(
+        html.contains("max observed finite constraint"),
+        "column header"
+    );
     // Each row's sum would be -0.6 (looking unmarked), but the max is 0.4 → violation mark.
     assert!(
         html.contains("<td class=\"num infeasible\">0.4 ✗</td>"),
@@ -401,7 +404,7 @@ fn all_infeasible_falls_back_and_marks_violations() {
     );
     // The fallback note is emitted.
     assert!(
-        html.contains("no trial satisfies all constraints"),
+        html.contains("no trial is verified Feasible"),
         "Pareto 表直下のフォールバック注記"
     );
     // The best trial in the extremes table also carries a violation mark.
@@ -411,20 +414,117 @@ fn all_infeasible_falls_back_and_marks_violations() {
     );
 
     let ja = render_html(&report, ReportLang::Ja);
-    assert!(ja.contains("最大制約値（≤0 で充足）"), "ja 列ヘッダ");
-    assert!(ja.contains("件は制約違反です"), "ja 注記");
-    assert!(ja.contains("フォールバック"), "ja フォールバック注記");
+    assert!(
+        ja.contains("観測済み有限制約値の最大値"),
+        "ja column header"
+    );
+    assert!(ja.contains("件は制約違反が確認されています"), "ja note");
+    assert!(ja.contains("目的空間の候補"), "ja fallback note");
 
     // Markdown carries the same semantics.
     let md = render_markdown(&report, ReportLang::En);
-    assert!(md.contains("max constraint (≤0 = feasible)"));
+    assert!(md.contains("max observed finite constraint"));
     assert!(md.contains("0.4 (infeasible)"));
-    assert!(md.contains("no trial satisfies all constraints"));
+    assert!(md.contains("no trial is verified Feasible"));
     // Extremes table: both objectives are minimize, so best is #0 (obj0=1.0) / #2 (obj1=1.0).
     assert!(md.contains("#0 (infeasible)"), "極値表の違反マーク: {md}");
     let md_ja = render_markdown(&report, ReportLang::Ja);
     assert!(md_ja.contains("0.4（違反）"));
-    assert!(md_ja.contains("件は制約違反です"));
+    assert!(md_ja.contains("件は制約違反が確認されています"));
+}
+
+#[test]
+fn unverified_candidates_are_not_a_verified_front_or_confirmed_violations() {
+    use crate::dataframe::FeasibilityState::*;
+    let rows = vec![
+        row_c(0, &[("p", 0.0)], &[1.0, 4.0], &[]),
+        row_c(1, &[("p", 1.0)], &[2.0, 2.0], &[f64::NEG_INFINITY, -1.0]),
+        row_c(2, &[("p", 2.0)], &[4.0, 1.0], &[0.4]),
+    ];
+    let df = DataFrame::from_trials(
+        &rows,
+        &["p".into()],
+        &["obj0".into(), "obj1".into()],
+        &[],
+        &[],
+        0,
+    );
+    let report = build_study_report(&meta_multi_constrained(), &df, None, &source(), &opts());
+    let Outcome::MultiObj {
+        pareto_size,
+        pareto_infeasible_count,
+        pareto_table,
+        scatter,
+        ..
+    } = &report.outcome
+    else {
+        panic!("multi-objective expected")
+    };
+    assert_eq!(*pareto_size, 0);
+    assert_eq!(*pareto_infeasible_count, 1);
+    assert_eq!(pareto_table.len(), 3);
+    assert!(scatter.iter().all(|p| !p.on_front));
+    assert_eq!(scatter[0].feasible, Unverified);
+    assert_eq!(scatter[2].feasible, Infeasible);
+    assert!(report.mcdm.is_none());
+    assert!(report.convergence.series.is_empty());
+    let feasible_finding = report
+        .key_findings
+        .iter()
+        .find(|f| f.kind == FindingKind::Feasibility)
+        .unwrap();
+    assert_eq!(feasible_finding.metrics["feasible"], 0.0);
+    let front_finding = report
+        .key_findings
+        .iter()
+        .find(|f| f.kind == FindingKind::ParetoSummary)
+        .unwrap();
+    assert_eq!(front_finding.metrics["front_size"], 0.0);
+    for text in [
+        render_html(&report, ReportLang::En),
+        render_markdown(&report, ReportLang::En),
+    ] {
+        assert!(text.contains("Objective-only candidates (not a verified feasible Pareto front)"));
+        assert!(text.contains("Feasibility unverified"));
+        assert!(text.contains("1 of these trials have confirmed constraint violations"));
+        assert!(!text.contains("#0 (infeasible)"));
+    }
+    let summary = pareto_table.iter().find(|t| t.trial_number == 1).unwrap();
+    assert_eq!(summary.feasibility, Unverified);
+    assert!(!summary.violates_constraints());
+    assert_eq!(summary.max_constraint, Some(-1.0));
+}
+
+#[test]
+fn attribute_only_report_fallback_has_zero_confirmed_violations() {
+    let rows = vec![
+        row_c(0, &[], &[1.0, 2.0], &[]),
+        row_c(1, &[], &[2.0, 1.0], &[]),
+    ];
+    let mut df = DataFrame::from_trials(&rows, &[], &["obj0".into(), "obj1".into()], &[], &[], 0);
+    df.mark_constrained();
+    let report = build_study_report(&meta_multi_constrained(), &df, None, &source(), &opts());
+    let Outcome::MultiObj {
+        pareto_size,
+        pareto_infeasible_count,
+        pareto_table,
+        ..
+    } = &report.outcome
+    else {
+        panic!("multi-objective expected")
+    };
+    assert_eq!(*pareto_size, 0);
+    assert_eq!(*pareto_infeasible_count, 0);
+    assert_eq!(pareto_table.len(), 2);
+    for text in [
+        render_html(&report, ReportLang::En),
+        render_markdown(&report, ReportLang::En),
+    ] {
+        assert!(text.contains("Objective-only candidates (not a verified feasible Pareto front)"));
+        assert!(text.contains("Feasibility unverified"));
+        assert!(text.contains("0 of these trials have confirmed constraint violations"));
+        assert!(!text.contains("[infeasible]"));
+    }
 }
 
 #[test]
@@ -437,7 +537,7 @@ fn infeasible_trial_is_excluded_from_front_when_feasible_exist() {
         .iter()
         .enumerate()
         .map(|(i, &(o0, o1))| {
-            let cons: &[f64] = if i == 1 { &[0.4] } else { &[-0.5] };
+            let cons: &[f64] = if i == 1 { &[0.4, 0.0] } else { &[-0.5, 0.0] };
             row_c(i as u32, &[("p", i as f64), ("q", 1.0)], &[o0, o1], cons)
         })
         .collect();
@@ -468,7 +568,8 @@ fn infeasible_trial_is_excluded_from_front_when_feasible_exist() {
     assert!(front_trials.contains(&0) && front_trials.contains(&2));
     // In the scatter plot, trial1 remains as a point with feasible=false / on_front=false.
     let p1 = scatter.iter().find(|p| p.trial_number == 1).unwrap();
-    assert!(!p1.feasible && !p1.on_front);
+    assert_eq!(p1.feasible, crate::dataframe::FeasibilityState::Infeasible);
+    assert!(!p1.on_front);
 
     let html = render_html(&report, ReportLang::En);
     assert!(!html.contains("class=\"num infeasible\""), "違反マークなし");
@@ -527,7 +628,7 @@ fn feasible_only_front_has_no_infeasible_mark_or_note() {
     let html = render_html(&report, ReportLang::En);
 
     // The column itself is still present (constrained study).
-    assert!(html.contains("max constraint (≤0 = feasible)"));
+    assert!(html.contains("max observed finite constraint"));
     // All trials feasible → neither the violation mark nor the note is
     // emitted (checked via the cell class, since `td.infeasible` is
     // always defined in PAGE_CSS).

@@ -11,6 +11,12 @@ use egui::Color32;
 
 use super::themed_color;
 
+themed_color!(
+    COLOR_UNVERIFIED,
+    Color32::from_rgb(180, 120, 20),
+    Color32::from_rgb(251, 188, 4)
+);
+
 // ====================================================================
 // Pareto colors
 // ====================================================================

@@ -51,6 +51,7 @@ impl MessageHandler {
         user_attr_numeric_names: Vec<String>,
         user_attr_string_names: Vec<String>,
         max_constraints: usize,
+        has_constraints: bool,
         is_first: bool,
         is_final: bool,
         app_state: &mut AppState,
@@ -72,6 +73,12 @@ impl MessageHandler {
                 .map(|s| (*s.view.df).clone())
                 .unwrap_or_else(DataFrame::empty)
         };
+        app_state.study_streaming = !is_final;
+        // Every chunk can change historical feasibility, including metadata-only
+        // schema growth. Compute convergence only against the final snapshot.
+        app_state.convergence_history = None;
+        app_state.comparison_convergence_histories.clear();
+        widget_states.convergence.computing = false;
         new_df.append_trials(
             &new_rows,
             &param_names,
@@ -80,6 +87,9 @@ impl MessageHandler {
             &user_attr_string_names,
             max_constraints,
         );
+        if has_constraints && !new_df.feasibility().has_constraints() {
+            new_df.mark_constrained();
+        }
         let arc = std::sync::Arc::new(new_df);
         tunny_core::dataframe::swap_snapshot(study_id, arc.clone());
 

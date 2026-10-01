@@ -119,8 +119,14 @@ fn render_extremes_table(s: &mut String, lang: ReportLang, extremes: &[Objective
         td(s, &e.objective_name, false);
         td(s, dir_label(lang, e.direction), false);
         td(s, &format_number(e.best_value), true);
-        if e.best_feasible {
+        if e.best_feasible == crate::dataframe::FeasibilityState::Feasible {
             td(s, &format!("#{}", e.best_trial_number), true);
+        } else if e.best_feasible == crate::dataframe::FeasibilityState::Unverified {
+            td(
+                s,
+                &format!("#{} ({})", e.best_trial_number, e.best_feasible.label()),
+                true,
+            );
         } else {
             // If the best trial violates constraints, flag it in red with a ✗.
             let _ = write!(
@@ -165,11 +171,21 @@ fn render_outcome_scatter(
     let _ = writeln!(
         s,
         "<figure>{chart}<figcaption>{}</figcaption></figure>",
-        esc(tr(
-            lang,
-            "Objective space: Pareto front vs dominated trials.",
-            "目的空間: パレート前面と被支配解。"
-        ))
+        esc(
+            if !scatter.iter().any(|p| p.on_front)
+                && scatter
+                    .iter()
+                    .any(|p| p.feasible != crate::dataframe::FeasibilityState::Feasible)
+            {
+                "Objective space (no verified feasible Pareto front)."
+            } else {
+                tr(
+                    lang,
+                    "Objective space: Pareto front vs dominated trials.",
+                    "目的空間: パレート前面と被支配解。",
+                )
+            }
+        )
     );
     if objective_count > 2 {
         let _ = writeln!(
@@ -198,7 +214,16 @@ fn render_pareto_table_block(
     let _ = writeln!(
         s,
         "<h3>{}</h3>",
-        esc(tr(lang, "Pareto-front trials", "パレート前面の trial"))
+        esc(
+            if pareto_table
+                .iter()
+                .any(|t| t.feasibility != crate::dataframe::FeasibilityState::Feasible)
+            {
+                "Objective-only candidates (not a verified feasible Pareto front)"
+            } else {
+                tr(lang, "Pareto-front trials", "パレート前面の trial")
+            }
+        )
     );
     let _ = writeln!(
         s,
@@ -215,7 +240,10 @@ fn render_pareto_table_block(
     // appears in the table only during the "no feasible solution exists"
     // fallback. The count is already tallied by the builder from the full
     // pre-cap front.
-    if pareto_infeasible_count > 0 {
+    if pareto_table
+        .iter()
+        .any(|t| t.feasibility != crate::dataframe::FeasibilityState::Feasible)
+    {
         let note = text::infeasible_fallback_note(lang, pareto_infeasible_count);
         let _ = writeln!(s, "<p class=\"desc\">{}</p>", esc(&note));
     }
@@ -270,12 +298,13 @@ fn render_trial_table(
         th(s, name, *is_num);
     }
     if show_constraint {
+        th(s, "Feasibility", false);
         th(
             s,
             tr(
                 lang,
-                "max constraint (≤0 = feasible)",
-                "最大制約値（≤0 で充足）",
+                "max observed finite constraint",
+                "観測済み有限制約値の最大値",
             ),
             true,
         );
@@ -305,6 +334,7 @@ fn render_trial_table(
             td(s, &text, is_num);
         }
         if show_constraint {
+            td(s, t.feasibility.label(), false);
             match t.max_constraint {
                 // Positive value = constraint violation (the check is shared with the model side). Flag in red with a ✗.
                 Some(v) if t.violates_constraints() => {

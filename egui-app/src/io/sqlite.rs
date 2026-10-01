@@ -51,6 +51,7 @@ pub fn load_single_study_task(path: &Path, study_id: u32, tx: &SyncSender<AppMes
             tunny_core::dataframe::store_extras_for(study_id, rows.extras);
             let _ = tx.send(AppMessage::StudyChunkLoaded {
                 study_id,
+                has_constraints: rows.meta.has_constraints,
                 meta: crate::io::journal::convert_study_meta(rows.meta),
                 new_rows: rows.rows,
                 param_names: rows.param_names,

@@ -239,6 +239,7 @@ pub enum AppMessage {
         user_attr_string_names: Vec<String>,
         /// Maximum number of observed constraints.
         max_constraints: usize,
+        has_constraints: bool,
         /// Whether this is the first batch (a new StudyContext is created).
         is_first: bool,
         /// Whether this is the final batch (Pareto finalized, loading ends).
@@ -295,6 +296,8 @@ pub enum AppMessage {
     /// comparison Studies are computed in one batch and normalized against a
     /// common reference set.
     IndicatorHistoryDone {
+        /// Snapshot used by the job; results from replaced snapshots are stale.
+        source_df: std::sync::Arc<tunny_core::dataframe::DataFrame>,
         indicator: tunny_core::indicators::MoIndicator,
         /// Indicator history for the base Study.
         base: ConvergenceHistory,

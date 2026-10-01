@@ -153,6 +153,10 @@ impl ClusterScatter3D {
             if has_constraints {
                 ui.separator();
                 ui.checkbox(&mut self.show_infeasible, "Show Infeasible");
+                ui.colored_label(
+                    crate::theme::chart_colors::COLOR_UNVERIFIED(),
+                    "Feasibility unverified",
+                );
             }
         });
 
@@ -203,11 +207,19 @@ impl ClusterScatter3D {
             let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
 
             if !feas.is_feasible(i) {
-                if show_infeasible {
+                if show_infeasible
+                    || feas.state(i) == tunny_core::dataframe::FeasibilityState::Unverified
+                {
                     infeasible_pts.push(DepthPoint {
                         pos,
                         depth,
-                        color: COLOR_INFEASIBLE(),
+                        color: if feas.state(i)
+                            == tunny_core::dataframe::FeasibilityState::Unverified
+                        {
+                            crate::theme::chart_colors::COLOR_UNVERIFIED()
+                        } else {
+                            COLOR_INFEASIBLE()
+                        },
                         radius: 3.0,
                     });
                     candidates.push((trial_id, i, pos));

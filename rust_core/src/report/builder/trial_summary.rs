@@ -83,9 +83,9 @@ pub(super) fn build_trial_summary(df: &DataFrame, meta: &StudyMeta, row: usize) 
 
     // Row-wise max of the raw constraint values. We don't use the sum
     // (constraint_sum) because negative margins can cancel out positive
-    // violations and make an infeasible row look feasible (max ≤ 0 ⟺ all
-    // constraints satisfied).
-    let max_constraint = if meta.has_constraints {
+    // violations. The maximum describes finite observations only; the
+    // independent feasibility state also checks completeness and finiteness.
+    let max_constraint = if df.feasibility().has_constraints() {
         df.constraint_col_names()
             .iter()
             .filter_map(|name| {
@@ -93,6 +93,7 @@ pub(super) fn build_trial_summary(df: &DataFrame, meta: &StudyMeta, row: usize) 
                     .and_then(|c| c.get(row))
                     .copied()
             })
+            .filter(|v| v.is_finite())
             .reduce(f64::max)
     } else {
         None
@@ -115,6 +116,7 @@ pub(super) fn build_trial_summary(df: &DataFrame, meta: &StudyMeta, row: usize) 
         .collect();
 
     TrialSummary {
+        feasibility: df.feasibility().state(row),
         trial_number,
         objectives,
         params,

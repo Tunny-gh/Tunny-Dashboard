@@ -73,11 +73,14 @@ pub(super) fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyRep
             let _ = writeln!(s, "|---|---|---|---|---|");
             for e in per_objective_extremes {
                 // Add an explicit mark when the best trial violates constraints.
-                let infeasible_mark = if e.best_feasible {
-                    ""
-                } else {
-                    tr(lang, " (infeasible)", "（違反）")
-                };
+                let infeasible_mark =
+                    if e.best_feasible == crate::dataframe::FeasibilityState::Feasible {
+                        ""
+                    } else if e.best_feasible == crate::dataframe::FeasibilityState::Unverified {
+                        " (Feasibility unverified)"
+                    } else {
+                        tr(lang, " (infeasible)", "（違反）")
+                    };
                 let _ = writeln!(
                     s,
                     "| {} | {} | {} | #{}{} | {} |",
@@ -95,11 +98,18 @@ pub(super) fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyRep
             let _ = writeln!(
                 s,
                 "{}\n",
-                tr(
-                    lang,
-                    "Pareto-front trials, ordered by equal-weight TOPSIS (capped):",
-                    "パレート前面の trial（等重み TOPSIS 順、cap 済み）:"
-                )
+                if pareto_table
+                    .iter()
+                    .any(|t| t.feasibility != crate::dataframe::FeasibilityState::Feasible)
+                {
+                    "Objective-only candidates (not a verified feasible Pareto front), ordered by equal-weight TOPSIS (capped):"
+                } else {
+                    tr(
+                        lang,
+                        "Pareto-front trials, ordered by equal-weight TOPSIS (capped):",
+                        "パレート前面の trial（等重み TOPSIS 順、cap 済み）:",
+                    )
+                }
             );
             render_trial_table(s, lang, pareto_table, obj_names, has_constraints);
 
@@ -108,7 +118,10 @@ pub(super) fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyRep
             // case where there are no feasible solutions at all. The count
             // is already aggregated by the builder over the full
             // pre-cap front.
-            if *pareto_infeasible_count > 0 {
+            if pareto_table
+                .iter()
+                .any(|t| t.feasibility != crate::dataframe::FeasibilityState::Feasible)
+            {
                 let _ = writeln!(
                     s,
                     "{}\n",
@@ -134,7 +147,20 @@ pub(super) fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyRep
             }
             // If there are constraint-violating points, note the count
             // (the points themselves include all COMPLETE trials).
-            let n_scatter_infeasible = scatter.iter().filter(|p| !p.feasible).count();
+            let n_scatter_infeasible = scatter
+                .iter()
+                .filter(|p| p.feasible == crate::dataframe::FeasibilityState::Infeasible)
+                .count();
+            let n_unverified = scatter
+                .iter()
+                .filter(|p| p.feasible == crate::dataframe::FeasibilityState::Unverified)
+                .count();
+            if n_unverified > 0 {
+                let _ = writeln!(
+                    s,
+                    "Feasibility unverified: {n_unverified} scatter points.\n"
+                );
+            }
             if n_scatter_infeasible > 0 {
                 let _ = writeln!(
                     s,
@@ -196,19 +222,20 @@ fn render_trial_table(
         let _ = write!(header, " {} |", esc(p));
     }
     if show_constraint {
+        header.push_str(" Feasibility |");
         let _ = write!(
             header,
             " {} |",
             tr(
                 lang,
-                "max constraint (≤0 = feasible)",
-                "最大制約値（≤0 で充足）"
+                "max observed finite constraint",
+                "観測済み有限制約値の最大値"
             )
         );
     }
     let _ = writeln!(s, "{header}");
 
-    let cols = 1 + obj_names.len() + param_names.len() + usize::from(show_constraint);
+    let cols = 1 + obj_names.len() + param_names.len() + 2 * usize::from(show_constraint);
     let sep: String = std::iter::repeat_n("---", cols)
         .collect::<Vec<_>>()
         .join("|");
@@ -228,6 +255,7 @@ fn render_trial_table(
             let _ = write!(row, " {} |", param_val(v));
         }
         if show_constraint {
+            let _ = write!(row, " {} |", t.feasibility.label());
             let c = match t.max_constraint {
                 // Positive value = constraint violation (the check is shared on the model side). Add an explicit mark.
                 Some(v) if t.violates_constraints() => format!(

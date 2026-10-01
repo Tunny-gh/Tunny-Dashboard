@@ -24,17 +24,21 @@ pub(super) fn resolve_color_objective<'a>(
     Some(obj_names[0].as_str())
 }
 
-/// Builds feasible / infeasible index lists from feasibility.
+/// Builds feasible / infeasible / unverified index lists from feasibility.
 /// For a Study without constraints (feas.has_constraints() == false), all entries
 /// are treated as feasible.
 pub(super) fn split_feasibility_indices(
     n: usize,
     feas: tunny_core::dataframe::Feasibility<'_>,
-) -> (Vec<u32>, Vec<u32>) {
-    let (f_idx, inf_idx) = feas.partition_indices(n);
+) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
+    let (f_idx, inf_idx, unverified_idx) = feas.partition_indices(n);
     let feasible: Vec<u32> = f_idx.into_iter().map(|i| i as u32).collect();
     let infeasible: Vec<u32> = inf_idx.into_iter().map(|i| i as u32).collect();
-    (feasible, infeasible)
+    (
+        feasible,
+        infeasible,
+        unverified_idx.into_iter().map(|i| i as u32).collect(),
+    )
 }
 
 /// Evenly downsamples an index list to at most `cap` entries.

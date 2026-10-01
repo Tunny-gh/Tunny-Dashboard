@@ -1,60 +1,94 @@
-//! Centralizes feasibility (constraint-satisfaction) determination.
-//!
-//! Consolidates access to the `is_feasible` derived column (1.0 = feasible /
-//! 0.0 = infeasible, present only for constrained studies) into a
-//! `Feasibility` view. Defines the column name, threshold (> 0.5), and the
-//! "no column = all rows feasible" fallback rule in this one place, and every
-//! chart/computation path makes its determination through this view.
-
+//! Three-state constraint feasibility. Missing evaluations are never violations.
 use super::model::DataFrame;
 
-/// Name of the `is_feasible` column (must match the derived column name used when building the DataFrame).
+/// Derived column: 1 = feasible, 0 = confirmed violation, NaN = unverified.
 pub(crate) const IS_FEASIBLE_COL: &str = "is_feasible";
 
-/// Feasibility view. Obtained from `DataFrame::feasibility()`.
-/// Since it can wrap a column slice directly, it can also be constructed via
-/// [`Feasibility::from_column`] in tests or contexts that only have the column.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+pub enum FeasibilityState {
+    /// Complete finite evaluation, with every value <= 0.
+    Feasible,
+    /// At least one finite positive value, regardless of incomplete peers.
+    Infeasible,
+    /// No confirmed violation, but evaluation is missing, partial, or non-finite.
+    #[serde(rename = "Feasibility unverified")]
+    Unverified,
+}
+
+impl FeasibilityState {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Feasible => "Feasible",
+            Self::Infeasible => "Infeasible",
+            Self::Unverified => "Feasibility unverified",
+        }
+    }
+
+    pub(crate) fn classify(values: &[f64], expected: usize) -> Self {
+        if values.iter().any(|v| v.is_finite() && *v > 0.0) {
+            Self::Infeasible
+        } else if expected == 0 || values.len() != expected || values.iter().any(|v| !v.is_finite())
+        {
+            Self::Unverified
+        } else {
+            Self::Feasible
+        }
+    }
+
+    pub(crate) fn numeric(self) -> f64 {
+        match self {
+            Self::Feasible => 1.0,
+            Self::Infeasible => 0.0,
+            Self::Unverified => f64::NAN,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct Feasibility<'a> {
     col: Option<&'a [f64]>,
 }
 
 impl<'a> Feasibility<'a> {
-    /// Constructs from an `is_feasible` column slice (`None` if absent).
+    /// Wraps the derived column; absence means genuinely unconstrained.
     pub fn from_column(col: Option<&'a [f64]>) -> Self {
         Self { col }
     }
 
-    /// Whether constraints are defined for the study (i.e., whether the `is_feasible` column exists).
     pub fn has_constraints(&self) -> bool {
         self.col.is_some()
     }
 
-    /// Whether the given row is feasible. Returns `true` if the column is absent (no constraints) or the row is out of range.
-    pub fn is_feasible(&self, row: usize) -> bool {
-        self.col
-            .and_then(|c| c.get(row))
-            .map(|&v| v > 0.5)
-            .unwrap_or(true)
+    pub fn state(&self, row: usize) -> FeasibilityState {
+        match self.col {
+            None => FeasibilityState::Feasible,
+            Some(col) => match col.get(row) {
+                Some(v) if *v == 1.0 => FeasibilityState::Feasible,
+                Some(v) if *v == 0.0 => FeasibilityState::Infeasible,
+                _ => FeasibilityState::Unverified,
+            },
+        }
     }
 
-    /// Splits rows `0..n` into (feasible, infeasible) index lists.
-    pub fn partition_indices(&self, n: usize) -> (Vec<usize>, Vec<usize>) {
-        let mut feasible = Vec::with_capacity(n);
-        let mut infeasible = Vec::new();
+    pub fn is_feasible(&self, row: usize) -> bool {
+        self.state(row) == FeasibilityState::Feasible
+    }
+
+    /// Splits into (feasible, infeasible, unverified), preserving input order.
+    pub fn partition_indices(&self, n: usize) -> (Vec<usize>, Vec<usize>, Vec<usize>) {
+        let (mut feasible, mut infeasible, mut unverified) = (Vec::new(), Vec::new(), Vec::new());
         for i in 0..n {
-            if self.is_feasible(i) {
-                feasible.push(i);
-            } else {
-                infeasible.push(i);
+            match self.state(i) {
+                FeasibilityState::Feasible => feasible.push(i),
+                FeasibilityState::Infeasible => infeasible.push(i),
+                FeasibilityState::Unverified => unverified.push(i),
             }
         }
-        (feasible, infeasible)
+        (feasible, infeasible, unverified)
     }
 }
 
 impl DataFrame {
-    /// Returns the feasibility view for this DataFrame.
     pub fn feasibility(&self) -> Feasibility<'_> {
         Feasibility::from_column(self.get_numeric_column(IS_FEASIBLE_COL))
     }
@@ -65,40 +99,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn no_column_means_unconstrained_and_all_feasible() {
-        let feas = Feasibility::from_column(None);
-        assert!(!feas.has_constraints());
-        assert!(feas.is_feasible(0));
-        assert!(feas.is_feasible(999));
-        let (f, inf) = feas.partition_indices(3);
-        assert_eq!(f, vec![0, 1, 2]);
-        assert!(inf.is_empty());
+    fn classification_requires_complete_finite_evidence_but_violation_wins() {
+        use FeasibilityState::*;
+        for (values, expected, state) in [
+            (vec![-1.0, 0.0], 2, Feasible),
+            (vec![-1.0, 0.1], 2, Infeasible),
+            (vec![], 2, Unverified),
+            (vec![], 0, Unverified),
+            (vec![-1.0], 2, Unverified),
+            (vec![f64::NAN, -1.0], 2, Unverified),
+            (vec![f64::INFINITY, -1.0], 2, Unverified),
+            (vec![f64::NEG_INFINITY, -1.0], 2, Unverified),
+            (vec![0.1], 2, Infeasible),
+            (vec![0.1, f64::NAN], 2, Infeasible),
+            (vec![f64::INFINITY, 0.1], 2, Infeasible),
+            (vec![f64::NEG_INFINITY, 0.1], 2, Infeasible),
+        ] {
+            assert_eq!(FeasibilityState::classify(&values, expected), state);
+        }
     }
 
     #[test]
-    fn threshold_is_half() {
-        let col = vec![1.0, 0.0, 0.6, 0.5];
-        let feas = Feasibility::from_column(Some(&col));
-        assert!(feas.has_constraints());
-        assert!(feas.is_feasible(0));
-        assert!(!feas.is_feasible(1));
-        assert!(feas.is_feasible(2));
-        assert!(!feas.is_feasible(3)); // Exactly 0.5 is on the infeasible side
-    }
-
-    #[test]
-    fn out_of_range_row_defaults_to_feasible() {
-        let col = vec![0.0];
-        let feas = Feasibility::from_column(Some(&col));
-        assert!(feas.is_feasible(5));
-    }
-
-    #[test]
-    fn partition_indices_splits_correctly() {
-        let col = vec![1.0, 0.0, 1.0];
-        let feas = Feasibility::from_column(Some(&col));
-        let (f, inf) = feas.partition_indices(3);
-        assert_eq!(f, vec![0, 2]);
-        assert_eq!(inf, vec![1]);
+    fn view_preserves_unconstrained_and_partitions_three_states() {
+        let unconstrained = Feasibility::from_column(None);
+        assert!(!unconstrained.has_constraints());
+        assert!(unconstrained.is_feasible(999));
+        assert_eq!(
+            unconstrained.partition_indices(3),
+            (vec![0, 1, 2], vec![], vec![])
+        );
+        let col = [1.0, 0.0, f64::NAN];
+        let constrained = Feasibility::from_column(Some(&col));
+        assert_eq!(
+            constrained.partition_indices(3),
+            (vec![0], vec![1], vec![2])
+        );
+        assert_eq!(constrained.state(999), FeasibilityState::Unverified);
+        assert_eq!(constrained.state(2).label(), "Feasibility unverified");
     }
 }

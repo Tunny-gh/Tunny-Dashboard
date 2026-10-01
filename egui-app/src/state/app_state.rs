@@ -16,6 +16,8 @@ pub struct AppState {
     pub all_studies: Vec<StudyMeta>,
     pub journal_path: Option<std::path::PathBuf>,
     pub current_study: Option<StudyContext>,
+    /// The current snapshot is incomplete until the final streaming chunk arrives.
+    pub study_streaming: bool,
     pub selected_indices: Vec<u32>,
     pub filter_ranges: HashMap<String, (f64, f64)>,
     pub highlighted_trial: Option<u32>,
@@ -140,6 +142,7 @@ impl AppState {
             all_studies: Vec::new(),
             journal_path: None,
             current_study: None,
+            study_streaming: false,
             selected_indices: Vec::new(),
             filter_ranges: HashMap::new(),
             highlighted_trial: None,
@@ -240,6 +243,7 @@ impl AppState {
 
     /// Resets Brushing & Linking state and analysis results on Study switch
     pub fn clear(&mut self) {
+        self.study_streaming = false;
         self.selected_indices.clear();
         self.filter_ranges.clear();
         self.highlighted_trial = None;

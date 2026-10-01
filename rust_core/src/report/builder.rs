@@ -107,8 +107,7 @@ pub fn build_study_report(
     // studies, non-dominated sorting uses only feasible rows (matching
     // Optuna's constrained-optimization semantics). Only when there are no
     // feasible rows at all do we fall back to the non-dominated set over
-    // all rows (this avoids an empty front, and the renderer's violation
-    // note makes the fallback transparent).
+    // all rows as objective-only candidates, never as a verified feasible front.
     let feas = df.feasibility();
     let front_rows: Vec<usize> = if is_multi && n > 0 {
         let feasible_rows: Vec<usize> = (0..n)
@@ -135,7 +134,7 @@ pub fn build_study_report(
     };
     let mut on_front = vec![false; n];
     for &r in &front_rows {
-        on_front[r] = true;
+        on_front[r] = feas.is_feasible(r);
     }
 
     // ---- Overview ----
@@ -157,11 +156,26 @@ pub fn build_study_report(
         total_trials: meta.total_trials as usize,
         wall_clock_seconds: wall_clock,
         param_bounds,
-        has_constraints: meta.has_constraints,
+        has_constraints: feas.has_constraints(),
     };
 
     // ---- Convergence ----
-    let convergence = if is_multi {
+    let convergence = if is_multi && feas.has_constraints() {
+        let feasible_rows: Vec<usize> = (0..n)
+            .filter(|&r| valid_row[r] && feas.is_feasible(r))
+            .collect();
+        let feasible_objectives: Vec<Vec<f64>> = feasible_rows
+            .iter()
+            .map(|&r| objectives[r].clone())
+            .collect();
+        let feasible_numbers: Vec<u32> = feasible_rows.iter().map(|&r| trial_numbers[r]).collect();
+        build_convergence_multi(
+            &feasible_objectives,
+            &feasible_numbers,
+            &is_minimize,
+            feasible_rows.len(),
+        )
+    } else if is_multi {
         build_convergence_multi(&objectives, &trial_numbers, &is_minimize, valid_count)
     } else {
         build_convergence_single(&objectives, &trial_numbers, &valid_row, &is_minimize, m)
@@ -227,7 +241,7 @@ pub fn build_study_report(
     } else {
         None
     };
-    let feasibility = if meta.has_constraints {
+    let feasibility = if feas.has_constraints() {
         feasibility_fact(
             df,
             &objectives,
@@ -251,7 +265,10 @@ pub fn build_study_report(
         is_multi,
         best_single,
         pareto: if is_multi {
-            Some((front_rows.len(), valid_count))
+            Some((
+                front_rows.iter().filter(|&&r| feas.is_feasible(r)).count(),
+                valid_count,
+            ))
         } else {
             None
         },

@@ -182,7 +182,7 @@ fn scatter_chart_mark_and_title_counts() {
             trial_number: i,
             x: i as f64,
             y: (20 - i) as f64,
-            feasible: true,
+            feasible: crate::dataframe::FeasibilityState::Feasible,
         })
         .collect();
     let front: Vec<ScatterPoint> = (0..5)
@@ -190,7 +190,7 @@ fn scatter_chart_mark_and_title_counts() {
             trial_number: i,
             x: i as f64 * 2.0,
             y: (5 - i) as f64,
-            feasible: true,
+            feasible: crate::dataframe::FeasibilityState::Feasible,
         })
         .collect();
     let svg = scatter_chart(&background, &front, "obj1", "obj2", 400.0, 300.0);
@@ -213,7 +213,7 @@ fn scatter_chart_no_legend_when_single_series() {
             trial_number: i,
             x: i as f64,
             y: i as f64,
-            feasible: true,
+            feasible: crate::dataframe::FeasibilityState::Feasible,
         })
         .collect();
     let svg = scatter_chart(&background, &[], "x", "y", 300.0, 200.0);
@@ -227,13 +227,13 @@ fn scatter_chart_single_front_point_no_staircase_path() {
         trial_number: 0,
         x: 1.0,
         y: 1.0,
-        feasible: true,
+        feasible: crate::dataframe::FeasibilityState::Feasible,
     }];
     let front = vec![ScatterPoint {
         trial_number: 0,
         x: 1.0,
         y: 1.0,
-        feasible: true,
+        feasible: crate::dataframe::FeasibilityState::Feasible,
     }];
     let svg = scatter_chart(&background, &front, "x", "y", 300.0, 200.0);
     assert!(!svg.contains("<path"));
@@ -248,19 +248,35 @@ fn scatter_chart_marks_infeasible_in_tooltip() {
             trial_number: 0,
             x: 1.0,
             y: 2.0,
-            feasible: false,
+            feasible: crate::dataframe::FeasibilityState::Infeasible,
         },
         ScatterPoint {
             trial_number: 1,
             x: 2.0,
             y: 1.0,
-            feasible: true,
+            feasible: crate::dataframe::FeasibilityState::Feasible,
         },
     ];
     let svg = scatter_chart(&background, &[], "x", "y", 300.0, 200.0);
     assert_eq!(count(&svg, "[infeasible]"), 1);
     assert!(svg.contains("trial #0 (1, 2) [infeasible]"));
     assert!(svg.contains("trial #1 (2, 1)</title>"));
+}
+
+#[test]
+fn scatter_chart_unverified_has_distinct_color_label_and_no_false_front() {
+    let points = [ScatterPoint {
+        trial_number: 0,
+        x: 1.0,
+        y: 2.0,
+        feasible: crate::dataframe::FeasibilityState::Unverified,
+    }];
+    let svg = scatter_chart(&points, &[], "x", "y", 400.0, 300.0);
+    assert!(svg.contains("trial #0 (1, 2) [Feasibility unverified]"));
+    assert!(svg.contains(">Feasibility unverified</text>"));
+    assert!(svg.contains("fill=\"var(--series-3)\""));
+    assert!(!svg.contains("[infeasible]"));
+    assert!(!svg.contains("Pareto front"));
 }
 
 // ---------------- hbar_chart ----------------

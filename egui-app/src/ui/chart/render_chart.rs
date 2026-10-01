@@ -415,14 +415,13 @@ pub(crate) fn render_chart(
                         })
                         .collect()
                 });
-                let observed_feasible: Vec<bool> = if observed_cols.is_some() {
-                    let feas = ctx.view.feasibility();
-                    (0..ctx.view.row_count())
-                        .map(|i| feas.is_feasible(i))
-                        .collect()
-                } else {
-                    Vec::new()
-                };
+                let observed_feasible: Vec<tunny_core::dataframe::FeasibilityState> =
+                    if observed_cols.is_some() {
+                        let feas = ctx.view.feasibility();
+                        (0..ctx.view.row_count()).map(|i| feas.state(i)).collect()
+                    } else {
+                        Vec::new()
+                    };
                 (obj_history, observed_cols, observed_feasible)
             });
             let observed = entry.observed_cols.as_ref().map(|cols| {

@@ -69,6 +69,7 @@ impl MessageHandler {
                 user_attr_numeric_names,
                 user_attr_string_names,
                 max_constraints,
+                has_constraints,
                 is_first,
                 is_final,
             } => {
@@ -81,6 +82,7 @@ impl MessageHandler {
                     user_attr_numeric_names,
                     user_attr_string_names,
                     max_constraints,
+                    has_constraints,
                     is_first,
                     is_final,
                     app_state,
@@ -142,10 +144,20 @@ impl MessageHandler {
                 controls.computing = false;
             }
             AppMessage::IndicatorHistoryDone {
+                source_df,
                 indicator,
                 base,
                 comparisons,
             } => {
+                if app_state.study_streaming
+                    || !app_state
+                        .current_study
+                        .as_ref()
+                        .is_some_and(|study| std::sync::Arc::ptr_eq(&study.view.df, &source_df))
+                {
+                    // Do not clear the running flag of a newer snapshot's job.
+                    return;
+                }
                 app_state.convergence_indicator = indicator;
                 app_state.convergence_history = Some(base);
                 app_state.comparison_convergence_histories = comparisons;
