@@ -121,7 +121,7 @@ fn chart_icon(id: &ChartId) -> egui::ImageSource<'static> {
         ChartId::EdfPlot => {
             egui::include_image!("../../../assets/widget_icons/edf_plot.svg")
         }
-        ChartId::RankPlot => {
+        ChartId::RankPlot2D | ChartId::RankPlot3D => {
             egui::include_image!("../../../assets/widget_icons/rank_plot.svg")
         }
         // Compare Surrogates handles the same set of models as surrogate optimization, so the existing icon is reused.
@@ -223,7 +223,8 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
                     PanelItem::Chart(ChartId::ScatterMatrix),
                     PanelItem::Chart(ChartId::SliceChart),
                     PanelItem::Chart(ChartId::ObservedContour),
-                    PanelItem::Chart(ChartId::RankPlot),
+                    PanelItem::Chart(ChartId::RankPlot2D),
+                    PanelItem::Chart(ChartId::RankPlot3D),
                 ],
             ),
             (

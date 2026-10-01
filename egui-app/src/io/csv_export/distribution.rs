@@ -1,5 +1,6 @@
 use super::require_study;
 use crate::state::app_state::AppState;
+use crate::state::layout_state::ChartId;
 use crate::state::types::Direction;
 use crate::ui::widget_states::WidgetStates;
 use tunny_core::export::{CsvField, CsvWriter};
@@ -268,18 +269,28 @@ pub(super) fn build_edf_csv(app_state: &AppState, widgets: &WidgetStates) -> Opt
 }
 
 /// Outputs all trials of Rank Plot (including NaN/missing values).
-pub(super) fn build_rank_plot_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
+pub(super) fn build_rank_plot_csv(
+    chart_id: &ChartId,
+    app_state: &AppState,
+    widgets: &WidgetStates,
+) -> Option<String> {
     let study = require_study(app_state)?;
-    let x_name = study.meta.param_names.get(widgets.rank_plot.x_param_idx)?;
-    let y_name = study.meta.param_names.get(widgets.rank_plot.y_param_idx)?;
-    let obj_idx = widgets.rank_plot.obj_idx;
+    let (axes, obj_idx) = if matches!(chart_id, ChartId::RankPlot3D) {
+        let w = &widgets.rank_plot_3d;
+        (vec![w.x_param_idx, w.y_param_idx, w.z_param_idx], w.obj_idx)
+    } else {
+        let w = &widgets.rank_plot_2d;
+        (vec![w.x_param_idx, w.y_param_idx], w.obj_idx)
+    };
+    let names: Vec<_> = axes
+        .iter()
+        .map(|&i| study.meta.param_names.get(i))
+        .collect::<Option<_>>()?;
     let obj_name = study.meta.objective_names.get(obj_idx)?;
     let minimize = !matches!(
         study.meta.directions.get(obj_idx),
         Some(Direction::Maximize)
     );
-    let x_col = study.view.numeric_column(x_name);
-    let y_col = study.view.numeric_column(y_name);
     let obj_values: Vec<f64> = study
         .view
         .numeric_column(obj_name)
@@ -287,19 +298,26 @@ pub(super) fn build_rank_plot_csv(app_state: &AppState, widgets: &WidgetStates) 
         .unwrap_or_default();
     let ranks = crate::ui::widgets::rank_plot::compute_rank_percentiles(&obj_values, minimize);
     let mut w = CsvWriter::new();
-    w.header(["trial_id", x_name, y_name, obj_name, "rank_percentile"]);
+    let mut header = vec!["trial_id"];
+    header.extend(names.iter().map(|n| n.as_str()));
+    header.extend([obj_name.as_str(), "rank_percentile"]);
+    w.header(header);
     for (i, &tid) in study.view.trial_ids.iter().enumerate() {
-        let x_val = x_col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
-        let y_val = y_col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN);
         let obj_val = obj_values.get(i).copied().unwrap_or(f64::NAN);
         let rank = ranks.get(i).copied().unwrap_or(f64::NAN);
-        w.row([
-            CsvField::UInt(tid as u64),
-            CsvField::Num(x_val),
-            CsvField::Num(y_val),
-            CsvField::Num(obj_val),
-            CsvField::Num(rank),
-        ]);
+        let mut fields = vec![CsvField::UInt(tid as u64)];
+        fields.extend(names.iter().map(|name| {
+            CsvField::Num(
+                study
+                    .view
+                    .numeric_column(name)
+                    .and_then(|c| c.get(i))
+                    .copied()
+                    .unwrap_or(f64::NAN),
+            )
+        }));
+        fields.extend([CsvField::Num(obj_val), CsvField::Num(rank)]);
+        w.row(fields);
     }
     Some(w.finish())
 }

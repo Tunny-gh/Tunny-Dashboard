@@ -615,8 +615,19 @@ pub(crate) fn render_chart(
             });
             edf_plot.show(ui, &ctx.view, obj_names, &base_name, comparisons);
         }
-        ChartId::RankPlot => {
-            widgets.rank_plot.show(
+        ChartId::RankPlot2D => {
+            widgets.rank_plot_2d.show(
+                ui,
+                &ctx.view,
+                param_names,
+                obj_names,
+                directions,
+                &cmap,
+                &app_state.artifact_map,
+            );
+        }
+        ChartId::RankPlot3D => {
+            widgets.rank_plot_3d.show(
                 ui,
                 &ctx.view,
                 param_names,

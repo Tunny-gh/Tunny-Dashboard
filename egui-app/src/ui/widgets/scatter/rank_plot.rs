@@ -9,7 +9,7 @@ use crate::ui::widgets::trial_detail_modal::{
     axis_row, fmt_opt, resolve_click_hover, show_hover_tooltip, TrialDetailModal, TrialDetailTarget,
 };
 
-/// Rank Plot widget
+/// Rank Plot 2D widget
 ///
 /// Corresponds to Optuna's `plot_rank`. Colors a scatter plot of two selected parameters by
 /// the rank (percentile; 0=best to 1=worst) of the selected objective value. Coloring by rank
@@ -17,7 +17,7 @@ use crate::ui::widgets::trial_detail_modal::{
 /// how a combination of parameters affects the goodness of the objective.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
-pub struct RankPlotChart {
+pub struct RankPlot2D {
     pub x_param_idx: usize,
     pub y_param_idx: usize,
     pub obj_idx: usize,
@@ -31,7 +31,7 @@ pub struct RankPlotChart {
     cache: Option<RankPlotCache>,
 }
 
-impl Default for RankPlotChart {
+impl Default for RankPlot2D {
     fn default() -> Self {
         Self {
             x_param_idx: 0,
@@ -83,7 +83,7 @@ struct RankPoint {
     rank: f64,
 }
 
-impl RankPlotChart {
+impl RankPlot2D {
     /// Draws the Rank Plot.
     #[allow(clippy::too_many_arguments)]
     pub fn show(
@@ -104,7 +104,9 @@ impl RankPlotChart {
         }
         if param_names.len() < 2 {
             ui.centered_and_justified(|ui| {
-                ui.label(egui::RichText::new("Rank plot requires at least 2 parameters.").weak());
+                ui.label(
+                    egui::RichText::new("Rank Plot 2D requires at least 2 parameters.").weak(),
+                );
             });
             return;
         }
@@ -318,7 +320,7 @@ fn collect_rank_points(
 /// The bar itself is shared with `common::heatmap::draw_gradient_bar` (D-10). Since rank is a
 /// relative order (0=best to 1=worst) rather than a raw value, Best / Worst labels were judged
 /// more intuitive than numeric tick marks, so only the label portion has a dedicated implementation.
-fn draw_rank_legend(ui: &mut egui::Ui, bar_rect: egui::Rect, cmap: &ColorMap) {
+pub(super) fn draw_rank_legend(ui: &mut egui::Ui, bar_rect: egui::Rect, cmap: &ColorMap) {
     let painter = ui.painter();
     // The shared helper puts t=1.0 at the top and t=0.0 at the bottom. Rank Plot reverses the
     // colormap input so that Best (rank 0) is at the high end and Worst (rank 1) is at the low end.
@@ -352,7 +354,7 @@ fn draw_rank_legend(ui: &mut egui::Ui, bar_rect: egui::Rect, cmap: &ColorMap) {
 ///
 /// Rank 0 is best and should use the high end of the selected colormap, while rank 1 is worst
 /// and should use the low end.
-fn rank_colormap_input(rank: f64) -> f32 {
+pub(super) fn rank_colormap_input(rank: f64) -> f32 {
     (1.0 - rank.clamp(0.0, 1.0)) as f32
 }
 
@@ -466,7 +468,7 @@ mod tests {
 
     #[test]
     fn rank_plot_chart_default() {
-        let chart = RankPlotChart::default();
+        let chart = RankPlot2D::default();
         assert_eq!(chart.x_param_idx, 0);
         assert_eq!(chart.y_param_idx, 1);
         assert_eq!(chart.obj_idx, 0);

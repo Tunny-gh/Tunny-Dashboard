@@ -49,6 +49,89 @@ fn make_trial_ranked(
 }
 
 #[test]
+fn rank_variants_route_export_all_rows_and_serialize_independently() {
+    let mut study = make_study(
+        vec!["x".into(), "y".into(), "z".into()],
+        vec!["f".into()],
+        vec![Direction::Minimize],
+    );
+    study.set_rows_for_test(vec![
+        make_trial(
+            10,
+            HashMap::from([("x".into(), 1.0), ("y".into(), 2.0), ("z".into(), 3.0)]),
+            vec![1.0],
+        ),
+        make_trial(
+            20,
+            HashMap::from([("x".into(), 4.0), ("y".into(), 5.0)]),
+            vec![2.0],
+        ),
+        make_trial(
+            30,
+            HashMap::from([
+                ("x".into(), f64::INFINITY),
+                ("y".into(), 6.0),
+                ("z".into(), f64::NEG_INFINITY),
+            ]),
+            vec![f64::NAN],
+        ),
+    ]);
+    let mut state = AppState {
+        current_study: Some(study),
+        ..Default::default()
+    };
+    let mut widgets = WidgetStates::default();
+    for (id, header, rows) in [
+        (
+            ChartId::RankPlot2D,
+            "trial_id,x,y,f,rank_percentile",
+            vec!["10,1,2,1,0", "20,4,5,2,1", "30,,6,,1"],
+        ),
+        (
+            ChartId::RankPlot3D,
+            "trial_id,x,y,z,f,rank_percentile",
+            vec!["10,1,2,3,1,0", "20,4,5,,2,1", "30,,6,,,1"],
+        ),
+    ] {
+        assert!(has_csv_data(&id, &state, &widgets));
+        let csv = build_chart_csv(&id, &state, &widgets).unwrap();
+        let lines: Vec<_> = csv.lines().collect();
+        assert_eq!(lines[0], header);
+        assert_eq!(lines[1..], rows);
+        let encoded = serde_json::to_string(&id).unwrap();
+        assert_eq!(serde_json::from_str::<ChartId>(&encoded).unwrap(), id);
+        assert_eq!(encoded, format!("\"{id:?}\""));
+    }
+    assert!(serde_json::from_str::<ChartId>("\"RankPlot\"").is_err());
+    assert_eq!(
+        csv_export_filename(&ChartId::RankPlot2D),
+        "rank_plot_2d.csv"
+    );
+    assert_eq!(
+        csv_export_filename(&ChartId::RankPlot3D),
+        "rank_plot_3d.csv"
+    );
+    state.current_study.as_mut().unwrap().meta.directions[0] = Direction::Maximize;
+    assert!(build_chart_csv(&ChartId::RankPlot3D, &state, &widgets)
+        .unwrap()
+        .contains("10,1,2,3,1,1"));
+    widgets.rank_plot_3d.z_param_idx = 0;
+    assert!(!has_csv_data(&ChartId::RankPlot3D, &state, &widgets));
+    assert!(build_chart_csv(&ChartId::RankPlot3D, &state, &widgets).is_none());
+    widgets.rank_plot_3d.z_param_idx = 2;
+    widgets.rank_plot_3d.x_param_idx = 2;
+    widgets.rank_plot_3d.z_param_idx = 0;
+    let restored: WidgetStates =
+        serde_json::from_str(&serde_json::to_string(&widgets).unwrap()).unwrap();
+    assert_eq!(restored.rank_plot_3d.x_param_idx, 2);
+    assert_eq!(restored.rank_plot_3d.z_param_idx, 0);
+    assert_eq!(restored.rank_plot_2d.x_param_idx, 0);
+    assert!(build_chart_csv(&ChartId::RankPlot3D, &state, &restored)
+        .unwrap()
+        .starts_with("trial_id,z,y,x,f,rank_percentile"));
+}
+
+#[test]
 fn csv_export_filename_optimization_history() {
     assert_eq!(
         csv_export_filename(&ChartId::OptimizationHistory),

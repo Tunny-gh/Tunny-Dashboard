@@ -39,6 +39,7 @@ pub use scatter::observed_contour;
 pub use scatter::parallel_coords;
 pub use scatter::pca_biplot;
 pub use scatter::rank_plot;
+pub use scatter::rank_plot_3d;
 pub use scatter::scatter_3d;
 pub use scatter::scatter_matrix;
 pub use scatter::som_map;

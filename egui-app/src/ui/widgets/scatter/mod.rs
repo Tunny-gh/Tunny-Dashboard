@@ -5,6 +5,7 @@ pub mod observed_contour;
 pub mod parallel_coords;
 pub mod pca_biplot;
 pub mod rank_plot;
+pub mod rank_plot_3d;
 pub mod scatter_3d;
 pub mod scatter_matrix;
 pub mod som_map;
