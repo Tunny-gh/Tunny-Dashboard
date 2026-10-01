@@ -36,6 +36,10 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Added
 
+- **Rank Plot 3D** displays three distinct parameters with objective rank colors,
+  shared 3D navigation, hover details, Trial Detail, and full-row CSV export.
+  The two-parameter chart is named **Rank Plot 2D**; both use the same rank and
+  Best/Worst color semantics.
 - Trial User Attributes now retain and display every JSON value, including
   booleans, null, arrays, and objects, in one column per attribute key by default across
   trial details, the All Trials table, CSV export, and HTML reports.

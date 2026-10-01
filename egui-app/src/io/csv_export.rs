@@ -107,7 +107,9 @@ pub fn build_chart_csv(
         ChartId::IntermediateValues => build_intermediate_values_csv(),
         ChartId::Timeline => build_timeline_csv(),
         ChartId::EdfPlot => build_edf_csv(app_state, widgets),
-        ChartId::RankPlot => build_rank_plot_csv(app_state, widgets),
+        ChartId::RankPlot2D | ChartId::RankPlot3D => {
+            build_rank_plot_csv(chart_id, app_state, widgets)
+        }
         ChartId::SurrogateCompare => build_surrogate_compare_csv(widgets),
     }
 }
@@ -319,20 +321,32 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
                 .get(widgets.edf_plot.obj_idx)
                 .is_some_and(|name| s.view.numeric_column(name).is_some_and(|c| !c.is_empty()))
         }),
-        ChartId::RankPlot => app_state.current_study.as_ref().is_some_and(|s| {
+        ChartId::RankPlot2D => app_state.current_study.as_ref().is_some_and(|s| {
             s.trial_count() > 0
                 && s.meta
                     .param_names
-                    .get(widgets.rank_plot.x_param_idx)
+                    .get(widgets.rank_plot_2d.x_param_idx)
                     .is_some()
                 && s.meta
                     .param_names
-                    .get(widgets.rank_plot.y_param_idx)
+                    .get(widgets.rank_plot_2d.y_param_idx)
                     .is_some()
                 && s.meta
                     .objective_names
-                    .get(widgets.rank_plot.obj_idx)
+                    .get(widgets.rank_plot_2d.obj_idx)
                     .is_some()
+        }),
+        ChartId::RankPlot3D => app_state.current_study.as_ref().is_some_and(|s| {
+            let w = &widgets.rank_plot_3d;
+            s.trial_count() > 0
+                && s.meta.param_names.len() >= 3
+                && [w.x_param_idx, w.y_param_idx, w.z_param_idx]
+                    .iter()
+                    .all(|&i| i < s.meta.param_names.len())
+                && w.x_param_idx != w.y_param_idx
+                && w.x_param_idx != w.z_param_idx
+                && w.y_param_idx != w.z_param_idx
+                && w.obj_idx < s.meta.objective_names.len()
         }),
         ChartId::SurrogateCompare => widgets
             .surrogate_compare
@@ -377,7 +391,8 @@ pub fn csv_export_filename(chart_id: &ChartId) -> String {
         ChartId::IntermediateValues => "intermediate_values",
         ChartId::Timeline => "timeline",
         ChartId::EdfPlot => "edf_plot",
-        ChartId::RankPlot => "rank_plot",
+        ChartId::RankPlot2D => "rank_plot_2d",
+        ChartId::RankPlot3D => "rank_plot_3d",
         ChartId::SurrogateCompare => "surrogate_compare",
     };
     format!("{}.csv", name)

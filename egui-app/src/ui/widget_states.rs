@@ -14,10 +14,10 @@ use crate::ui::widgets::{
     optimization_history::OptimizationHistoryChart, parallel_coords::ParallelCoordsChart,
     pareto_2d::ParetoScatter2D, pareto_3d::Pareto3dChart, pca_biplot::PcaBiplotChart,
     pdp_2d::PdpChart2DState, pdp_chart::PdpChart, radar_comparison::RadarComparisonChart,
-    rank_plot::RankPlotChart, response_surface::ResponseSurfaceChart, robustness::RobustnessChart,
-    scatter_matrix::ScatterMatrix, sensitivity_heatmap::SensitivityHeatmap,
-    slice_chart::SliceChart, som_map::SomMapChart, timeline::TimelineChart,
-    trial_table::TrialTable, violin_plot::ViolinPlotChart,
+    rank_plot::RankPlot2D, rank_plot_3d::RankPlot3D, response_surface::ResponseSurfaceChart,
+    robustness::RobustnessChart, scatter_matrix::ScatterMatrix,
+    sensitivity_heatmap::SensitivityHeatmap, slice_chart::SliceChart, som_map::SomMapChart,
+    timeline::TimelineChart, trial_table::TrialTable, violin_plot::ViolinPlotChart,
 };
 
 // ── Observed Contour (contours from interpolating observed points) ────
@@ -515,8 +515,10 @@ pub struct WidgetStates {
     pub timeline: TimelineChart,
     /// UI state for the EDF (empirical distribution function) chart
     pub edf_plot: EdfPlotChart,
-    /// UI state for Rank Plot (parameter pairs x objective function rank)
-    pub rank_plot: RankPlotChart,
+    /// UI state for Rank Plot 2D (parameter pairs colored by objective rank)
+    pub rank_plot_2d: RankPlot2D,
+    /// UI state for Rank Plot 3D (parameter triples colored by objective rank)
+    pub rank_plot_3d: RankPlot3D,
     #[serde(skip)]
     pub capture: ChartCaptureState,
     /// Cache to suppress render_chart's per-frame rebuild (comparison series /

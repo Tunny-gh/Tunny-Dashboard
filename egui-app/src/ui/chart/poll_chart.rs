@@ -51,7 +51,8 @@ pub(crate) fn poll_chart_work(
         | ChartId::IntermediateValues
         | ChartId::Timeline
         | ChartId::EdfPlot
-        | ChartId::RankPlot => return,
+        | ChartId::RankPlot2D
+        | ChartId::RankPlot3D => return,
         _ => {}
     }
 

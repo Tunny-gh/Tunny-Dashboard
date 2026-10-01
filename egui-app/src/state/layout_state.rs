@@ -33,7 +33,8 @@ pub enum ChartId {
     IntermediateValues,
     Timeline,
     EdfPlot,
-    RankPlot,
+    RankPlot2D,
+    RankPlot3D,
     SurrogateCompare,
 }
 
@@ -75,7 +76,8 @@ impl ChartId {
             ChartId::IntermediateValues,
             ChartId::Timeline,
             ChartId::EdfPlot,
-            ChartId::RankPlot,
+            ChartId::RankPlot2D,
+            ChartId::RankPlot3D,
             ChartId::SurrogateCompare,
         ]
     }
@@ -115,7 +117,8 @@ impl ChartId {
             ChartId::IntermediateValues => "Intermediate Values",
             ChartId::Timeline => "Timeline",
             ChartId::EdfPlot => "EDF",
-            ChartId::RankPlot => "Rank Plot",
+            ChartId::RankPlot2D => "Rank Plot 2D",
+            ChartId::RankPlot3D => "Rank Plot 3D",
             ChartId::SurrogateCompare => "Compare Surrogates",
         }
     }
@@ -136,7 +139,8 @@ impl ChartId {
             ChartId::IntermediateValues => Some("Learning curves per trial"),
             ChartId::Timeline => Some("Trial execution timeline"),
             ChartId::EdfPlot => Some("Empirical distribution of objective values"),
-            ChartId::RankPlot => Some("Param pairs colored by objective rank"),
+            ChartId::RankPlot2D => Some("Param pairs colored by objective rank"),
+            ChartId::RankPlot3D => Some("Param triples colored by objective rank"),
             ChartId::SurrogateCompare => Some("CV metrics & prediction overlay"),
             _ => None,
         }

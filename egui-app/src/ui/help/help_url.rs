@@ -48,7 +48,7 @@ fn chart_slug(id: &ChartId) -> &'static str {
         ChartId::ScatterMatrix => "scatter-matrix",
         ChartId::SliceChart => "slice-chart",
         ChartId::ObservedContour => "observed-contour",
-        ChartId::RankPlot => "rank-plot",
+        ChartId::RankPlot2D | ChartId::RankPlot3D => "rank-plot",
         ChartId::Histogram => "histogram",
         ChartId::BoxPlot => "box-plot",
         ChartId::ViolinPlot => "violin-plot",
@@ -76,6 +76,16 @@ fn chart_slug(id: &ChartId) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rank_variants_share_the_combined_manual() {
+        for id in [ChartId::RankPlot2D, ChartId::RankPlot3D] {
+            assert_eq!(
+                widget_url(&PanelItem::Chart(id)),
+                "https://tunny.hrntsm.com/dashboard/latest/widgets/rank-plot"
+            );
+        }
+    }
 
     #[test]
     fn widget_url_points_at_the_widget_page() {
