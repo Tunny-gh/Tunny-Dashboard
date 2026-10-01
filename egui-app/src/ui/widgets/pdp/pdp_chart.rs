@@ -11,6 +11,7 @@ use std::collections::HashMap;
 /// chart family). Shared by the observed-data overlays of 1D / 2D PDP.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ObservedKind {
+    Unverified,
     /// Pareto front (pareto_rank == 0) -> red
     Pareto,
     /// Non-Pareto feasible solution -> blue
@@ -22,6 +23,7 @@ pub enum ObservedKind {
 impl ObservedKind {
     pub fn color(self) -> egui::Color32 {
         match self {
+            ObservedKind::Unverified => crate::theme::chart_colors::COLOR_UNVERIFIED(),
             ObservedKind::Pareto => COLOR_PARETO(),
             ObservedKind::NonPareto => COLOR_NON_PARETO(),
             ObservedKind::Infeasible => COLOR_INFEASIBLE(),
@@ -30,13 +32,15 @@ impl ObservedKind {
 
     pub fn label(self) -> &'static str {
         match self {
+            ObservedKind::Unverified => "Feasibility unverified",
             ObservedKind::Pareto => "Pareto",
             ObservedKind::NonPareto => "Non-Pareto",
             ObservedKind::Infeasible => "Infeasible",
         }
     }
 
-    pub const ALL: [ObservedKind; 3] = [
+    pub const ALL: [ObservedKind; 4] = [
+        ObservedKind::Unverified,
         ObservedKind::Pareto,
         ObservedKind::NonPareto,
         ObservedKind::Infeasible,
@@ -45,8 +49,13 @@ impl ObservedKind {
 
 /// Returns the observed-point classification from feasibility and Pareto rank (same
 /// rule as the other scatter plots)
-pub fn classify_observed(feasible: bool, pareto_rank: u32) -> ObservedKind {
-    if !feasible {
+pub fn classify_observed(
+    feasible: tunny_core::dataframe::FeasibilityState,
+    pareto_rank: u32,
+) -> ObservedKind {
+    if feasible == tunny_core::dataframe::FeasibilityState::Unverified {
+        ObservedKind::Unverified
+    } else if feasible == tunny_core::dataframe::FeasibilityState::Infeasible {
         ObservedKind::Infeasible
     } else if pareto_rank == 0 {
         ObservedKind::Pareto
@@ -178,7 +187,7 @@ pub fn extract_observed(
                 return None;
             }
             let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
-            Some(([x, y], classify_observed(feas.is_feasible(i), rank)))
+            Some(([x, y], classify_observed(feas.state(i), rank)))
         })
         .collect()
 }
@@ -600,11 +609,14 @@ mod tests {
 
     #[test]
     fn classify_observed_matches_scatter_rules() {
-        assert_eq!(classify_observed(true, 0), ObservedKind::Pareto);
-        assert_eq!(classify_observed(true, 1), ObservedKind::NonPareto);
+        use tunny_core::dataframe::FeasibilityState::*;
+        assert_eq!(classify_observed(Feasible, 0), ObservedKind::Pareto);
+        assert_eq!(classify_observed(Feasible, 1), ObservedKind::NonPareto);
         // Infeasible regardless of rank
-        assert_eq!(classify_observed(false, 0), ObservedKind::Infeasible);
-        assert_eq!(classify_observed(false, 3), ObservedKind::Infeasible);
+        assert_eq!(classify_observed(Infeasible, 0), ObservedKind::Infeasible);
+        assert_eq!(classify_observed(Infeasible, 3), ObservedKind::Infeasible);
+        assert_eq!(classify_observed(Unverified, 0), ObservedKind::Unverified);
+        assert_eq!(ObservedKind::Unverified.label(), "Feasibility unverified");
     }
 
     #[test]

@@ -20,6 +20,83 @@ fn to_bytes(s: &str) -> Vec<u8> {
 }
 
 #[test]
+fn constraint_schema_growth_reclassifies_history_and_matches_initial_load() {
+    use FeasibilityState::*;
+    let rows: Vec<_> = [
+        vec![],
+        vec![-1.0],
+        vec![1.0],
+        vec![-1.0, 0.0],
+        vec![f64::NAN, -1.0],
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(i, values)| {
+        let mut row = make_trial(&[], vec![i as f64]);
+        row.trial_id = i as u32;
+        row.constraint_values = values;
+        row
+    })
+    .collect();
+    let mut appended = DataFrame::from_trials(&rows[..1], &[], &["obj0".into()], &[], &[], 0);
+    assert!(!appended.feasibility().has_constraints());
+    appended.append_trials(&rows[1..3], &[], &["obj0".into()], &[], &[], 0);
+    assert_eq!(
+        (0..3)
+            .map(|i| appended.feasibility().state(i))
+            .collect::<Vec<_>>(),
+        vec![Unverified, Feasible, Infeasible]
+    );
+    appended.append_trials(&rows[3..], &[], &["obj0".into()], &[], &[], 0);
+    assert_eq!(
+        (0..5)
+            .map(|i| appended.feasibility().state(i))
+            .collect::<Vec<_>>(),
+        vec![Unverified, Unverified, Infeasible, Feasible, Unverified]
+    );
+    assert!(appended.get_numeric_column("c2").unwrap()[1].is_nan());
+    let initial = DataFrame::from_trials(&rows, &[], &["obj0".into()], &[], &[], 0);
+    assert_df_equivalent(&appended, &initial);
+    assert_eq!(appended.filter_feasible().row_count(), 1);
+}
+
+#[test]
+fn attribute_only_empty_constraints_remain_unverified_after_append() {
+    let rows = vec![make_trial(&[], vec![1.0]), make_trial(&[], vec![2.0])];
+    let mut appended = DataFrame::from_trials(&rows[..1], &[], &["obj0".into()], &[], &[], 0);
+    appended.mark_constrained();
+    appended.append_trials(&rows[1..], &[], &["obj0".into()], &[], &[], 0);
+    let mut initial = DataFrame::from_trials(&rows, &[], &["obj0".into()], &[], &[], 0);
+    initial.mark_constrained();
+    assert_df_equivalent(&appended, &initial);
+    assert!(appended.constraint_col_names().is_empty());
+    assert_eq!(
+        appended.feasibility().partition_indices(2),
+        (vec![], vec![], vec![0, 1])
+    );
+    assert_eq!(appended.filter_feasible().row_count(), 0);
+}
+
+#[test]
+fn metadata_only_constraint_growth_reclassifies_complete_history() {
+    let mut negative = make_trial(&[], vec![1.0]);
+    negative.constraint_values = vec![-1.0];
+    let mut positive = make_trial(&[], vec![2.0]);
+    positive.constraint_values = vec![1.0];
+    let rows = [negative, positive];
+    let mut streamed = DataFrame::from_trials(&rows, &[], &["obj0".into()], &[], &[], 1);
+    assert!(streamed.feasibility().is_feasible(0));
+    streamed.append_trials(&[], &[], &["obj0".into()], &[], &[], 3);
+    let initial = DataFrame::from_trials(&rows, &[], &["obj0".into()], &[], &[], 3);
+    assert_df_equivalent(&streamed, &initial);
+    assert_eq!(streamed.row_count(), 2);
+    assert_eq!(
+        streamed.feasibility().partition_indices(2),
+        (vec![], vec![1], vec![0])
+    );
+}
+
+#[test]
 fn tc_102_01_row_count_single_trial() {
     let rows = vec![make_trial(&[("x", 0.5)], vec![1.0])];
     let df = DataFrame::from_trials(
@@ -712,8 +789,8 @@ fn append_trials_constraints_appear_mid_stream() {
     let all = vec![chunk1[0].clone(), t];
     let rebuilt = DataFrame::from_trials(&all, &p, &o, &[], &[], 2);
     assert_df_equivalent(&df, &rebuilt);
-    // Existing rows with no constraints are treated as feasible.
-    assert!((df.get_numeric_column("is_feasible").unwrap()[0] - 1.0).abs() < 1e-12);
+    // Existing rows have no verified constraint evaluation.
+    assert!(df.get_numeric_column("is_feasible").unwrap()[0].is_nan());
     assert!((df.get_numeric_column("is_feasible").unwrap()[1] - 0.0).abs() < 1e-12);
 }
 

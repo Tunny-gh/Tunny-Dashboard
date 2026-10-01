@@ -53,6 +53,9 @@ pub(super) fn finalize_state(state: ParserState) -> Vec<FinalizedStudy> {
             intermediate_values,
         });
 
+        studies[study_idx].has_constraints |=
+            trial.has_constraints || !trial.constraint_values.is_empty();
+        per_study_max_c[study_idx] = per_study_max_c[study_idx].max(trial.constraint_values.len());
         if trial.state != 1 {
             continue;
         }
@@ -72,9 +75,6 @@ pub(super) fn finalize_state(state: ParserState) -> Vec<FinalizedStudy> {
             for name in trial.user_attrs_string.keys() {
                 per_study_usn[study_idx].insert(name.clone());
             }
-            if trial.has_constraints {
-                study.has_constraints = true;
-            }
             if study.objective_names.is_empty() {
                 if let Some(values) = &trial.values {
                     study.objective_names = (0..values.len())
@@ -83,8 +83,6 @@ pub(super) fn finalize_state(state: ParserState) -> Vec<FinalizedStudy> {
                 }
             }
         }
-
-        per_study_max_c[study_idx] = per_study_max_c[study_idx].max(trial.constraint_values.len());
 
         per_study_rows[study_idx].push(TrialRow {
             trial_id,
@@ -133,7 +131,7 @@ pub(super) fn finalize_state(state: ParserState) -> Vec<FinalizedStudy> {
         // Peak memory reduction: take each study's row Vec and free it right after building the DataFrame.
         // Moving ownership via take means row data for all studies never coexists in memory at once.
         let study_rows = std::mem::take(&mut per_study_rows[index]);
-        let dataframe = DataFrame::from_trials(
+        let mut dataframe = DataFrame::from_trials(
             &study_rows,
             &param_names,
             &objective_names,
@@ -141,6 +139,9 @@ pub(super) fn finalize_state(state: ParserState) -> Vec<FinalizedStudy> {
             &usn,
             per_study_max_c[index],
         );
+        if meta.has_constraints {
+            dataframe.mark_constrained();
+        }
         // study_rows is dropped here, freeing this study's intermediate row data
 
         finalized.push(FinalizedStudy {

@@ -14,7 +14,7 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-pub use feasibility::Feasibility;
+pub use feasibility::{Feasibility, FeasibilityState};
 pub use model::DataFrame;
 pub use state::{
     active_extras_snapshot, active_snapshot, extras_snapshot, select_study, snapshot,

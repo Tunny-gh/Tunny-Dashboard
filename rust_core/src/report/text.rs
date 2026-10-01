@@ -48,15 +48,12 @@ impl Span {
 pub(crate) fn infeasible_fallback_note(lang: ReportLang, n_infeasible: usize) -> String {
     match lang {
         ReportLang::En => format!(
-            "Note: no trial satisfies all constraints, so the Pareto \
-             front falls back to objective-space non-domination over \
-             all trials; {n_infeasible} of these trials violate \
-             constraints."
+            "Note: no trial is verified Feasible. Objective-only candidates \
+             are nondominated in objective space, not a verified feasible Pareto front; \
+             {n_infeasible} of these trials have confirmed constraint violations."
         ),
         ReportLang::Ja => format!(
-            "注記: 全制約を満たす trial が無いため、パレート前面は\
-             全 trial の目的空間非劣解にフォールバックしています。\
-             うち {n_infeasible} 件は制約違反です。"
+            "注記: Feasible と確認された trial はありません。目的空間の候補は制約充足を確認したパレート前面ではありません。うち {n_infeasible} 件は制約違反が確認されています。"
         ),
     }
 }

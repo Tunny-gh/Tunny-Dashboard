@@ -73,7 +73,7 @@ pub struct McdmScatterChart {
     #[serde(skip)]
     display_batches: Option<DisplayBatches>,
     #[serde(skip)]
-    infeasible_cache: Option<Vec<(f64, f64)>>,
+    infeasible_cache: Option<Vec<(f64, f64, tunny_core::dataframe::FeasibilityState)>>,
     /// Candidates for point-click hit testing (trial_id, row index, coordinates).
     /// Updated with the same key as `display_rows_cache`.
     #[serde(skip)]

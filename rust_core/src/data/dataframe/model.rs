@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use serde_json::Value;
 
+use super::feasibility::FeasibilityState;
 use super::types::TrialRow;
 
 fn append_json_attrs(
@@ -106,7 +107,7 @@ impl DataFrame {
     /// string column if even one row has a category label, otherwise a
     /// numeric column. If constraints exist, the derived columns
     /// `is_feasible` / `constraint_sum` are added. Missing values are filled
-    /// as: numeric param, objective and user numeric: NaN / string: "" / constraint: 0.0.
+    /// as: numeric values: NaN / string: "".
     pub fn from_trials(
         trial_rows: &[TrialRow],
         param_names: &[String],
@@ -116,7 +117,14 @@ impl DataFrame {
         max_constraints: usize,
     ) -> Self {
         let n = trial_rows.len();
-        if n == 0 {
+        let max_constraints = max_constraints.max(
+            trial_rows
+                .iter()
+                .map(|r| r.constraint_values.len())
+                .max()
+                .unwrap_or(0),
+        );
+        if n == 0 && max_constraints == 0 {
             return DataFrame::empty();
         }
 
@@ -204,7 +212,7 @@ impl DataFrame {
                 let col_name = format!("c{}", ci + 1);
                 let vals: Vec<f64> = trial_rows
                     .iter()
-                    .map(|r| r.constraint_values.get(ci).copied().unwrap_or(0.0))
+                    .map(|r| r.constraint_values.get(ci).copied().unwrap_or(f64::NAN))
                     .collect();
                 numeric_cols.push((col_name.clone(), vals));
                 constraint_col_names.push(col_name);
@@ -213,11 +221,7 @@ impl DataFrame {
             let is_feasible_vals: Vec<f64> = trial_rows
                 .iter()
                 .map(|r| {
-                    if r.constraint_values.iter().all(|&c| c <= 0.0) {
-                        1.0
-                    } else {
-                        0.0
-                    }
+                    FeasibilityState::classify(&r.constraint_values, max_constraints).numeric()
                 })
                 .collect();
             numeric_cols.push(("is_feasible".to_string(), is_feasible_vals));
@@ -258,13 +262,14 @@ impl DataFrame {
     /// which has no effect since lookups are by name). Rather than
     /// reconstructing everything by restoring rows to row-oriented form
     /// (an O(total rows) rebuild), columns are extended in place, so the
-    /// cost is O(new_rows × column count).
+    /// cost is O(new_rows × column count), except constraint schema growth
+    /// reclassifies historical rows.
     ///
     /// Pass the cumulative name lists (the full set including existing
     /// columns). A column that first appears partway through streaming is
     /// backfilled for existing rows with a default value (numeric param,
-    /// objective and user numeric: NaN / string: "" / constraint: 0.0
-    /// / is_feasible: 1.0). If a category label first appears on a numeric
+    /// objective, user numeric and constraint: NaN / string: "").
+    /// If a category label first appears on a numeric
     /// param column, the whole column is replaced with a string column, as
     /// in `from_trials` (existing rows become "").
     pub fn append_trials(
@@ -276,7 +281,7 @@ impl DataFrame {
         user_attr_string_names: &[String],
         max_constraints: usize,
     ) {
-        if new_rows.is_empty() {
+        if new_rows.is_empty() && max_constraints <= self.constraint_col_names.len() {
             return;
         }
         let old_n = self.row_count;
@@ -493,13 +498,21 @@ impl DataFrame {
         }
 
         // The constraint column count never shrinks (it may grow during streaming).
-        let max_c = max_constraints.max(self.constraint_col_names.len());
-        if max_c > 0 {
+        let old_c = self.constraint_col_names.len();
+        let was_constrained = self.feasibility().has_constraints();
+        let max_c = max_constraints.max(old_c).max(
+            new_rows
+                .iter()
+                .map(|r| r.constraint_values.len())
+                .max()
+                .unwrap_or(0),
+        );
+        if max_c > 0 || was_constrained {
             for ci in 0..max_c {
                 let col_name = format!("c{}", ci + 1);
                 let values = new_rows
                     .iter()
-                    .map(move |r| r.constraint_values.get(ci).copied().unwrap_or(0.0));
+                    .map(move |r| r.constraint_values.get(ci).copied().unwrap_or(f64::NAN));
                 if ci < self.constraint_col_names.len() {
                     extend_numeric(
                         &mut self.numeric_cols,
@@ -508,21 +521,17 @@ impl DataFrame {
                         values,
                     );
                 } else {
-                    let mut vals = vec![0.0; old_n];
+                    let mut vals = vec![f64::NAN; old_n];
                     vals.extend(values);
                     self.numeric_cols.push((col_name.clone(), vals));
                     self.constraint_col_names.push(col_name);
                 }
             }
 
-            // Derived columns. If constraints appear only partway through, existing rows are "no constraint" = feasible / sum 0.
-            let feasible_values = new_rows.iter().map(|r| {
-                if r.constraint_values.iter().all(|&c| c <= 0.0) {
-                    1.0
-                } else {
-                    0.0
-                }
-            });
+            // Newly constrained historical rows have no verified evaluation.
+            let feasible_values = new_rows
+                .iter()
+                .map(|r| FeasibilityState::classify(&r.constraint_values, max_c).numeric());
             if self.derived_col_names.iter().any(|n| n == "is_feasible") {
                 extend_numeric(
                     &mut self.numeric_cols,
@@ -531,7 +540,7 @@ impl DataFrame {
                     feasible_values,
                 );
             } else {
-                let mut vals = vec![1.0; old_n];
+                let mut vals = vec![f64::NAN; old_n];
                 vals.extend(feasible_values);
                 self.numeric_cols.push(("is_feasible".to_string(), vals));
                 self.derived_col_names.push("is_feasible".to_string());
@@ -554,6 +563,9 @@ impl DataFrame {
         }
 
         self.row_count = old_n + new_rows.len();
+        if max_c != old_c {
+            self.mark_constrained();
+        }
         debug_assert!(
             self.numeric_cols
                 .iter()
@@ -564,6 +576,37 @@ impl DataFrame {
                     .all(|(_, c)| c.len() == self.row_count),
             "append_trials: column length mismatch after append"
         );
+    }
+
+    /// Records attribute-only constrained studies and reclassifies against the
+    /// current schema, including historical rows after schema growth.
+    pub fn mark_constrained(&mut self) {
+        let expected = self.constraint_col_names.len();
+        let states: Vec<f64> = (0..self.row_count)
+            .map(|row| {
+                let values: Vec<f64> = self
+                    .constraint_col_names
+                    .iter()
+                    .map(|name| self.get_numeric_column(name).unwrap()[row])
+                    .collect();
+                FeasibilityState::classify(&values, expected).numeric()
+            })
+            .collect();
+        if let Some((_, col)) = self
+            .numeric_cols
+            .iter_mut()
+            .find(|(name, _)| name == "is_feasible")
+        {
+            *col = states;
+        } else {
+            self.numeric_cols.push(("is_feasible".into(), states));
+            self.derived_col_names.push("is_feasible".into());
+        }
+        if self.get_numeric_column("constraint_sum").is_none() {
+            self.numeric_cols
+                .push(("constraint_sum".into(), vec![0.0; self.row_count]));
+            self.derived_col_names.push("constraint_sum".into());
+        }
     }
 
     /// Returns the trial_id for the given row (`None` if out of range).

@@ -153,6 +153,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn journal_nonfinite_objectives_do_not_shift_into_finite_analysis() {
+        for inline in [true, false] {
+            for token in ["Infinity", "NaN", "-Infinity"] {
+                let trial = if inline {
+                    format!("{{\"op_code\":4,\"study_id\":0,\"distributions\":{{}},\"state\":1,\"values\":[{token},5]}}\n")
+                } else {
+                    format!("{{\"op_code\":4,\"study_id\":0}}\n{{\"op_code\":6,\"trial_id\":0,\"state\":1,\"values\":[{token},5]}}\n")
+                };
+                let data = format!("{{\"op_code\":0,\"study_name\":\"s\",\"directions\":[1,1]}}\n{trial}{{\"op_code\":4,\"study_id\":0,\"distributions\":{{}},\"state\":1,\"values\":[7,8]}}\n");
+                let (_, df, _) =
+                    crate::io::journal::parser::parse_single_study(data.as_bytes(), 0).unwrap();
+                let (_, first) = extract_xy(&df, &[], "obj0", false);
+                assert_eq!(first, vec![7.0]);
+                // Per-objective analyses may retain a finite second objective,
+                // but it must never be reassigned to the first objective.
+                let (_, second) = extract_xy(&df, &[], "obj1", false);
+                assert_eq!(second, vec![5.0, 8.0]);
+            }
+        }
+    }
+
+    #[test]
     fn mixed_type_pdp_keeps_categories_constant_and_filters_missing_numbers() {
         use crate::dataframe::{DataFrame, TrialRow};
         let mut rows: Vec<TrialRow> = (0..4)
@@ -505,6 +527,16 @@ mod tests {
         assert_eq!(y, vec![0.0, 20.0]);
         assert!((x_matrix[0][0] - 0.0).abs() < 1e-9);
         assert!((x_matrix[1][0] - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn feasible_only_excludes_unverified_nonfinite_constraints() {
+        let df = make_constrained_df(&[-1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 1.0, 0.0]);
+        let (x, y) = extract_xy(&df, &["x".into()], "obj0", true);
+        assert_eq!(x, vec![vec![0.0], vec![5.0]]);
+        assert_eq!(y, vec![0.0, 50.0]);
+        let (all, _) = extract_xy(&df, &["x".into()], "obj0", false);
+        assert_eq!(all.len(), 6);
     }
 
     #[test]

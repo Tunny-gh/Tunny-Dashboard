@@ -61,6 +61,7 @@ pub fn stream_single_study_task(data: &[u8], meta: StudyMeta, tx: &SyncSender<Ap
     let result = parser::parse_single_study_streaming(data, study_id, BATCH_SIZE, |batch| {
         let _ = tx.send(AppMessage::StudyChunkLoaded {
             study_id,
+            has_constraints: batch.meta.has_constraints,
             meta: convert_study_meta(batch.meta),
             new_rows: batch.new_rows,
             param_names: batch.param_names,

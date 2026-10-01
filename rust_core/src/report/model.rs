@@ -153,15 +153,16 @@ pub enum ConvergenceStatus {
 /// Summary of a single trial.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct TrialSummary {
+    /// Constraint evaluation state, independent of the displayed maximum.
+    pub feasibility: crate::dataframe::FeasibilityState,
     /// trial.number, 0-based within the study.
     pub trial_number: u32,
     /// Objective values (in objective order).
     pub objectives: Vec<f64>,
     /// Parameters `(name, value)` (in meta's parameter order).
     pub params: Vec<(String, ParamValue)>,
-    /// Max constraint value (constrained studies only; the max over
-    /// Optuna's raw constraint values for the row — `<= 0` means all
-    /// constraints satisfied, positive means a constraint violation).
+    /// Maximum observed finite constraint value. Non-positive values alone
+    /// do not verify completeness; use `feasibility` for the evaluation state.
     pub max_constraint: Option<f64>,
     /// user_attr `(name, value)` (sorted by name).
     pub user_attrs: Vec<(String, String)>,
@@ -173,14 +174,9 @@ pub struct TrialSummary {
 }
 
 impl TrialSummary {
-    /// Whether this trial violates constraints (max constraint value is
-    /// positive).
-    ///
-    /// Unconstrained studies (`max_constraint == None`) never count as a
-    /// violation. Shares the violation-mark determination logic in one
-    /// place for both the HTML and Markdown renderers.
+    /// Whether this trial has a confirmed finite positive violation.
     pub fn violates_constraints(&self) -> bool {
-        self.max_constraint.is_some_and(|v| v > 0.0)
+        self.feasibility == crate::dataframe::FeasibilityState::Infeasible
     }
 }
 
@@ -214,7 +210,7 @@ pub enum Outcome {
     },
     /// Multi-objective.
     MultiObj {
-        /// Pareto front size.
+        /// Verified feasible Pareto front size (fallback candidates excluded).
         pareto_size: usize,
         /// COMPLETE count.
         complete_count: usize,
@@ -222,7 +218,8 @@ pub enum Outcome {
         objective_count: usize,
         /// Extremes per objective.
         per_objective_extremes: Vec<ObjectiveExtreme>,
-        /// Pareto front trial table (TOPSIS order, capped at `top_n*2`).
+        /// Verified front or objective-only fallback candidates (TOPSIS order,
+        /// capped at `top_n*2`), with explicit per-trial feasibility states.
         pareto_table: Vec<TrialSummary>,
         /// Number of constraint-violating trials contained in the Pareto
         /// front (the full set, before capping). Only becomes positive
@@ -254,12 +251,8 @@ pub struct ObjectiveExtreme {
     pub best_value: f64,
     /// trial.number that achieved the best value.
     pub best_trial_number: u32,
-    /// Whether the best trial satisfies all constraints (always `true`
-    /// for unconstrained studies). Because extremes are descriptive
-    /// statistics over all COMPLETE trials, a constraint-violating trial
-    /// can end up as the best. The renderer adds an explicit mark in that
-    /// case.
-    pub best_feasible: bool,
+    /// Feasibility of the descriptive objective extreme over all COMPLETE trials.
+    pub best_feasible: crate::dataframe::FeasibilityState,
     /// Worst value.
     pub worst_value: f64,
 }
@@ -275,9 +268,8 @@ pub struct ParetoPoint {
     pub y: f64,
     /// Whether this point lies on the Pareto front.
     pub on_front: bool,
-    /// Whether it satisfies all constraints (always `true` for
-    /// unconstrained studies).
-    pub feasible: bool,
+    /// Constraint evaluation state (Feasible for unconstrained studies).
+    pub feasible: crate::dataframe::FeasibilityState,
 }
 
 /// Convergence section.

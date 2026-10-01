@@ -31,6 +31,26 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- Constraint feasibility now distinguishes **Feasible**, **Infeasible**, and
+  **Feasibility unverified**. Missing, partial, invalid, or non-finite evaluations
+  no longer become satisfied zeros; finite positive violations still establish
+  infeasibility. Incremental constraint-schema growth reclassifies historical
+  trials consistently with initial loading, including schema evidence from
+  non-COMPLETE trials and metadata-only batches. Optuna's Python JSON non-finite
+  tokens retain their constraint positions instead of dropping arrays or records.
+  Journal objective arrays also preserve non-finite or invalid positions as NaN,
+  so later finite objectives never shift into earlier columns; existing finite-data
+  report and analysis filters continue to exclude invalid observations.
+  Only verified feasible trials enter
+  constrained Pareto fronts and feasible-only analyses. GUI convergence indicators
+  also exclude unverified and infeasible observations from base/comparison histories
+  and their shared reference set, preserving original trial coordinates. GUI
+  convergence computation waits for the final streaming chunk, and results from
+  replaced snapshots are rejected so constraint-schema growth cannot leave stale
+  indicator histories. Scatter
+  plots, details, and reports distinguish unverified trials. Reports with no verified feasible
+  trials retain clearly labeled objective-only candidates, excluded from verified
+  feasible/front counts. Genuinely unconstrained studies retain their behavior.
 - IGD+ histories now give each exactly distinct finite reference objective vector
   equal weight, ignoring duplicate vectors (including signed-zero variants) within
   a study or across comparison studies while preserving every trial history entry.

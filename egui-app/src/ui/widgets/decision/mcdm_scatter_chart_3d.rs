@@ -164,6 +164,14 @@ impl McdmScatterChart3D {
             let cz = normalize_to_clip(z, z_range.0, z_range.1);
 
             if !feas.is_feasible(i) {
+                if feas.state(i) == tunny_core::dataframe::FeasibilityState::Unverified {
+                    clip_pts.push((
+                        [cx, cy, cz],
+                        crate::theme::chart_colors::COLOR_UNVERIFIED(),
+                        i,
+                    ));
+                    continue;
+                }
                 infeasible_clip_pts.push(([cx, cy, cz], i));
                 continue;
             }
@@ -280,6 +288,10 @@ impl McdmScatterChart3D {
         if has_constraints {
             ui.horizontal(|ui| {
                 ui.checkbox(&mut self.show_infeasible, "Show Infeasible");
+                ui.colored_label(
+                    crate::theme::chart_colors::COLOR_UNVERIFIED(),
+                    "Feasibility unverified",
+                );
             });
         }
 

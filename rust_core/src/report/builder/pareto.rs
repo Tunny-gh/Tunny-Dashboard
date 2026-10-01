@@ -26,7 +26,7 @@ pub(super) fn build_scatter_points(
             x: objectives[r][0],
             y: if m >= 2 { objectives[r][1] } else { f64::NAN },
             on_front: on_front[r],
-            feasible: feas.is_feasible(r),
+            feasible: feas.state(r),
         })
         .collect()
 }

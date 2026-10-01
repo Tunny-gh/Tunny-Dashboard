@@ -525,9 +525,7 @@ impl ResponseSurfaceChart {
                     let rank = view.pareto_rank.get(row).copied().unwrap_or(0);
                     vec![(
                         "Status".to_string(),
-                        classify_observed(feas.is_feasible(row), rank)
-                            .label()
-                            .to_string(),
+                        classify_observed(feas.state(row), rank).label().to_string(),
                     )]
                 },
             );

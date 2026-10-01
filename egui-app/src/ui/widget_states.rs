@@ -376,7 +376,7 @@ pub struct SurrogateObservedEntry {
     pub key: SurrogateObservedKey,
     pub obj_history: Option<Vec<f64>>,
     pub observed_cols: Option<Vec<Vec<f64>>>,
-    pub observed_feasible: Vec<bool>,
+    pub observed_feasible: Vec<tunny_core::dataframe::FeasibilityState>,
 }
 
 /// The sync signature for a single comparison Study: (df identity, convergence
@@ -438,7 +438,11 @@ impl RenderChartCache {
     pub fn surrogate_observed(
         &mut self,
         key: SurrogateObservedKey,
-        build: impl FnOnce() -> (Option<Vec<f64>>, Option<Vec<Vec<f64>>>, Vec<bool>),
+        build: impl FnOnce() -> (
+            Option<Vec<f64>>,
+            Option<Vec<Vec<f64>>>,
+            Vec<tunny_core::dataframe::FeasibilityState>,
+        ),
     ) -> &SurrogateObservedEntry {
         if self.surrogate_observed.as_ref().map(|e| &e.key) != Some(&key) {
             let (obj_history, observed_cols, observed_feasible) = build();

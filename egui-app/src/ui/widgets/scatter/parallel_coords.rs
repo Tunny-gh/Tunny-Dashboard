@@ -211,6 +211,10 @@ impl ParallelCoordsChart {
                 });
             if has_constraints {
                 ui.checkbox(&mut self.show_infeasible, "Show Infeasible");
+                ui.colored_label(
+                    crate::theme::chart_colors::COLOR_UNVERIFIED(),
+                    "Feasibility unverified",
+                );
             }
         });
 
@@ -355,7 +359,9 @@ impl ParallelCoordsChart {
         for &(t_idx, in_selection) in draw_targets {
             let feasible = feas.is_feasible(t_idx);
 
-            if !feasible && !show_infeasible {
+            if feas.state(t_idx) == tunny_core::dataframe::FeasibilityState::Infeasible
+                && !show_infeasible
+            {
                 continue;
             }
 
@@ -375,6 +381,8 @@ impl ParallelCoordsChart {
                     .unwrap_or(COLOR_PARALLEL_LINE_DEFAULT());
                 let [r, g, b, _] = rgba_key(base_color);
                 rgba_to_color32([r, g, b, 120])
+            } else if feas.state(t_idx) == tunny_core::dataframe::FeasibilityState::Unverified {
+                crate::theme::chart_colors::COLOR_UNVERIFIED()
             } else {
                 COLOR_INFEASIBLE()
             };

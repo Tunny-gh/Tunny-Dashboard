@@ -56,6 +56,7 @@ struct PointCache {
     feasible: Vec<(u32, u32, [f64; 2])>,
     /// Coordinates of infeasible points (always drawn gray, at the back).
     infeasible_pts: Vec<[f64; 2]>,
+    unverified_pts: Vec<[f64; 2]>,
     /// All drawn points for click/brush hit-testing: `(trial_id, row index, [x, y])`.
     displayed_points: Vec<(u32, usize, [f64; 2])>,
 }
@@ -79,7 +80,7 @@ impl Default for ParetoScatter2D {
 pub(crate) struct ClassifiedRow {
     pub trial_id: u32,
     pub row: usize,
-    pub feasible: bool,
+    pub feasible: tunny_core::dataframe::FeasibilityState,
     /// pareto_rank (only meaningful when feasible; 0 for infeasible).
     pub rank: u32,
 }
@@ -94,7 +95,7 @@ pub(crate) fn classify_rows(view: &crate::state::types::StudyView) -> Vec<Classi
     (0..n)
         .map(|i| {
             let trial_id = view.trial_ids.get(i).copied().unwrap_or(i as u32);
-            let feasible = feas.is_feasible(i);
+            let feasible = feas.state(i);
             let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
             ClassifiedRow {
                 trial_id,
@@ -121,12 +122,17 @@ fn build_point_cache(
     };
     let mut feasible: Vec<(u32, u32, [f64; 2])> = Vec::new();
     let mut infeasible_pts: Vec<[f64; 2]> = Vec::new();
+    let mut unverified_pts = Vec::new();
     let mut displayed_points: Vec<(u32, usize, [f64; 2])> = Vec::with_capacity(n);
     // Feasibility splitting and rank lookup are shared with 3D (D-6).
     for r in classify_rows(view) {
         let pt = coord(r.row);
         displayed_points.push((r.trial_id, r.row, pt));
-        if !r.feasible {
+        if r.feasible == tunny_core::dataframe::FeasibilityState::Unverified {
+            unverified_pts.push(pt);
+            continue;
+        }
+        if r.feasible == tunny_core::dataframe::FeasibilityState::Infeasible {
             infeasible_pts.push(pt);
             continue;
         }
@@ -136,6 +142,7 @@ fn build_point_cache(
         key,
         feasible,
         infeasible_pts,
+        unverified_pts,
         displayed_points,
     }
 }
@@ -361,6 +368,16 @@ impl ParetoScatter2D {
                 // The selection rectangle is overlaid in screen coordinates after the Plot is drawn (see below).
 
                 // Infeasible solutions (backmost layer: grayed out)
+                if !cache.unverified_pts.is_empty() {
+                    plot_ui.points(
+                        egui_plot::Points::new(
+                            "Feasibility unverified",
+                            cache.unverified_pts.clone(),
+                        )
+                        .color(crate::theme::chart_colors::COLOR_UNVERIFIED())
+                        .radius(3.0),
+                    );
+                }
                 if !infeasible_pts.is_empty() {
                     plot_ui.points(
                         egui_plot::Points::new("Infeasible", infeasible_pts.clone())

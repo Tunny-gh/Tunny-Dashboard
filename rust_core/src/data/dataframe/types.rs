@@ -20,6 +20,6 @@ pub struct TrialRow {
     pub user_attrs_string: HashMap<String, String>,
     /// Original JSON values for present trial user attributes.
     pub user_attrs_json: HashMap<String, serde_json::Value>,
-    /// constraints value list (REQ-013)
+    /// Constraint values in original array order, with invalid positions as NaN.
     pub constraint_values: Vec<f64>,
 }

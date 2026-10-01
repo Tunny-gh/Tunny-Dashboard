@@ -26,10 +26,11 @@ pub struct OptHistoryComparison {
 /// Moving Average is only computed when the display toggle is enabled (no wasted
 /// computation when disabled).
 struct HistoryCache {
-    key: (usize, usize, bool, usize, bool), // (row_count, obj_idx, log_scale, window_size, is_minimize)
+    key: (usize, usize, bool, usize, bool, usize), // Includes DataFrame identity for reclassification.
     values: Vec<f64>,
     feasible_vals: Vec<[f64; 2]>,
     infeasible_vals: Vec<[f64; 2]>,
+    unverified_vals: Vec<[f64; 2]>,
     base_hit_points: Vec<(u32, usize, [f64; 2])>,
     best_values: Vec<[f64; 2]>,
     moving_avg: Option<Vec<[f64; 2]>>,
@@ -143,7 +144,14 @@ impl OptimizationHistoryChart {
         // objective selection, log/minimize-maximize flag, or moving-average window
         // changes (Moving Average is lazily computed only when the display toggle is
         // enabled).
-        let cache_key = (row_count, self.obj_idx, log_scale, window_size, is_minimize);
+        let cache_key = (
+            row_count,
+            self.obj_idx,
+            log_scale,
+            window_size,
+            is_minimize,
+            std::sync::Arc::as_ptr(&view.df) as usize,
+        );
         if self.history_cache.as_ref().map(|c| c.key) != Some(cache_key) {
             let values: Vec<f64> = obj_names
                 .get(self.obj_idx)
@@ -153,7 +161,8 @@ impl OptimizationHistoryChart {
 
             // Split All Trials into feasible / infeasible (only branches for
             // constrained Studies)
-            let (feasible_vals, infeasible_vals) = partition_history_by_feasibility(&values, feas);
+            let (feasible_vals, infeasible_vals, unverified_vals) =
+                partition_history_by_feasibility(&values, feas);
 
             // Build each trial's point as (trial_id, row index, [x, y]) for click
             // detection.
@@ -176,6 +185,7 @@ impl OptimizationHistoryChart {
                 values,
                 feasible_vals,
                 infeasible_vals,
+                unverified_vals,
                 base_hit_points,
                 best_values,
                 moving_avg: None,
@@ -188,6 +198,7 @@ impl OptimizationHistoryChart {
         let values = &cache.values;
         let feasible_vals = &cache.feasible_vals;
         let infeasible_vals = &cache.infeasible_vals;
+        let unverified_vals = &cache.unverified_vals;
         let base_hit_points = &cache.base_hit_points;
         let best_values = &cache.best_values;
         let moving_avg = cache.moving_avg.as_ref();
@@ -221,6 +232,15 @@ impl OptimizationHistoryChart {
                     [x, if log_scale && v > 0.0 { v.log10() } else { v }]
                 };
                 // Draw infeasible points behind, always (display can be toggled via the legend)
+                if !unverified_vals.is_empty() {
+                    let pts: egui_plot::PlotPoints =
+                        unverified_vals.iter().copied().map(apply_log).collect();
+                    plot_ui.points(
+                        egui_plot::Points::new("Feasibility unverified", pts)
+                            .color(crate::theme::chart_colors::COLOR_UNVERIFIED())
+                            .radius(1.5),
+                    );
+                }
                 if !infeasible_vals.is_empty() {
                     let pts: egui_plot::PlotPoints =
                         infeasible_vals.iter().copied().map(apply_log).collect();
@@ -331,26 +351,31 @@ impl OptimizationHistoryChart {
     }
 }
 
-/// Splits the objective value column into feasible / infeasible point lists based on
+/// Splits the objective value column into feasible / infeasible / unverified point lists based on
 /// feasibility.
 /// For an unconstrained Study (feas.has_constraints() == false), all points are
 /// classified as feasible.
-/// Returns: (feasible_pts, infeasible_pts), both in [trial_idx, value] format.
+/// Returns (feasible, infeasible, unverified) in [trial_idx, value] format.
 pub fn partition_history_by_feasibility(
     values: &[f64],
     feas: tunny_core::dataframe::Feasibility<'_>,
-) -> (Vec<[f64; 2]>, Vec<[f64; 2]>) {
+) -> HistoryPartitions {
     let mut feasible: Vec<[f64; 2]> = Vec::with_capacity(values.len());
     let mut infeasible: Vec<[f64; 2]> = Vec::with_capacity(values.len());
+    let mut unverified = Vec::new();
     for (i, &v) in values.iter().enumerate() {
         if feas.is_feasible(i) {
             feasible.push([i as f64, v]);
+        } else if feas.state(i) == tunny_core::dataframe::FeasibilityState::Unverified {
+            unverified.push([i as f64, v]);
         } else {
             infeasible.push([i as f64, v]);
         }
     }
-    (feasible, infeasible)
+    (feasible, infeasible, unverified)
 }
+
+type HistoryPartitions = (Vec<[f64; 2]>, Vec<[f64; 2]>, Vec<[f64; 2]>);
 
 /// Computes the cumulative best value (minimize: cumulative min, maximize: cumulative max)
 pub fn compute_best_values(values: &[f64], is_minimize: bool) -> Vec<[f64; 2]> {
@@ -450,7 +475,8 @@ mod tests {
         use tunny_core::dataframe::Feasibility;
         let values = vec![1.0, 2.0, 3.0];
         let feas = Feasibility::from_column(None);
-        let (f, inf) = partition_history_by_feasibility(&values, feas);
+        let (f, inf, u) = partition_history_by_feasibility(&values, feas);
+        assert!(u.is_empty());
         assert_eq!(f.len(), 3);
         assert!(inf.is_empty());
     }
@@ -461,7 +487,8 @@ mod tests {
         let values = vec![1.0, 2.0, 3.0];
         let is_feasible = vec![1.0_f64, 0.0, 1.0]; // idx 1 = infeasible
         let feas = Feasibility::from_column(Some(&is_feasible));
-        let (f, inf) = partition_history_by_feasibility(&values, feas);
+        let (f, inf, u) = partition_history_by_feasibility(&values, feas);
+        assert!(u.is_empty());
         assert_eq!(f.len(), 2);
         assert_eq!(inf.len(), 1);
         assert_eq!(inf[0][0], 1.0); // trial_idx=1
@@ -474,7 +501,8 @@ mod tests {
         let values = vec![1.0, 2.0];
         let is_feasible = vec![0.0_f64, 0.0];
         let feas = Feasibility::from_column(Some(&is_feasible));
-        let (f, inf) = partition_history_by_feasibility(&values, feas);
+        let (f, inf, u) = partition_history_by_feasibility(&values, feas);
+        assert!(u.is_empty());
         assert!(f.is_empty());
         assert_eq!(inf.len(), 2);
     }

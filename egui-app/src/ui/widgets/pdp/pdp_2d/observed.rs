@@ -46,11 +46,7 @@ pub(crate) fn extract_observed_3d(
                 return None;
             }
             let rank = view.pareto_rank.get(i).copied().unwrap_or(0);
-            Some((
-                i,
-                [p1, p2, ov],
-                classify_observed(feas.is_feasible(i), rank),
-            ))
+            Some((i, [p1, p2, ov], classify_observed(feas.state(i), rank)))
         })
         .collect()
 }

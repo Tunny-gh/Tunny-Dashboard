@@ -54,8 +54,8 @@ pub struct ObservedData<'a> {
     pub objective_cols: &'a [Vec<f64>],
     /// Each trial's Pareto rank (0 = observed front).
     pub pareto_rank: &'a [u32],
-    /// Whether each trial is feasible.
-    pub feasible: &'a [bool],
+    /// Each trial's explicit constraint evaluation state.
+    pub feasible: &'a [tunny_core::dataframe::FeasibilityState],
 }
 
 /// `param_names` contains numeric parameters only (categorical columns are not

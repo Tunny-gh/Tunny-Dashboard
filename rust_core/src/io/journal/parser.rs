@@ -11,6 +11,7 @@ mod finalize;
 mod state;
 mod types;
 
+use crate::io::optuna_json::parse as parse_json;
 use serde_json::Value;
 
 use super::line_u32_field;
@@ -57,7 +58,7 @@ pub fn parse_journal(data: &[u8]) -> Result<ParseResult, String> {
     let mut valid_lines: u32 = 0;
 
     for line in &lines {
-        if let Ok(json) = serde_json::from_str::<Value>(line.trim()) {
+        if let Ok(json) = parse_json(line.trim()) {
             valid_lines += 1;
             if let Some(op) = get_u64(&json, "op_code") {
                 #[allow(clippy::cast_possible_truncation)]
@@ -122,7 +123,7 @@ pub fn scan_study_list(data: &[u8]) -> Result<Vec<StudyMeta>, String> {
         if op == 3 && !line.contains("study:metric_names") {
             continue;
         }
-        let Ok(json) = serde_json::from_str::<Value>(line) else {
+        let Ok(json) = parse_json(line) else {
             continue;
         };
         match op {
@@ -199,7 +200,7 @@ pub fn scan_study_list(data: &[u8]) -> Result<Vec<StudyMeta>, String> {
 fn process_study_meta_op(state: &mut ParserState, op: u8, line: &str) -> bool {
     match op {
         0 => {
-            if let Ok(json) = serde_json::from_str::<Value>(line) {
+            if let Ok(json) = parse_json(line) {
                 state.process_op(0, &json);
                 true
             } else {
@@ -208,7 +209,7 @@ fn process_study_meta_op(state: &mut ParserState, op: u8, line: &str) -> bool {
         }
         3 => {
             if line.contains("study:metric_names") {
-                if let Ok(json) = serde_json::from_str::<Value>(line) {
+                if let Ok(json) = parse_json(line) {
                     state.process_op(3, &json);
                 }
             }
@@ -298,7 +299,7 @@ pub fn parse_single_study(
                     None => {
                         // Extraction failed → fall back to full parsing for safety
                         let tid = state.next_trial_id;
-                        if let Ok(json) = serde_json::from_str::<Value>(line) {
+                        if let Ok(json) = parse_json(line) {
                             state.process_op(4, &json);
                             if state.trial_builders.contains_key(&tid) {
                                 target_trial_ids.insert(tid);
@@ -328,11 +329,7 @@ pub fn parse_single_study(
     // &str has the same lifetime as text and is Send, so it can be safely sent to rayon threads.
     let parsed: Vec<(u8, Value, Option<u32>)> = deferred
         .par_iter()
-        .filter_map(|(line, op, pre_tid)| {
-            serde_json::from_str::<Value>(line)
-                .ok()
-                .map(|v| (*op, v, *pre_tid))
-        })
+        .filter_map(|(line, op, pre_tid)| parse_json(line).ok().map(|v| (*op, v, *pre_tid)))
         .collect();
     drop(deferred);
 
@@ -500,10 +497,6 @@ impl StreamAccum {
         for name in b.user_attrs_json.keys() {
             self.user_attr_name_set.insert(name.clone());
         }
-        if b.has_constraints {
-            self.has_constraints = true;
-        }
-        self.max_constraints = self.max_constraints.max(b.constraint_values.len());
         if self.derived_objective_names.is_empty() {
             if let Some(values) = &b.values {
                 self.derived_objective_names =
@@ -546,6 +539,9 @@ impl StreamAccum {
         F: FnMut(StudyStreamBatch),
     {
         let trial_state = state.trial_builders.get(&tid).map(|b| b.state).unwrap_or(0);
+        if let Some(b) = state.trial_builders.get(&tid) {
+            self.observe_constraints(b);
+        }
         if trial_state == 1 {
             let b = state.trial_builders.remove(&tid).unwrap();
             extras_trials.push(trial_extra_from_builder(tid, &b));
@@ -555,6 +551,12 @@ impl StreamAccum {
                 extras_trials.push(trial_extra_from_builder(tid, &b));
             }
         }
+    }
+
+    /// Constraint schema evidence belongs to the study, not just COMPLETE rows.
+    fn observe_constraints(&mut self, trial: &builders::TrialBuilder) {
+        self.has_constraints |= trial.has_constraints || !trial.constraint_values.is_empty();
+        self.max_constraints = self.max_constraints.max(trial.constraint_values.len());
     }
 }
 
@@ -633,7 +635,7 @@ where
                 let mut parsed_target = false;
                 match line_u32_field(line, "study_id") {
                     Some(sid) if sid == target_study_id => {
-                        if let Ok(json) = serde_json::from_str::<Value>(line) {
+                        if let Ok(json) = parse_json(line) {
                             state.process_op(4, &json);
                             parsed_target = true;
                         }
@@ -643,7 +645,7 @@ where
                         count_other_study_trial(&mut state, sid);
                     }
                     None => {
-                        if let Ok(json) = serde_json::from_str::<Value>(line) {
+                        if let Ok(json) = parse_json(line) {
                             state.process_op(4, &json);
                             parsed_target = true;
                         }
@@ -671,10 +673,13 @@ where
                 if !state.trial_builders.contains_key(&tid) {
                     continue; // Trial not from the target study → ignore
                 }
-                let Ok(json) = serde_json::from_str::<Value>(line) else {
+                let Ok(json) = parse_json(line) else {
                     continue;
                 };
                 state.process_op(op, &json);
+                if let Some(trial) = state.trial_builders.get(&tid) {
+                    acc.observe_constraints(trial);
+                }
 
                 if op != 6 {
                     continue;
@@ -702,6 +707,7 @@ where
     // trial_builders still remaining at EOF (only generated for the target study) are
     // still Running, i.e. not yet finalized as complete/prune/fail. Fold them into extras.
     for (tid, b) in state.trial_builders.drain() {
+        acc.observe_constraints(&b);
         extras_trials.push(trial_extra_from_builder(tid, &b));
     }
     extras_trials.sort_by_key(|t| t.trial_id);

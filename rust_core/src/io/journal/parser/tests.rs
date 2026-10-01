@@ -3,6 +3,342 @@ use crate::dataframe::DataFrame;
 use serde_json::Value;
 use std::collections::HashMap;
 
+#[test]
+fn objective_nonfinite_positions_survive_op4_and_op6_and_are_excluded_from_reports() {
+    use crate::report::{
+        build_study_report, render_html, render_markdown, Outcome, ReportLang, ReportOptions,
+        ReportSource,
+    };
+    for inline in [true, false] {
+        for invalid in ["Infinity", "NaN", "-Infinity", "null", "\"invalid\""] {
+            let trial = if inline {
+                format!("{{\"op_code\":4,\"study_id\":0,\"distributions\":{{}},\"state\":1,\"values\":[{invalid},5]}}\n")
+            } else {
+                format!("{{\"op_code\":4,\"study_id\":0}}\n{{\"op_code\":6,\"trial_id\":0,\"state\":1,\"values\":[{invalid},5]}}\n")
+            };
+            let data = format!("{{\"op_code\":0,\"study_name\":\"s\",\"directions\":[1,1]}}\n{trial}{{\"op_code\":4,\"study_id\":0,\"distributions\":{{}},\"state\":1,\"values\":[7,8]}}\n");
+            let (meta, initial, extras) = parse_single_study(data.as_bytes(), 0).unwrap();
+            assert_eq!(
+                meta.objective_names,
+                vec!["obj0", "obj1"],
+                "inline={inline}, {invalid}"
+            );
+            assert_eq!(initial.row_count(), 2);
+            let mut streamed = DataFrame::empty();
+            parse_single_study_streaming(data.as_bytes(), 0, 1, |batch| {
+                for row in &batch.new_rows {
+                    assert_eq!(row.objective_values.len(), 2);
+                }
+                streamed.append_trials(
+                    &batch.new_rows,
+                    &batch.param_names,
+                    &batch.objective_names,
+                    &batch.user_attr_numeric_names,
+                    &batch.user_attr_string_names,
+                    batch.max_constraints,
+                );
+            })
+            .unwrap();
+            for df in [&initial, &streamed] {
+                assert_eq!(df.objective_col_names(), &["obj0", "obj1"]);
+                let first = df.get_numeric_column("obj0").unwrap();
+                assert!(first[0].is_nan());
+                assert_eq!(first[1], 7.0);
+                assert_eq!(df.get_numeric_column("obj1").unwrap(), &[5.0, 8.0]);
+                let report = build_study_report(
+                    &meta,
+                    df,
+                    Some(&extras),
+                    &ReportSource {
+                        storage_display: "journal".into(),
+                        generated_at_unix: None,
+                    },
+                    &ReportOptions::default(),
+                );
+                let Outcome::MultiObj {
+                    pareto_size,
+                    complete_count,
+                    pareto_table,
+                    scatter,
+                    ..
+                } = &report.outcome
+                else {
+                    panic!("objective dimension must remain two");
+                };
+                assert_eq!(*pareto_size, 1);
+                assert_eq!(*complete_count, 1);
+                assert_eq!(pareto_table.len(), 1);
+                assert_eq!(pareto_table[0].trial_number, 1);
+                assert_eq!(pareto_table[0].objectives, vec![7.0, 8.0]);
+                assert_eq!(scatter.len(), 1);
+                assert_eq!(scatter[0].trial_number, 1);
+                let json = serde_json::to_value(&report).unwrap();
+                let outcome = &json["outcome"]["MultiObj"];
+                assert_eq!(outcome["objective_count"], 2);
+                assert_eq!(outcome["complete_count"], 1);
+                assert_eq!(
+                    outcome["pareto_table"][0]["objectives"],
+                    serde_json::json!([7.0, 8.0])
+                );
+                for output in [
+                    render_html(&report, ReportLang::En),
+                    render_markdown(&report, ReportLang::En),
+                ] {
+                    assert!(output.contains("1 trial(s) with non-finite objective values"));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn python_nonfinite_constraints_and_all_trial_schema_match_metadata_only_batches() {
+    use crate::dataframe::FeasibilityState::*;
+    let data = concat!(
+        "{\"op_code\":0,\"study_name\":\"s\",\"directions\":[1]}\n",
+        "{\"op_code\":4,\"study_id\":0,\"distributions\":{},\"state\":1,\"values\":[1],\"system_attrs\":{\"constraints\":[-1]}}\n",
+        "{\"op_code\":4,\"study_id\":0}\n",
+        "{\"op_code\":9,\"trial_id\":1,\"system_attr\":{\"constraints\":[NaN,0.5,Infinity,-Infinity]}}\n",
+        "{\"op_code\":8,\"trial_id\":1,\"user_attr\":{\"text\":\"NaN Infinity -Infinity \\\"Infinity\\\"\",\"number\":7}}\n",
+        "{\"op_code\":6,\"trial_id\":1,\"state\":1,\"values\":[2]}\n",
+        "{\"op_code\":4,\"study_id\":0}\n",
+        "{\"op_code\":9,\"trial_id\":2,\"system_attr\":{\"constraints\":[-1,-2,NaN,Infinity,-Infinity]}}\n",
+        "{\"op_code\":6,\"trial_id\":2,\"state\":2,\"values\":[3]}\n",
+        "{\"op_code\":4,\"study_id\":0,\"distributions\":{},\"state\":0,\"system_attrs\":{\"constraints\":[-1,-2,-3,-4,-5,-6]}}\n"
+    );
+    let (meta, initial, _) = parse_single_study(data.as_bytes(), 0).unwrap();
+    assert!(meta.has_constraints);
+    assert_eq!(initial.row_count(), 2);
+    assert_eq!(initial.constraint_col_names().len(), 6);
+    assert_eq!(
+        initial.feasibility().partition_indices(2),
+        (vec![], vec![1], vec![0])
+    );
+    assert!(initial.get_numeric_column("c1").unwrap()[1].is_nan());
+    assert_eq!(initial.get_numeric_column("c2").unwrap()[1], 0.5);
+    assert_eq!(
+        initial.user_attr_value("text", 1),
+        Some(&serde_json::json!("NaN Infinity -Infinity \"Infinity\""))
+    );
+    let mut batches = Vec::new();
+    parse_single_study_streaming(data.as_bytes(), 0, 1, |batch| batches.push(batch)).unwrap();
+    let last = batches.last().unwrap();
+    assert!(last.new_rows.is_empty());
+    assert!(last.is_final && last.meta.has_constraints);
+    assert_eq!(last.max_constraints, 6);
+    assert_eq!(last.meta.completed_trials, meta.completed_trials);
+    assert_eq!(last.meta.total_trials, meta.total_trials);
+    let mut streamed = DataFrame::empty();
+    for batch in batches {
+        streamed.append_trials(
+            &batch.new_rows,
+            &batch.param_names,
+            &batch.objective_names,
+            &batch.user_attr_numeric_names,
+            &batch.user_attr_string_names,
+            batch.max_constraints,
+        );
+        if batch.meta.has_constraints && !streamed.feasibility().has_constraints() {
+            streamed.mark_constrained();
+        }
+    }
+    assert_eq!(
+        streamed.constraint_col_names(),
+        initial.constraint_col_names()
+    );
+    for row in 0..2 {
+        assert_eq!(
+            streamed.feasibility().state(row),
+            initial.feasibility().state(row)
+        );
+    }
+    assert_eq!(streamed.feasibility().state(1), Infeasible);
+}
+
+#[test]
+fn noncomplete_attribute_only_evidence_is_not_unconstrained() {
+    for state in [0, 2, 3] {
+        let data = format!("{{\"op_code\":0,\"study_name\":\"s\",\"directions\":[1]}}\n{{\"op_code\":4,\"study_id\":0,\"distributions\":{{}},\"state\":1,\"values\":[1]}}\n{{\"op_code\":4,\"study_id\":0,\"distributions\":{{}},\"state\":{state},\"system_attrs\":{{\"constraints\":[]}}}}\n");
+        let (meta, initial, _) = parse_single_study(data.as_bytes(), 0).unwrap();
+        assert!(meta.has_constraints);
+        assert_eq!(initial.row_count(), 1);
+        assert_eq!(
+            initial.feasibility().state(0),
+            crate::dataframe::FeasibilityState::Unverified
+        );
+        let mut batches = Vec::new();
+        parse_single_study_streaming(data.as_bytes(), 0, 1, |batch| batches.push(batch)).unwrap();
+        let last = batches.last().unwrap();
+        assert!(last.new_rows.is_empty());
+        assert!(last.meta.has_constraints);
+        assert_eq!(last.max_constraints, 0);
+        let mut streamed = DataFrame::empty();
+        for batch in batches {
+            streamed.append_trials(
+                &batch.new_rows,
+                &batch.param_names,
+                &batch.objective_names,
+                &batch.user_attr_numeric_names,
+                &batch.user_attr_string_names,
+                batch.max_constraints,
+            );
+            if batch.meta.has_constraints && !streamed.feasibility().has_constraints() {
+                streamed.mark_constrained();
+            }
+        }
+        assert_eq!(streamed.row_count(), initial.row_count());
+        assert_eq!(
+            streamed.constraint_col_names(),
+            initial.constraint_col_names()
+        );
+        assert_eq!(
+            streamed.feasibility().state(0),
+            initial.feasibility().state(0)
+        );
+    }
+}
+
+#[test]
+fn studies_without_complete_rows_still_infer_noncomplete_constraint_schema() {
+    for state in [0, 2, 3] {
+        let data = format!("{{\"op_code\":0,\"study_name\":\"s\",\"directions\":[1]}}\n{{\"op_code\":4,\"study_id\":0,\"distributions\":{{}},\"state\":{state},\"system_attrs\":{{\"constraints\":[NaN,Infinity,-Infinity]}}}}\n");
+        let (meta, initial, _) = parse_single_study(data.as_bytes(), 0).unwrap();
+        assert!(meta.has_constraints);
+        assert_eq!(meta.completed_trials, 0);
+        assert_eq!(initial.row_count(), 0);
+        assert_eq!(initial.constraint_col_names().len(), 3);
+        let mut batches = Vec::new();
+        parse_single_study_streaming(data.as_bytes(), 0, 1, |batch| batches.push(batch)).unwrap();
+        assert_eq!(batches.len(), 1);
+        let batch = &batches[0];
+        assert!(batch.new_rows.is_empty());
+        assert!(batch.is_first && batch.is_final && batch.meta.has_constraints);
+        assert_eq!(batch.max_constraints, 3);
+        let mut streamed = DataFrame::empty();
+        streamed.append_trials(
+            &batch.new_rows,
+            &batch.param_names,
+            &batch.objective_names,
+            &batch.user_attr_numeric_names,
+            &batch.user_attr_string_names,
+            batch.max_constraints,
+        );
+        assert_eq!(
+            streamed.constraint_col_names(),
+            initial.constraint_col_names()
+        );
+        assert!(streamed.feasibility().has_constraints());
+    }
+}
+
+#[test]
+fn python_nonfinite_inline_array_is_unverified_not_a_lost_trial() {
+    let data = concat!(
+        "{\"op_code\":0,\"study_name\":\"s\",\"directions\":[1]}\n",
+        "{\"op_code\":4,\"study_id\":0,\"distributions\":{},\"state\":1,\"values\":[2],\"user_attrs\":{\"text\":\"Infinity NaN\",\"value\":17},\"system_attrs\":{\"constraints\":[NaN,Infinity,-Infinity]}}\n"
+    );
+    let (meta, initial, _) = parse_single_study(data.as_bytes(), 0).unwrap();
+    assert!(meta.has_constraints);
+    assert_eq!(initial.row_count(), 1);
+    assert_eq!(initial.constraint_col_names().len(), 3);
+    assert_eq!(
+        initial.feasibility().state(0),
+        crate::dataframe::FeasibilityState::Unverified
+    );
+    assert_eq!(
+        initial.user_attr_value("text", 0),
+        Some(&serde_json::json!("Infinity NaN"))
+    );
+    assert_eq!(
+        initial.user_attr_value("value", 0),
+        Some(&serde_json::json!(17))
+    );
+    let mut streamed = DataFrame::empty();
+    parse_single_study_streaming(data.as_bytes(), 0, 1, |batch| {
+        streamed.append_trials(
+            &batch.new_rows,
+            &batch.param_names,
+            &batch.objective_names,
+            &batch.user_attr_numeric_names,
+            &batch.user_attr_string_names,
+            batch.max_constraints,
+        );
+    })
+    .unwrap();
+    assert_eq!(streamed.row_count(), initial.row_count());
+    assert_eq!(
+        streamed.feasibility().state(0),
+        initial.feasibility().state(0)
+    );
+    assert_eq!(
+        parse_journal(data.as_bytes()).unwrap().studies[0].completed_trials,
+        1
+    );
+}
+
+#[test]
+fn invalid_constraint_positions_and_schema_growth_match_streaming() {
+    use crate::dataframe::FeasibilityState::*;
+    let data = concat!(
+        "{\"op_code\":0,\"study_name\":\"s\",\"directions\":[1]}\n",
+        "{\"op_code\":4,\"study_id\":0}\n",
+        "{\"op_code\":6,\"trial_id\":0,\"state\":1,\"values\":[0]}\n",
+        "{\"op_code\":4,\"study_id\":0}\n",
+        "{\"op_code\":9,\"trial_id\":1,\"system_attr\":{\"constraints\":[-1]}}\n",
+        "{\"op_code\":6,\"trial_id\":1,\"state\":1,\"values\":[1]}\n",
+        "{\"op_code\":4,\"study_id\":0}\n",
+        "{\"op_code\":9,\"trial_id\":2,\"system_attr\":{\"constraints\":[null,-2,\"invalid\"]}}\n",
+        "{\"op_code\":6,\"trial_id\":2,\"state\":1,\"values\":[2]}\n",
+        "{\"op_code\":4,\"study_id\":0,\"distributions\":{},\"state\":1,\"values\":[3],\"system_attrs\":{\"constraints\":[null,1,null]}}\n"
+    );
+    let (meta, initial, _) = parse_single_study(data.as_bytes(), 0).unwrap();
+    assert!(meta.has_constraints);
+    assert_eq!(initial.constraint_col_names().len(), 3);
+    assert!(initial.get_numeric_column("c1").unwrap()[2].is_nan());
+    assert_eq!(initial.get_numeric_column("c2").unwrap()[2], -2.0);
+    assert!(initial.get_numeric_column("c3").unwrap()[2].is_nan());
+    let mut streamed = DataFrame::empty();
+    parse_single_study_streaming(data.as_bytes(), 0, 1, |batch| {
+        streamed.append_trials(
+            &batch.new_rows,
+            &batch.param_names,
+            &batch.objective_names,
+            &batch.user_attr_numeric_names,
+            &batch.user_attr_string_names,
+            batch.max_constraints,
+        );
+        if batch.meta.has_constraints && !streamed.feasibility().has_constraints() {
+            streamed.mark_constrained();
+        }
+    })
+    .unwrap();
+    let expected = vec![Unverified, Unverified, Unverified, Infeasible];
+    for df in [&initial, &streamed] {
+        assert_eq!(
+            (0..4)
+                .map(|r| df.feasibility().state(r))
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(df.constraint_col_names().len(), 3);
+    }
+}
+
+#[test]
+fn constraints_attribute_with_empty_or_invalid_value_establishes_study() {
+    for attr in ["[]", "null", "\"invalid\""] {
+        let data = format!("{{\"op_code\":0,\"study_name\":\"s\",\"directions\":[1]}}\n{{\"op_code\":4,\"study_id\":0,\"distributions\":{{}},\"state\":1,\"values\":[1],\"system_attrs\":{{\"constraints\":{attr}}}}}\n");
+        let (meta, df, _) = parse_single_study(data.as_bytes(), 0).unwrap();
+        assert!(meta.has_constraints);
+        assert!(df.feasibility().has_constraints());
+        assert!(df.constraint_col_names().is_empty());
+        assert_eq!(
+            df.feasibility().state(0),
+            crate::dataframe::FeasibilityState::Unverified
+        );
+    }
+}
+
 // ── parse_single_study / scan_study_list ──────────────────────────────────
 
 fn two_study_log() -> Vec<u8> {

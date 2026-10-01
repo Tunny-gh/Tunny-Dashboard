@@ -127,6 +127,21 @@ impl TrialDetailModal {
                                 egui::Layout::top_down(egui::Align::Min),
                                 |ui| {
                                     let mut first_section = true;
+                                    if view.feasibility().has_constraints()
+                                        && !target
+                                            .context
+                                            .iter()
+                                            .any(|(key, _)| key == "Feasibility")
+                                    {
+                                        detail_section_label(ui, "Constraints", &mut first_section);
+                                        let mut rows = Vec::new();
+                                        push_feasible_row(
+                                            &mut rows,
+                                            view.feasibility(),
+                                            target.row_index,
+                                        );
+                                        kv_rows(ui, &rows, left_w, |_| false);
+                                    }
                                     // Chart-specific info (rank, cluster number, etc.).
                                     if !target.context.is_empty() {
                                         detail_section_label(ui, "Chart Info", &mut first_section);
@@ -423,14 +438,14 @@ pub fn axis_row(name: &str, col: Option<&[f64]>, row: usize) -> (String, String)
     )
 }
 
-/// Appends a `("Feasible", "Yes"/"No")` row to `rows`, but only for a constrained Study.
+/// Appends the explicit feasibility state, only for a constrained study.
 /// Does nothing if there are no constraints (`has_constraints() == false`). Shared by both
 /// the hover detail rows and the click detail context.
 pub fn push_feasible_row(rows: &mut Vec<(String, String)>, feas: Feasibility, row: usize) {
     if feas.has_constraints() {
         rows.push((
-            "Feasible".to_string(),
-            if feas.is_feasible(row) { "Yes" } else { "No" }.to_string(),
+            "Feasibility".to_string(),
+            feas.state(row).label().to_string(),
         ));
     }
 }

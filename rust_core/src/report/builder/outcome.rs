@@ -92,7 +92,9 @@ pub(super) fn build_outcome_multi(
             topsis::compute_topsis(values, *k, m, weights, is_minimize).ok()
         });
 
-    let mcdm = if opts.skip_decision_sections {
+    let mcdm = if opts.skip_decision_sections
+        || !front_rows.iter().any(|&r| df.feasibility().is_feasible(r))
+    {
         None
     } else {
         match (&mcdm_values, &front_topsis) {
@@ -117,10 +119,13 @@ pub(super) fn build_outcome_multi(
     // front before capping (counting from the capped pareto_table would be
     // clamped at top_n*2 and under-report the count).
     let feas = df.feasibility();
-    let pareto_infeasible_count = front_rows.iter().filter(|&&r| !feas.is_feasible(r)).count();
+    let pareto_infeasible_count = front_rows
+        .iter()
+        .filter(|&&r| feas.state(r) == crate::dataframe::FeasibilityState::Infeasible)
+        .count();
 
     let outcome = Outcome::MultiObj {
-        pareto_size: front_rows.len(),
+        pareto_size: front_rows.iter().filter(|&&r| feas.is_feasible(r)).count(),
         complete_count: valid_count,
         objective_count: m,
         per_objective_extremes,
@@ -181,7 +186,7 @@ fn build_objective_extremes(
                 direction: directions[j],
                 best_value: best_v,
                 best_trial_number: trial_numbers[br],
-                best_feasible: df.feasibility().is_feasible(br),
+                best_feasible: df.feasibility().state(br),
                 worst_value: worst_v,
             });
         }

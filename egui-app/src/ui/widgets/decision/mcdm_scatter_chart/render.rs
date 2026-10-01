@@ -73,7 +73,7 @@ pub(super) fn build_display_batches(points: &[ScatterPoint]) -> DisplayBatches {
 pub(super) fn render_scatter_plot(
     ui: &mut egui::Ui,
     batches: &DisplayBatches,
-    infeasible: &[(f64, f64)],
+    infeasible: &[(f64, f64, tunny_core::dataframe::FeasibilityState)],
     hit_candidates: &[(u32, usize, [f64; 2])],
     x_label: &str,
     y_label: &str,
@@ -140,12 +140,29 @@ pub(super) fn render_scatter_plot(
             }
             // Draw infeasible solutions in the back
             if has_infeasible {
-                let pts: Vec<[f64; 2]> = infeasible.iter().map(|&(x, y)| [x, y]).collect();
-                plot_ui.points(
-                    egui_plot::Points::new("Infeasible", pts)
-                        .color(crate::theme::chart_colors::COLOR_INFEASIBLE())
-                        .radius(3.0),
-                );
+                for state in [
+                    tunny_core::dataframe::FeasibilityState::Infeasible,
+                    tunny_core::dataframe::FeasibilityState::Unverified,
+                ] {
+                    let pts: Vec<[f64; 2]> = infeasible
+                        .iter()
+                        .filter(|p| p.2 == state)
+                        .map(|&(x, y, _)| [x, y])
+                        .collect();
+                    if !pts.is_empty() {
+                        let color = if state == tunny_core::dataframe::FeasibilityState::Unverified
+                        {
+                            crate::theme::chart_colors::COLOR_UNVERIFIED()
+                        } else {
+                            crate::theme::chart_colors::COLOR_INFEASIBLE()
+                        };
+                        plot_ui.points(
+                            egui_plot::Points::new(state.label(), pts)
+                                .color(color)
+                                .radius(3.0),
+                        );
+                    }
+                }
             }
             // Outside the selection filter (gray, drawn in back; grouped under
             // "Others (unselected)" in the legend)

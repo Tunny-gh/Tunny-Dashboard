@@ -135,7 +135,7 @@ impl ParserState {
                 .map(|array| {
                     array
                         .iter()
-                        .filter_map(|item| item.as_f64())
+                        .map(|item| item.as_f64().unwrap_or(f64::NAN))
                         .collect::<Vec<_>>()
                 })
                 .or_else(|| {
@@ -222,14 +222,16 @@ impl ParserState {
             let mut constraint_values: Vec<f64> = Vec::new();
             let mut has_constraints = false;
             if let Some(sys_attrs) = json.get("system_attrs").and_then(|value| value.as_object()) {
-                if let Some(constraints) = sys_attrs
-                    .get("constraints")
-                    .and_then(|value| value.as_array())
-                {
-                    constraint_values = constraints
-                        .iter()
-                        .filter_map(|value| value.as_f64())
-                        .collect();
+                if let Some(value) = sys_attrs.get("constraints") {
+                    constraint_values = value
+                        .as_array()
+                        .map(|constraints| {
+                            constraints
+                                .iter()
+                                .map(|value| value.as_f64().unwrap_or(f64::NAN))
+                                .collect()
+                        })
+                        .unwrap_or_default();
                     has_constraints = true;
                 }
             }
@@ -323,7 +325,7 @@ impl ParserState {
             .map(|array| {
                 array
                     .iter()
-                    .filter_map(|item| item.as_f64())
+                    .map(|item| item.as_f64().unwrap_or(f64::NAN))
                     .collect::<Vec<_>>()
             });
 

@@ -48,9 +48,9 @@ pub struct ScatterMatrix {
     pub show_infeasible: bool,
     /// Objective name used to color points (`None` falls back to the first objective).
     pub color_objective: Option<String>,
-    /// Cache of feasible/infeasible split + downsampled indices ((feasible, infeasible)).
+    /// Downsampled indices for (feasible, infeasible, unverified).
     #[serde(skip)]
-    downsample_cache: Option<(Vec<u32>, Vec<u32>)>,
+    downsample_cache: Option<(Vec<u32>, Vec<u32>, Vec<u32>)>,
     #[serde(skip)]
     downsample_cache_key: Option<(usize, usize, bool)>, // (df_ptr, trial_count, has_constraints)
     /// Cache of cell statistics (column range / histogram / correlation) and point colors (H-4).
@@ -160,6 +160,10 @@ impl ScatterMatrix {
         ui.horizontal(|ui| {
             if has_constraints {
                 ui.checkbox(&mut self.show_infeasible, "Show Infeasible");
+                ui.colored_label(
+                    crate::theme::chart_colors::COLOR_UNVERIFIED(),
+                    "Feasibility unverified",
+                );
             }
             if !obj_names.is_empty() {
                 // Resolved objective name used for coloring.
@@ -189,12 +193,14 @@ impl ScatterMatrix {
         // or the presence of constraints changes.
         let ds_key = (df_ptr, trial_count, has_constraints);
         if self.downsample_cache.is_none() || self.downsample_cache_key != Some(ds_key) {
-            let (feasible_indices, infeasible_indices) =
+            let (feasible_indices, infeasible_indices, unverified_indices) =
                 split_feasibility_indices(trial_count, feas);
             let feasible_draw = downsample_indices_to_cap(&feasible_indices, MAX_SCATTER_POINTS);
             let infeasible_draw =
                 downsample_indices_to_cap(&infeasible_indices, MAX_SCATTER_POINTS);
-            self.downsample_cache = Some((feasible_draw, infeasible_draw));
+            let unverified_draw =
+                downsample_indices_to_cap(&unverified_indices, MAX_SCATTER_POINTS);
+            self.downsample_cache = Some((feasible_draw, infeasible_draw, unverified_draw));
             self.downsample_cache_key = Some(ds_key);
         }
 
@@ -246,7 +252,8 @@ impl ScatterMatrix {
             });
         }
         let stats = self.stats_cache.as_ref().unwrap();
-        let (feasible_draw, infeasible_draw) = self.downsample_cache.as_ref().unwrap();
+        let (feasible_draw, infeasible_draw, unverified_draw) =
+            self.downsample_cache.as_ref().unwrap();
 
         // Pre-layout row/column labels and measure their sizes.
         // The layout is not recomputed each frame unless the axis name list changes.
@@ -356,6 +363,8 @@ impl ScatterMatrix {
         // same order as downsample_indices). Infeasible points are a single flat
         // color, so build them cheaply every frame to track theme color changes.
         let infeasible_colors: Vec<egui::Color32> = vec![COLOR_INFEASIBLE(); infeasible_draw.len()];
+        let unverified_colors =
+            vec![crate::theme::chart_colors::COLOR_UNVERIFIED(); unverified_draw.len()];
 
         for row in 0..n {
             for col in 0..n {
@@ -381,6 +390,18 @@ impl ScatterMatrix {
                             stats.col_ranges[row],
                             &infeasible_colors,
                             Some(infeasible_draw),
+                        );
+                    }
+                    if !unverified_draw.is_empty() {
+                        draw_scatter_cell(
+                            &painter,
+                            cell_rect,
+                            cols[col],
+                            cols[row],
+                            stats.col_ranges[col],
+                            stats.col_ranges[row],
+                            &unverified_colors,
+                            Some(unverified_draw),
                         );
                     }
                     // Draw feasible points (all points when there are no constraints) in front.

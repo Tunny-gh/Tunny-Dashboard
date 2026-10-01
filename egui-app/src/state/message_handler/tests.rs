@@ -308,8 +308,55 @@ fn chunk_message(rows: Vec<CoreTrialRow>, is_first: bool, is_final: bool) -> App
         user_attr_numeric_names: vec![],
         user_attr_string_names: vec![],
         max_constraints: 0,
+        has_constraints: false,
         is_first,
         is_final,
+    }
+}
+
+#[test]
+fn study_chunks_reclassify_history_and_keep_attribute_only_status() {
+    use tunny_core::dataframe::FeasibilityState::*;
+    let _g = test_store_guard();
+    for constraints in [
+        vec![vec![], vec![], vec![]],
+        vec![vec![], vec![-1.0], vec![-1.0, 0.0]],
+    ] {
+        let mut app_state = AppState::new();
+        let mut widgets = WidgetStates::default();
+        let mut is_loading = true;
+        let mut load_error = None;
+        for (i, values) in constraints.iter().enumerate() {
+            let mut row = make_chunk_row(i as u32, i as f64, i as f64);
+            row.constraint_values = values.clone();
+            let mut message = chunk_message(vec![row], i == 0, i == 2);
+            if let AppMessage::StudyChunkLoaded {
+                has_constraints, ..
+            } = &mut message
+            {
+                *has_constraints = true;
+            }
+            MessageHandler::handle(
+                message,
+                &mut app_state,
+                &mut widgets,
+                &mut is_loading,
+                &mut load_error,
+            );
+        }
+        let study = app_state.current_study.as_ref().unwrap();
+        assert!(study.view.feasibility().has_constraints());
+        assert_eq!(study.view.feasibility().state(0), Unverified);
+        assert_eq!(study.view.feasibility().state(1), Unverified);
+        if constraints[2].is_empty() {
+            assert_eq!(study.view.feasibility().state(2), Unverified);
+            assert!(study.pareto_indices.is_empty());
+        } else {
+            assert_eq!(study.view.feasibility().state(2), Feasible);
+            assert_eq!(study.pareto_indices, vec![2]);
+        }
+        assert!(!is_loading);
+        assert!(load_error.is_none());
     }
 }
 
@@ -357,6 +404,158 @@ fn study_chunks_accumulate_rows_across_batches() {
         .unwrap()
         .to_vec();
     assert_eq!(xs, vec![0.1, 0.2, 0.3]);
+}
+
+#[test]
+fn convergence_waits_for_final_constraint_schema_and_rejects_old_snapshot() {
+    use crate::state::layout_state::ChartId;
+    use std::sync::mpsc;
+    use std::time::Duration;
+    use tunny_core::dataframe::FeasibilityState;
+    use tunny_core::indicators::MoIndicator;
+
+    let _g = test_store_guard();
+    for indicator in MoIndicator::all() {
+        let mut state = AppState::new();
+        state.convergence_indicator = indicator;
+        let mut widgets = WidgetStates::default();
+        let mut loading = true;
+        let mut error = None;
+        let chunk = |first, final_chunk, max_constraints, with_row| {
+            let mut row = make_chunk_row(17, 0.0, 1.0);
+            row.objective_values = vec![1.0, 2.0];
+            row.constraint_values = vec![-1.0];
+            let mut message = chunk_message(
+                if with_row { vec![row] } else { vec![] },
+                first,
+                final_chunk,
+            );
+            if let AppMessage::StudyChunkLoaded {
+                meta,
+                objective_names,
+                max_constraints: count,
+                has_constraints,
+                ..
+            } = &mut message
+            {
+                meta.directions = vec![Direction::Minimize; 2];
+                meta.objective_names = vec!["o1".into(), "o2".into()];
+                *objective_names = meta.objective_names.clone();
+                *count = max_constraints;
+                *has_constraints = true;
+            }
+            message
+        };
+        let (tx, rx) = mpsc::sync_channel(4);
+        // A completed previous snapshot can still have an asynchronous job in flight.
+        MessageHandler::handle(
+            chunk(true, true, 1, true),
+            &mut state,
+            &mut widgets,
+            &mut loading,
+            &mut error,
+        );
+        crate::ui::poll_chart::poll_chart_work(
+            &mut state,
+            &mut widgets,
+            &ChartId::ConvergenceIndicators,
+            &tx,
+        );
+        let old_result = rx.recv_timeout(Duration::from_secs(30)).unwrap();
+
+        loading = true;
+        MessageHandler::handle(
+            chunk(true, false, 1, true),
+            &mut state,
+            &mut widgets,
+            &mut loading,
+            &mut error,
+        );
+        assert!(loading);
+        assert!(state
+            .current_study
+            .as_ref()
+            .unwrap()
+            .view
+            .feasibility()
+            .is_feasible(0));
+        crate::ui::poll_chart::poll_chart_work(
+            &mut state,
+            &mut widgets,
+            &ChartId::ConvergenceIndicators,
+            &tx,
+        );
+        assert!(!widgets.convergence.computing, "must defer mid-stream");
+        assert!(matches!(rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
+
+        // Non-COMPLETE evidence grows the schema without adding a DataFrame row.
+        MessageHandler::handle(
+            chunk(false, false, 2, false),
+            &mut state,
+            &mut widgets,
+            &mut loading,
+            &mut error,
+        );
+        assert_eq!(
+            state
+                .current_study
+                .as_ref()
+                .unwrap()
+                .view
+                .feasibility()
+                .state(0),
+            FeasibilityState::Unverified
+        );
+        MessageHandler::handle(
+            chunk(false, true, 2, false),
+            &mut state,
+            &mut widgets,
+            &mut loading,
+            &mut error,
+        );
+        assert!(!loading);
+        assert!(state
+            .current_study
+            .as_ref()
+            .unwrap()
+            .pareto_indices
+            .is_empty());
+        crate::ui::poll_chart::poll_chart_work(
+            &mut state,
+            &mut widgets,
+            &ChartId::ConvergenceIndicators,
+            &tx,
+        );
+        assert!(widgets.convergence.computing);
+        MessageHandler::handle(
+            old_result,
+            &mut state,
+            &mut widgets,
+            &mut loading,
+            &mut error,
+        );
+        assert!(
+            state.convergence_history.is_none(),
+            "old snapshot must be rejected"
+        );
+        assert!(
+            widgets.convergence.computing,
+            "keep the current job running"
+        );
+        MessageHandler::handle(
+            rx.recv_timeout(Duration::from_secs(30)).unwrap(),
+            &mut state,
+            &mut widgets,
+            &mut loading,
+            &mut error,
+        );
+        let history = state.convergence_history.as_ref().unwrap();
+        assert_eq!(history.trial_ids, vec![17]);
+        assert!(history.values.is_empty());
+        assert!(history.ref_point.is_empty());
+        assert!(!widgets.convergence.computing);
+        assert!(error.is_none());
+    }
 }
 
 /// Regression: a batch containing a row with fewer objectives than the study
@@ -409,6 +608,7 @@ fn study_chunk_handles_ragged_objectives_without_panic() {
             user_attr_numeric_names: vec![],
             user_attr_string_names: vec![],
             max_constraints: 0,
+            has_constraints: false,
             is_first: true,
             is_final: true,
         },

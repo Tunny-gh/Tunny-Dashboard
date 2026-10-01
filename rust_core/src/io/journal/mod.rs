@@ -59,13 +59,21 @@ pub(crate) fn line_u32_field(line: &str, key: &str) -> Option<u32> {
 }
 
 /// Extracts the `"constraints"` array from an op9 (`SET_TRIAL_SYSTEM_ATTR`)
-/// record's `system_attr` object (non-numeric entries dropped). Shared by the
+/// record's `system_attr` object (invalid positions preserved as NaN). Shared by the
 /// full parser and the live-diff parser.
 pub(crate) fn constraints_from_system_attr(json: &serde_json::Value) -> Option<Vec<f64>> {
-    json.get("system_attr")?
-        .get("constraints")?
-        .as_array()
-        .map(|values| values.iter().filter_map(|v| v.as_f64()).collect())
+    let value = json.get("system_attr")?.get("constraints")?;
+    Some(
+        value
+            .as_array()
+            .map(|values| {
+                values
+                    .iter()
+                    .map(|v| v.as_f64().unwrap_or(f64::NAN))
+                    .collect()
+            })
+            .unwrap_or_default(),
+    )
 }
 
 #[cfg(test)]

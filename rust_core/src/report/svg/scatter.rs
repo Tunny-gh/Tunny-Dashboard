@@ -15,10 +15,8 @@ pub struct ScatterPoint {
     pub x: f64,
     /// Y coordinate (second objective value).
     pub y: f64,
-    /// Whether this point satisfies all constraints (always `true` for
-    /// unconstrained studies). Points with `false` get `[infeasible]`
-    /// appended to their tooltip.
-    pub feasible: bool,
+    /// Three-state constraint evaluation (Feasible for unconstrained studies).
+    pub feasible: crate::dataframe::FeasibilityState,
 }
 
 /// Draws a Pareto scatter plot.
@@ -67,9 +65,22 @@ pub fn scatter_chart(
         .map(|t| fmt_sig4(*t).chars().count())
         .max()
         .unwrap_or(1);
-    let has_legend = !background.is_empty() && !front.is_empty();
+    let has_unverified = background
+        .iter()
+        .any(|p| p.feasible == crate::dataframe::FeasibilityState::Unverified);
+    let has_infeasible = background
+        .iter()
+        .any(|p| p.feasible == crate::dataframe::FeasibilityState::Infeasible);
+    let has_legend =
+        (!background.is_empty() && !front.is_empty()) || has_unverified || has_infeasible;
     let m = Margins {
-        top: if has_legend { 28.0 } else { 14.0 },
+        top: if has_unverified || has_infeasible {
+            48.0
+        } else if has_legend {
+            28.0
+        } else {
+            14.0
+        },
         right: 16.0,
         bottom: 44.0,
         left: 16.0 + max_y_tick_chars as f64 * CHAR_W + 12.0,
@@ -98,8 +109,26 @@ pub fn scatter_chart(
         &mut body, &m, plot_w, plot_h, height, &x_ticks, &y_ticks, &sx, &sy, x_label, y_label,
     );
     scatter_points(&mut body, background, front, &sx, &sy);
-    if has_legend {
+    if !background.is_empty() && !front.is_empty() {
         scatter_legend(&mut body, &m, plot_w);
+    }
+    for (present, x, label, color) in [
+        (has_infeasible, m.left, "Infeasible", theme::VAR_SERIES[5]),
+        (
+            has_unverified,
+            m.left + 100.0,
+            "Feasibility unverified",
+            theme::VAR_SERIES[2],
+        ),
+    ] {
+        if present {
+            let _ = writeln!(
+                body,
+                "<circle cx=\"{}\" cy=\"29\" r=\"4\" fill=\"var({color})\" />",
+                coord(x)
+            );
+            text_muted(&mut body, x + 10.0, 32.0, "start", label, false);
+        }
     }
 
     svg_wrap(width, height, &body)
@@ -181,12 +210,17 @@ fn scatter_points(
 ) {
     for p in background {
         let title = escape_xml(&scatter_title(p, false));
+        let color = match p.feasible {
+            crate::dataframe::FeasibilityState::Feasible => theme::VAR_INK_MUTED,
+            crate::dataframe::FeasibilityState::Infeasible => theme::VAR_SERIES[5],
+            crate::dataframe::FeasibilityState::Unverified => theme::VAR_SERIES[2],
+        };
         let _ = writeln!(
             body,
             "<circle cx=\"{}\" cy=\"{}\" r=\"4\" fill=\"var({muted})\" fill-opacity=\"0.4\"><title>{title}</title></circle>",
             coord(sx(p.x)),
             coord(sy(p.y)),
-            muted = theme::VAR_INK_MUTED
+            muted = color
         );
     }
 
@@ -240,8 +274,10 @@ fn scatter_title(p: &ScatterPoint, on_front: bool) -> String {
     if on_front {
         title.push_str(" [front]");
     }
-    if !p.feasible {
+    if p.feasible == crate::dataframe::FeasibilityState::Infeasible {
         title.push_str(" [infeasible]");
+    } else if p.feasible == crate::dataframe::FeasibilityState::Unverified {
+        title.push_str(" [Feasibility unverified]");
     }
     title
 }

@@ -11,6 +11,9 @@ mod compute;
 mod mcdm;
 mod surrogate;
 
+#[cfg(test)]
+mod tests;
+
 use cluster::*;
 use compute::*;
 use mcdm::*;
@@ -86,7 +89,10 @@ fn poll_convergence_indicators(
     let obj_names = &ctx.meta.objective_names;
     let directions = &ctx.meta.directions;
 
-    if app_state.convergence_history.is_some() || widgets.convergence.computing {
+    if app_state.study_streaming
+        || app_state.convergence_history.is_some()
+        || widgets.convergence.computing
+    {
         return;
     }
 
@@ -100,6 +106,9 @@ fn poll_convergence_indicators(
     let n_trials = ctx.view.row_count();
     let step = (n_trials / TARGET_POINTS).max(1);
     let obj_cols = ctx.view.numeric_columns(obj_names);
+    // Keep every sampled trial slot for the index-based x axis. NaN placeholders
+    // exclude non-feasible observations from fronts and the shared reference set.
+    let feasibility = ctx.view.feasibility();
     let sampled_indices: Vec<usize> = (0..n_trials).step_by(step).collect();
     let sampled_ids: Vec<u32> = sampled_indices
         .iter()
@@ -108,6 +117,9 @@ fn poll_convergence_indicators(
     let sampled_objs: Vec<Vec<f64>> = sampled_indices
         .iter()
         .map(|&i| {
+            if !feasibility.is_feasible(i) {
+                return vec![f64::NAN; obj_names.len()];
+            }
             obj_cols
                 .iter()
                 .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
@@ -124,6 +136,7 @@ fn poll_convergence_indicators(
         let cn = study.view.row_count();
         let cs = (cn / TARGET_POINTS).max(1);
         let comp_obj_cols = study.view.numeric_columns(comp_obj_names);
+        let comp_feasibility = study.view.feasibility();
         let cidxs: Vec<usize> = (0..cn).step_by(cs).collect();
         let cids: Vec<u32> = cidxs
             .iter()
@@ -132,6 +145,9 @@ fn poll_convergence_indicators(
         let cobjs: Vec<Vec<f64>> = cidxs
             .iter()
             .map(|&i| {
+                if !comp_feasibility.is_feasible(i) {
+                    return vec![f64::NAN; comp_obj_names.len()];
+                }
                 comp_obj_cols
                     .iter()
                     .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
@@ -152,6 +168,7 @@ fn poll_convergence_indicators(
         .map(|r| crate::state::ref_point_to_normalized(r, &is_minimize));
     let is_minimize_for_back = is_minimize.clone();
     let indicator = app_state.convergence_indicator;
+    let source_df = ctx.view.df.clone();
 
     widgets.convergence.computing = true;
     let tx = tx.clone();
@@ -217,6 +234,7 @@ fn poll_convergence_indicators(
             .collect();
 
         AppMessage::IndicatorHistoryDone {
+            source_df,
             indicator,
             base,
             comparisons,

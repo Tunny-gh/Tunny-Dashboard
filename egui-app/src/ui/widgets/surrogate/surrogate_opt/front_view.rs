@@ -37,7 +37,10 @@ pub(super) fn render_front_scatter(
 
     // ── Observed-point display toggles (same as ParetoScatter: front / dominated / infeasible) ──
     let any_infeasible = observed
-        .map(|o| o.feasible.iter().any(|&f| !f))
+        .map(|o| {
+            o.feasible
+                .contains(&tunny_core::dataframe::FeasibilityState::Infeasible)
+        })
         .unwrap_or(false);
     if observed.is_some() {
         ui.horizontal(|ui| {
@@ -46,6 +49,15 @@ pub(super) fn render_front_scatter(
             ui.checkbox(&mut state.show_observed_dominated, "Others");
             if any_infeasible {
                 ui.checkbox(&mut state.show_observed_infeasible, "Infeasible");
+            }
+            if observed.is_some_and(|o| {
+                o.feasible
+                    .contains(&tunny_core::dataframe::FeasibilityState::Unverified)
+            }) {
+                ui.colored_label(
+                    crate::theme::chart_colors::COLOR_UNVERIFIED(),
+                    "Feasibility unverified",
+                );
             }
         });
     }
@@ -131,16 +143,16 @@ struct ObservedToggles {
     infeasible: bool,
 }
 
-/// Classifies observed points into 3 groups (Pareto front, dominated,
-/// infeasible) for objectives (xi, yi).
+/// Classifies observed points into front, dominated, infeasible, and unverified
+/// groups for objectives (xi, yi).
 #[allow(clippy::type_complexity)]
 fn classify_observed_2d(
     obs: &ObservedData,
     xi: usize,
     yi: usize,
-) -> (Vec<[f64; 2]>, Vec<[f64; 2]>, Vec<[f64; 2]>) {
+) -> (Vec<[f64; 2]>, Vec<[f64; 2]>, Vec<[f64; 2]>, Vec<[f64; 2]>) {
     let (Some(xc), Some(yc)) = (obs.objective_cols.get(xi), obs.objective_cols.get(yi)) else {
-        return (Vec::new(), Vec::new(), Vec::new());
+        return (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     };
     let n = xc
         .len()
@@ -150,9 +162,12 @@ fn classify_observed_2d(
     let mut front = Vec::new();
     let mut dominated = Vec::new();
     let mut infeasible = Vec::new();
+    let mut unverified = Vec::new();
     for i in 0..n {
         let pt = [xc[i], yc[i]];
-        if !obs.feasible[i] {
+        if obs.feasible[i] == tunny_core::dataframe::FeasibilityState::Unverified {
+            unverified.push(pt);
+        } else if obs.feasible[i] == tunny_core::dataframe::FeasibilityState::Infeasible {
             infeasible.push(pt);
         } else if obs.pareto_rank[i] == 0 {
             front.push(pt);
@@ -160,24 +175,24 @@ fn classify_observed_2d(
             dominated.push(pt);
         }
     }
-    (front, dominated, infeasible)
+    (front, dominated, infeasible, unverified)
 }
 
-/// Classifies observed points into 3 groups (Pareto front, dominated,
-/// infeasible) for objectives (xi, yi, zi).
+/// Classifies observed points into front, dominated, infeasible, and unverified
+/// groups for objectives (xi, yi, zi).
 #[allow(clippy::type_complexity)]
 fn classify_observed_3d(
     obs: &ObservedData,
     xi: usize,
     yi: usize,
     zi: usize,
-) -> (Vec<[f64; 3]>, Vec<[f64; 3]>, Vec<[f64; 3]>) {
+) -> (Vec<[f64; 3]>, Vec<[f64; 3]>, Vec<[f64; 3]>, Vec<[f64; 3]>) {
     let (Some(xc), Some(yc), Some(zc)) = (
         obs.objective_cols.get(xi),
         obs.objective_cols.get(yi),
         obs.objective_cols.get(zi),
     ) else {
-        return (Vec::new(), Vec::new(), Vec::new());
+        return (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     };
     let n = xc
         .len()
@@ -188,9 +203,12 @@ fn classify_observed_3d(
     let mut front = Vec::new();
     let mut dominated = Vec::new();
     let mut infeasible = Vec::new();
+    let mut unverified = Vec::new();
     for i in 0..n {
         let pt = [xc[i], yc[i], zc[i]];
-        if !obs.feasible[i] {
+        if obs.feasible[i] == tunny_core::dataframe::FeasibilityState::Unverified {
+            unverified.push(pt);
+        } else if obs.feasible[i] == tunny_core::dataframe::FeasibilityState::Infeasible {
             infeasible.push(pt);
         } else if obs.pareto_rank[i] == 0 {
             front.push(pt);
@@ -198,7 +216,7 @@ fn classify_observed_3d(
             dominated.push(pt);
         }
     }
-    (front, dominated, infeasible)
+    (front, dominated, infeasible, unverified)
 }
 
 /// Draws the predicted Pareto front as a 2D scatter plot (objectives xi x
@@ -226,10 +244,10 @@ fn render_front_scatter_2d(
     }
     pts.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap_or(std::cmp::Ordering::Equal));
 
-    // Project the existing (observed) points using the same 3 categories as ParetoScatter.
-    let (obs_front, obs_dominated, obs_infeasible) = match observed {
+    // Project observed points using the same categories as ParetoScatter.
+    let (obs_front, obs_dominated, obs_infeasible, obs_unverified) = match observed {
         Some(obs) => classify_observed_2d(obs, xi, yi),
-        None => (Vec::new(), Vec::new(), Vec::new()),
+        None => (Vec::new(), Vec::new(), Vec::new(), Vec::new()),
     };
 
     let x_label = result.objective_names.get(xi).cloned().unwrap_or_default();
@@ -244,6 +262,13 @@ fn render_front_scatter_2d(
         .show(ui, |plot_ui| {
             apply_wheel_zoom(plot_ui);
             // Draw observed points in the background (in order: infeasible -> dominated -> observed front).
+            if !obs_unverified.is_empty() {
+                plot_ui.points(
+                    egui_plot::Points::new("Feasibility unverified", obs_unverified)
+                        .color(crate::theme::chart_colors::COLOR_UNVERIFIED())
+                        .radius(2.5),
+                );
+            }
             if toggles.infeasible && !obs_infeasible.is_empty() {
                 plot_ui.points(
                     egui_plot::Points::new("Infeasible", obs_infeasible)
@@ -346,10 +371,10 @@ fn render_front_scatter_3d(
     let (y_min, y_max) = range_for(&y_vals, obs_y);
     let (z_min, z_max) = range_for(&z_vals, obs_z);
 
-    // Split observed points into the 3 categories.
-    let (obs_front, obs_dominated, obs_infeasible) = match observed {
+    // Split observed points by feasibility and verified Pareto membership.
+    let (obs_front, obs_dominated, obs_infeasible, obs_unverified) = match observed {
         Some(obs) => classify_observed_3d(obs, xi, yi, zi),
-        None => (Vec::new(), Vec::new(), Vec::new()),
+        None => (Vec::new(), Vec::new(), Vec::new(), Vec::new()),
     };
 
     // Predicted front points.
@@ -405,6 +430,12 @@ fn render_front_scatter_3d(
         if toggles.infeasible {
             draw_group(&obs_infeasible, COLOR_INFEASIBLE(), 2.5, false);
         }
+        draw_group(
+            &obs_unverified,
+            crate::theme::chart_colors::COLOR_UNVERIFIED(),
+            2.5,
+            false,
+        );
         if toggles.dominated {
             draw_group(&obs_dominated, COLOR_NON_PARETO(), 2.5, false);
         }
