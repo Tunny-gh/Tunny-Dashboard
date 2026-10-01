@@ -1,5 +1,5 @@
 //! Automatic model selection (Auto): cross-validates the candidate models in
-//! [`super::AUTO_CANDIDATES`] and picks the one with the highest CV R².
+//! [`super::AUTO_CANDIDATES`] and prefers the earliest within 0.01 of the best finite CV R².
 
 use super::progress::{FitProgress, FIT_CANCELLED};
 use super::validation::validate_surrogate_tracked;
@@ -9,21 +9,23 @@ use super::{validate_inputs, SurrogateModelKind, AUTO_CANDIDATES};
 /// per-candidate CV R².
 #[derive(Debug, Clone)]
 pub struct ModelSelectionReport {
-    /// The selected model kind (highest CV R²; ties prefer the earlier entry in
-    /// AUTO_CANDIDATES).
+    /// The earliest evaluated candidate within 0.01 of the highest finite CV R²
+    /// in the evaluated set.
     pub chosen: SurrogateModelKind,
     /// Per-candidate (model kind, score = cv_r2_mean), in the same order as
-    /// `AUTO_CANDIDATES`. A candidate whose fit/validation fails is recorded as
-    /// f64::NEG_INFINITY and excluded from selection.
+    /// the evaluated candidate set. General Auto uses `AUTO_CANDIDATES`; adaptive
+    /// EI/EHVI uses only GP-FITC and GP-VFE. A failed fit/validation is recorded as
+    /// f64::NEG_INFINITY. All non-finite scores are excluded from selection.
     pub scores: Vec<(SurrogateModelKind, f64)>,
 }
 
-/// Cross-validates `AUTO_CANDIDATES` and selects the model with the highest CV R².
+/// Cross-validates `AUTO_CANDIDATES` and selects the earliest near-best model.
 ///
-/// Runs [`validate_surrogate`] for each candidate and uses `cv_r2_mean` as its
-/// score. Candidates whose score differs by less than 1e-3 are treated as "tied",
-/// preferring the candidate earlier in `AUTO_CANDIDATES` (simpler / lower cost).
-/// Returns `Err` only if every candidate fails.
+/// Runs validation for each candidate and uses `cv_r2_mean` as its score.
+/// First finds the maximum finite score, then selects the earliest candidate in
+/// `AUTO_CANDIDATES` with an absolute R² gap <= 0.01 from that maximum. The order
+/// is an explicit preference policy, not a universal cost ranking.
+/// Returns `Err` for invalid inputs, cancellation, or no finite candidate score.
 pub fn select_best_model(
     x_matrix: &[Vec<f64>],
     y: &[f64],
@@ -45,16 +47,29 @@ pub(crate) fn select_best_model_tracked(
     progress: &FitProgress,
     stage_prefix: &str,
 ) -> Result<ModelSelectionReport, String> {
+    select_model_candidates_tracked(x_matrix, y, seed, progress, stage_prefix, &AUTO_CANDIDATES)
+}
+
+/// Internal eligible-subset selection; eligibility is decided before validation
+/// and final fitting, and the report contains only evaluated candidates.
+pub(super) fn select_model_candidates_tracked(
+    x_matrix: &[Vec<f64>],
+    y: &[f64],
+    seed: u64,
+    progress: &FitProgress,
+    stage_prefix: &str,
+    candidates: &[SurrogateModelKind],
+) -> Result<ModelSelectionReport, String> {
     validate_inputs(x_matrix, y)?;
 
-    let mut scores: Vec<(SurrogateModelKind, f64)> = Vec::with_capacity(AUTO_CANDIDATES.len());
-    for (i, &kind) in AUTO_CANDIDATES.iter().enumerate() {
+    let mut scores: Vec<(SurrogateModelKind, f64)> = Vec::with_capacity(candidates.len());
+    for (i, &kind) in candidates.iter().enumerate() {
         progress.check()?;
         progress.set_stage(format!(
             "{stage_prefix}Evaluating candidate {} ({}/{})",
             model_display_name(kind),
             i + 1,
-            AUTO_CANDIDATES.len()
+            candidates.len()
         ));
         // A candidate whose fit/validation fails is recorded as NEG_INFINITY and
         // excluded from selection. However, a failure caused by cancellation is
@@ -67,32 +82,29 @@ pub(crate) fn select_best_model_tracked(
         scores.push((kind, score));
     }
 
-    // Candidates whose CV R² differs by less than this value are treated as
-    // "tied", preferring the candidate earlier in AUTO_CANDIDATES (simpler /
-    // lower cost). On perfectly linear data both GP and Ridge fit almost
-    // perfectly (R² ≈ 1), so this avoids picking the more complex GP over a
-    // negligible difference.
-    const TIE_TOLERANCE: f64 = 1e-3;
-
-    // Select the candidate with the highest score. Scanning from the front of
-    // AUTO_CANDIDATES and only accepting a strictly-better-than-tolerance score
-    // means ties are left resolved in favor of the earlier (simpler) candidate.
-    let mut chosen: Option<(SurrogateModelKind, f64)> = None;
-    for &(kind, score) in &scores {
-        if !score.is_finite() {
-            continue;
-        }
-        match chosen {
-            Some((_, best)) if score <= best + TIE_TOLERANCE => {}
-            _ => chosen = Some((kind, score)),
-        }
-    }
-
-    let chosen = chosen
-        .map(|(kind, _)| kind)
-        .ok_or_else(|| "All candidate models failed validation".to_string())?;
+    let chosen = choose_model(&scores)?;
 
     Ok(ModelSelectionReport { chosen, scores })
+}
+
+/// Scores must be in candidate preference order. Compare against the global
+/// maximum, never against a previously preferred candidate's score.
+pub(super) fn choose_model(
+    scores: &[(SurrogateModelKind, f64)],
+) -> Result<SurrogateModelKind, String> {
+    const TIE_TOLERANCE: f64 = 0.01;
+    let best = scores
+        .iter()
+        .map(|&(_, score)| score)
+        .filter(|score| score.is_finite())
+        .reduce(f64::max);
+    best.and_then(|best| {
+        scores
+            .iter()
+            .find(|&&(_, score)| score.is_finite() && best - score <= TIE_TOLERANCE)
+            .map(|&(kind, _)| kind)
+    })
+    .ok_or_else(|| "All candidate models failed validation".to_string())
 }
 
 /// Display name of a surrogate model kind (for progress labels).

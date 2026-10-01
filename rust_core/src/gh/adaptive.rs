@@ -10,9 +10,11 @@
 //! sampling" workflow driven entirely by the dashboard.
 //!
 //! Design notes:
-//! - Surrogates are fitted with automatic model selection (the same Auto
-//!   candidates as the analysis widgets) on real-unit parameters, normalized
-//!   internally via the sliders' declared ranges.
+//! - EI/EHVI require predictive variance, so interim adaptive Auto evaluates only
+//!   GP-FITC then GP-VFE. It prefers the first within 0.01 of the best finite
+//!   eligible GP score, before final fitting. General widget Auto is unrestricted;
+//!   unrestricted adaptive proposals are tracked in Issue #211. Real-unit
+//!   parameters are normalized internally via the sliders' declared ranges.
 //! - Constraint models are attached for single-objective runs, so EI accounts
 //!   for the feasibility probability. EHVI does not use constraint models
 //!   (multi-objective feasibility steering is future work); infeasible trials
@@ -29,9 +31,9 @@ use crate::io::journal::parser::OptimizationDirection;
 use crate::math::rng::SeededRng;
 use crate::multi_objective::pareto::hypervolume_nd;
 use crate::surrogate_opt::{
-    fit_surrogate_with_validation_tracked, suggest_candidates, suggest_candidates_multi,
-    AcquisitionKind, ConstraintData, FitProgress, SurrogateFitRequest, SurrogateModelKind,
-    TrainedSurrogate, AUTO_CANDIDATES, MIN_TRIALS_FOR_SURROGATE_OPT,
+    fit_adaptive_surrogate_tracked, suggest_candidates, suggest_candidates_multi, AcquisitionKind,
+    ConstraintData, FitProgress, SurrogateFitRequest, SurrogateModelKind, TrainedSurrogate,
+    MIN_TRIALS_FOR_SURROGATE_OPT,
 };
 
 use super::problem::GhProblem;
@@ -182,7 +184,21 @@ pub(super) fn run_loop(
             "Adaptive: fitting surrogate (iteration {iteration}/{iterations}, {} trials)",
             data.xs.len()
         ));
-        let trained = fit_objective_surrogates(problem, cfg, &data, &param_names, &param_bounds)?;
+        let trained = match fit_objective_surrogates(
+            problem,
+            cfg,
+            &data,
+            &param_names,
+            &param_bounds,
+            progress,
+        ) {
+            Ok(trained) => trained,
+            Err(_) if progress.is_cancelled() => {
+                stop_reason = GhStopReason::Cancelled;
+                break;
+            }
+            Err(error) => return Err(error),
+        };
 
         let suggested: Vec<Vec<f64>> = if n_obj == 1 {
             suggest_candidates(
@@ -374,7 +390,7 @@ fn relative_improvement(prev: f64, current: f64) -> f64 {
     }
 }
 
-/// Fits one surrogate per objective with automatic model selection. Constraint
+/// Fits one surrogate per objective with GP-only adaptive selection. Constraint
 /// models are attached only for single-objective runs (EI uses them; EHVI does
 /// not).
 fn fit_objective_surrogates(
@@ -383,6 +399,7 @@ fn fit_objective_surrogates(
     data: &Dataset,
     param_names: &[String],
     param_bounds: &[Option<(f64, f64)>],
+    progress: &FitProgress,
 ) -> Result<Vec<TrainedSurrogate>, String> {
     let n_obj = cfg.directions.len();
     // ConstraintData is not Clone; rebuild the vector per objective fit.
@@ -411,24 +428,19 @@ fn fit_objective_surrogates(
             objective_name: objective.name.clone(),
             // Ignored when auto_select is true; any Auto candidate works as
             // the placeholder.
-            model: default_model_kind(),
+            model: SurrogateModelKind::GpFitc,
             auto_select: true,
             constraints: build_constraints(),
             priority_rows: vec![],
             param_bounds: Some(param_bounds.to_vec()),
         };
-        // Fitting uses its own progress handle: the shared one tracks trial
-        // evaluations, and the fit routine would overwrite its totals.
+        // Keep trial totals intact, but propagate cancellation during each fit.
         trained.push(
-            fit_surrogate_with_validation_tracked(&req, &FitProgress::new())
+            fit_adaptive_surrogate_tracked(&req, &progress.subtask())
                 .map_err(|e| format!("Surrogate fit failed for \"{}\": {e}", objective.name))?,
         );
     }
     Ok(trained)
-}
-
-fn default_model_kind() -> SurrogateModelKind {
-    AUTO_CANDIDATES[0]
 }
 
 #[cfg(test)]
@@ -486,6 +498,119 @@ mod tests {
                 attributes: vec![Some(GhAttrValue::Number(v[0] * v[1]))],
             })
         })
+    }
+
+    #[test]
+    fn adaptive_cancel_at_fit_boundary_preserves_bootstrap_journal() {
+        let problem = extract_problem(&sample_ghx()).unwrap();
+        let cfg = adaptive_cfg(vec![
+            OptimizationDirection::Minimize,
+            OptimizationDirection::Minimize,
+        ]);
+        let dir = tempfile::tempdir().unwrap();
+        let journal = dir.path().join("run.log");
+        let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
+        let progress = FitProgress::new();
+        let watcher_progress = progress.clone();
+        let watcher = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while std::time::Instant::now() < deadline {
+                if watcher_progress
+                    .snapshot()
+                    .stage
+                    .starts_with("Adaptive: fitting surrogate")
+                {
+                    watcher_progress.request_cancel();
+                    return true;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            false
+        });
+        let result = run_prepared(
+            &prep,
+            &problem,
+            &always_feasible_evaluator(),
+            &cfg,
+            &progress,
+        );
+        assert!(watcher.join().unwrap(), "fit boundary must be reached");
+        let summary = result.unwrap();
+        assert_eq!(summary.stop_reason, GhStopReason::Cancelled);
+        assert_eq!(summary.adaptive_diagnostics.len(), 1);
+        let data = std::fs::read(&journal).unwrap();
+        let (_, df, extras) = parse_single_study(&data, 0).unwrap();
+        assert_eq!(df.row_count(), cfg.adaptive_initial);
+        assert!(extras
+            .trials
+            .iter()
+            .all(|trial| trial.state == TrialState::Complete));
+    }
+
+    #[test]
+    fn adaptive_mixed_objectives_choose_eligible_gps_with_honest_reports() {
+        use crate::surrogate_opt::select_best_model;
+
+        let problem = extract_problem(&sample_ghx()).unwrap();
+        let cfg = adaptive_cfg(vec![
+            OptimizationDirection::Minimize,
+            OptimizationDirection::Minimize,
+        ]);
+        let names: Vec<_> = problem.variables.iter().map(|v| v.name.clone()).collect();
+        let bounds: Vec<_> = problem
+            .variables
+            .iter()
+            .map(|v| Some((v.low, v.high)))
+            .collect();
+        let mut data = Dataset::default();
+        let mut rng = SeededRng::from_seed(42);
+        for _ in 0..80 {
+            let x = vec![rng.next_f64(), rng.next_f64()];
+            let y = vec![2.0 * x[0] - x[1], (6.0 * x[0]).sin() + x[1].powi(2)];
+            data.push(x, y, vec![-1.0]);
+        }
+        let linear: Vec<_> = data.ys.iter().map(|row| row[0]).collect();
+        let nonlinear: Vec<_> = data.ys.iter().map(|row| row[1]).collect();
+        assert_eq!(
+            select_best_model(&data.xs, &linear, 42).unwrap().chosen,
+            SurrogateModelKind::Ridge
+        );
+        assert!(matches!(
+            select_best_model(&data.xs, &nonlinear, 42).unwrap().chosen,
+            SurrogateModelKind::GpFitc | SurrogateModelKind::GpVfe
+        ));
+
+        let progress = FitProgress::new();
+        progress.set_total(100);
+        let trained =
+            fit_objective_surrogates(&problem, &cfg, &data, &names, &bounds, &progress).unwrap();
+        for model in &trained {
+            let report = model.model_selection.as_ref().unwrap();
+            assert_eq!(
+                report
+                    .scores
+                    .iter()
+                    .map(|&(kind, _)| kind)
+                    .collect::<Vec<_>>(),
+                vec![SurrogateModelKind::GpFitc, SurrogateModelKind::GpVfe]
+            );
+            assert_eq!(model.model_kind, report.chosen);
+            assert!(model.constraint_models.is_empty());
+        }
+        assert_eq!(progress.snapshot().total, 100);
+        assert_eq!(
+            suggest_candidates_multi(&trained, &[true, true], 1)
+                .unwrap()
+                .len(),
+            1
+        );
+        progress.request_cancel();
+        assert!(
+            fit_objective_surrogates(&problem, &cfg, &data, &names, &bounds, &progress)
+                .err()
+                .unwrap()
+                .contains(crate::surrogate_opt::progress::FIT_CANCELLED)
+        );
     }
 
     /// Diagnostics: a bootstrap baseline (iteration 0) plus one entry per

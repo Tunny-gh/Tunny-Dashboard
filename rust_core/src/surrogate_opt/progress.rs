@@ -20,7 +20,7 @@ pub struct FitProgress(Arc<Inner>);
 
 #[derive(Default)]
 struct Inner {
-    cancel: AtomicBool,
+    cancel: Arc<AtomicBool>,
     done: AtomicUsize,
     total: AtomicUsize,
     stage: Mutex<String>,
@@ -41,6 +41,14 @@ impl FitProgress {
     /// Creates a new handle.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Separate fit counters from adaptive trial counters while sharing cancellation.
+    pub(crate) fn subtask(&self) -> Self {
+        Self(Arc::new(Inner {
+            cancel: Arc::clone(&self.0.cancel),
+            ..Inner::default()
+        }))
     }
 
     /// Requests cancellation (called from the UI thread).
@@ -104,6 +112,24 @@ mod tests {
         assert_eq!(s.done, 0);
         assert_eq!(s.total, 0);
         assert!(s.stage.is_empty());
+    }
+
+    #[test]
+    fn subtask_shares_cancellation_but_not_counters_or_stage() {
+        let parent = FitProgress::new();
+        parent.set_total(100);
+        parent.inc_done();
+        parent.set_stage("Adaptive evaluation");
+        let child = parent.subtask();
+        child.set_total(19);
+        child.inc_done();
+        child.set_stage("GP selection");
+        assert_eq!(parent.snapshot().total, 100);
+        assert_eq!(parent.snapshot().done, 1);
+        assert_eq!(parent.snapshot().stage, "Adaptive evaluation");
+        assert_eq!(child.snapshot().total, 19);
+        parent.request_cancel();
+        assert_eq!(child.check().unwrap_err(), FIT_CANCELLED);
     }
 
     #[test]

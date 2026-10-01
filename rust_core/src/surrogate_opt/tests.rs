@@ -1405,6 +1405,173 @@ fn score_of(report: &ModelSelectionReport, kind: SurrogateModelKind) -> f64 {
 }
 
 #[test]
+fn model_choice_uses_global_best_and_inclusive_absolute_tolerance() {
+    use super::model_selection::choose_model;
+    use SurrogateModelKind::{GpFitc, GpVfe, Lgbm, Ridge};
+
+    assert_eq!(AUTO_CANDIDATES, [Ridge, Lgbm, GpFitc, GpVfe]);
+    let cases = [
+        ([0.8000, 0.8009, 0.8015, f64::NEG_INFINITY], Ridge),
+        // A stale scan would skip LightGBM and then choose GP-FITC.
+        ([0.800, 0.809, 0.815, f64::NEG_INFINITY], Lgbm),
+        ([0.8, 0.8, 0.8, 0.8], Ridge),
+        ([0.0, 0.009, f64::NEG_INFINITY, f64::NEG_INFINITY], Ridge),
+        ([0.0, 0.01, f64::NEG_INFINITY, f64::NEG_INFINITY], Ridge),
+        ([0.0, 0.010001, f64::NEG_INFINITY, f64::NEG_INFINITY], Lgbm),
+        ([0.5, 0.8, 0.805, 0.809], Lgbm),
+        ([f64::NEG_INFINITY, f64::NAN, 0.8, 0.805], GpFitc),
+        ([f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 0.8], GpVfe),
+        ([-0.815, -0.809, -0.800, -0.9], Lgbm),
+        ([-2.0, -2.0, -2.0, -2.0], Ridge),
+    ];
+    for (values, expected) in cases {
+        let scores: Vec<_> = AUTO_CANDIDATES.into_iter().zip(values).collect();
+        assert_eq!(choose_model(&scores).unwrap(), expected, "{values:?}");
+    }
+}
+
+#[test]
+fn model_choice_rejects_all_invalid_and_empty_scores() {
+    use super::model_selection::choose_model;
+
+    for values in [
+        vec![],
+        vec![f64::NEG_INFINITY; 4],
+        vec![f64::NAN, f64::INFINITY, f64::NEG_INFINITY, f64::NAN],
+    ] {
+        let scores: Vec<_> = AUTO_CANDIDATES.into_iter().zip(values).collect();
+        assert_eq!(
+            choose_model(&scores).unwrap_err(),
+            "All candidate models failed validation"
+        );
+    }
+}
+
+#[test]
+fn eligible_gp_choice_uses_only_eligible_best_score() {
+    use super::model_selection::choose_model;
+    use SurrogateModelKind::{GpFitc, GpVfe};
+
+    // Ridge/LightGBM may score 1.0, but do not set the eligible GP maximum.
+    for (values, expected) in [
+        ([0.800, 0.809], GpFitc),
+        ([0.0, 0.01], GpFitc),
+        ([0.0, 0.010001], GpVfe),
+        ([0.8, 0.8], GpFitc),
+        ([-0.809, -0.800], GpFitc),
+        ([f64::NEG_INFINITY, 0.5], GpVfe),
+        ([0.5, f64::NAN], GpFitc),
+        ([f64::INFINITY, -0.5], GpVfe),
+    ] {
+        let scores: Vec<_> = [GpFitc, GpVfe].into_iter().zip(values).collect();
+        assert_eq!(choose_model(&scores).unwrap(), expected);
+    }
+    for values in [
+        [f64::NAN, f64::INFINITY],
+        [f64::NEG_INFINITY, f64::NEG_INFINITY],
+    ] {
+        let scores: Vec<_> = [GpFitc, GpVfe].into_iter().zip(values).collect();
+        assert_eq!(
+            choose_model(&scores).unwrap_err(),
+            "All candidate models failed validation"
+        );
+    }
+}
+
+#[test]
+fn adaptive_fit_fails_clearly_when_both_eligible_gps_fail_validation() {
+    let req = SurrogateFitRequest {
+        x_matrix: (0..10).map(|i| vec![i as f64]).collect(),
+        // Finite inputs whose normalization overflows: neither GP can validate.
+        y: vec![f64::MAX; 10],
+        param_names: vec!["x".to_string()],
+        objective_name: "overflow".to_string(),
+        model: SurrogateModelKind::Ridge,
+        auto_select: true,
+        constraints: vec![],
+        priority_rows: vec![],
+        param_bounds: None,
+    };
+    assert_eq!(
+        fit_adaptive_surrogate_tracked(&req, &FitProgress::new())
+            .err()
+            .unwrap(),
+        "No eligible GP-FITC or GP-VFE model has a finite validation score"
+    );
+}
+
+#[test]
+fn adaptive_single_fit_selects_gp_before_final_fit_and_supports_ei() {
+    let (x_matrix, y) = linear_samples(80);
+    let req = SurrogateFitRequest {
+        constraints: vec![ConstraintData {
+            name: "limit".to_string(),
+            values: x_matrix.iter().map(|row| row[0] - 0.75).collect(),
+        }],
+        x_matrix,
+        y,
+        param_names: vec!["x0".to_string(), "x1".to_string()],
+        objective_name: "linear".to_string(),
+        model: SurrogateModelKind::Ridge,
+        auto_select: true,
+        priority_rows: vec![],
+        param_bounds: None,
+    };
+    let general = fit_surrogate_with_validation(&req).unwrap();
+    assert_eq!(general.model_kind, SurrogateModelKind::Ridge);
+    let parent = FitProgress::new();
+    parent.set_total(100);
+    let progress = parent.subtask();
+    let trained = fit_adaptive_surrogate_tracked(&req, &progress).unwrap();
+    let report = trained.model_selection.as_ref().unwrap();
+    assert_eq!(
+        report
+            .scores
+            .iter()
+            .map(|&(kind, _)| kind)
+            .collect::<Vec<_>>(),
+        vec![SurrogateModelKind::GpFitc, SurrogateModelKind::GpVfe]
+    );
+    assert_eq!(report.chosen, trained.model_kind);
+    assert_eq!(
+        report.chosen,
+        super::model_selection::choose_model(&report.scores).unwrap()
+    );
+    for &(kind, score) in &report.scores {
+        assert_eq!(
+            score,
+            score_of(general.model_selection.as_ref().unwrap(), kind)
+        );
+    }
+    assert_eq!(
+        trained.validation.cv_r2_mean,
+        score_of(report, report.chosen)
+    );
+    assert!(matches!(
+        trained.surrogate.model,
+        super::models::FittedModel::Gp(_)
+    ));
+    assert_eq!(trained.x_matrix, req.x_matrix);
+    assert_eq!(trained.y, req.y);
+    assert_eq!(trained.constraint_names, vec!["limit"]);
+    assert_eq!(trained.constraint_models.len(), 1);
+    assert_eq!(progress.snapshot().total, 20);
+    assert_eq!(progress.snapshot().done, 20);
+    assert_eq!(parent.snapshot().total, 100);
+    let candidates = suggest_candidates(&trained, 1, AcquisitionKind::ExpectedImprovement, true)
+        .expect("eligible GP supports EI with constraints");
+    assert_eq!(candidates.len(), 1);
+    assert!(candidates[0].feasibility_probability.is_some());
+    parent.request_cancel();
+    assert_eq!(
+        fit_adaptive_surrogate_tracked(&req, &parent.subtask())
+            .err()
+            .unwrap(),
+        super::progress::FIT_CANCELLED
+    );
+}
+
+#[test]
 fn select_best_model_picks_gp_on_nonlinear_smooth() {
     let (x_matrix, y) = nonlinear_smooth_samples(50);
     let report = select_best_model(&x_matrix, &y, 42).expect("selection should succeed");
@@ -1431,9 +1598,7 @@ fn select_best_model_picks_gp_on_nonlinear_smooth() {
 
 #[test]
 fn select_best_model_picks_ridge_on_linear() {
-    // The Ridge-selection (tie-break) judgment on linear data is highly
-    // sensitive to quality: lowering N causes GP's CV R² to exceed Ridge's by
-    // more than 1e-3, breaking the tie-break condition, so we keep N at 80.
+    // Keep enough samples for a reliable linear-data comparison.
     let (x_matrix, y) = linear_samples(80);
     let report = select_best_model(&x_matrix, &y, 42).expect("selection should succeed");
 
@@ -1446,15 +1611,15 @@ fn select_best_model_picks_ridge_on_linear() {
         .iter()
         .map(|(_, s)| *s)
         .fold(f64::NEG_INFINITY, f64::max);
-    // Ridge is within 1e-3 of the best score (the condition for Ridge to win the tie-break).
+    // Ridge is within 0.01 of the best score (the condition for Ridge to be preferred).
     assert!(
-        best - ridge < 1e-3,
-        "Ridge cv_r2 {ridge} should be within 1e-3 of best {best}"
+        best - ridge <= 0.01,
+        "Ridge cv_r2 {ridge} should be within 0.01 of best {best}"
     );
     assert_eq!(
         report.chosen,
         SurrogateModelKind::Ridge,
-        "linear data should choose Ridge (tie-break to simpler), got {:?}",
+        "linear data should choose Ridge (explicit preference), got {:?}",
         report.chosen
     );
 }
