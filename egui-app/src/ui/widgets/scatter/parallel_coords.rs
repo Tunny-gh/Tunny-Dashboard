@@ -67,11 +67,6 @@ pub struct ParallelCoordsChart {
     polyline_indices_cache: Option<Vec<u32>>,
     #[serde(skip)]
     polyline_indices_cache_key: Option<usize>, // trial_count
-    /// Pre-laid-out Galley cache for axis labels (recomputed only when the axis name list changes).
-    #[serde(skip)]
-    label_galleys_cache: Option<Vec<std::sync::Arc<egui::Galley>>>,
-    #[serde(skip)]
-    label_galleys_cache_key: Option<Vec<String>>,
     // TASK-2242: pending selection from completed brush drag
     #[serde(skip)]
     pub pending_selection: Option<Vec<u32>>,
@@ -98,8 +93,6 @@ impl Default for ParallelCoordsChart {
             draw_targets_key: None,
             polyline_indices_cache: None,
             polyline_indices_cache_key: None,
-            label_galleys_cache: None,
-            label_galleys_cache_key: None,
             pending_selection: None,
             show_infeasible: true,
             color_axis: None,
@@ -236,56 +229,24 @@ impl ParallelCoordsChart {
             .unwrap_or(n_axes - 1);
 
         let available = ui.available_rect_before_wrap();
-        let axis_margin = 40.0_f32;
-        let axis_x: Vec<f32> = (0..n_visible)
-            .map(|i| {
-                available.min.x
-                    + axis_margin
-                    + (available.width() - 2.0 * axis_margin) * i as f32 / (n_visible - 1) as f32
-            })
-            .collect();
-
         let painter = ui.painter().clone();
+        painter.rect_filled(available, 0.0, CENTRAL_BG());
+        if available.width() <= 1.0 || available.height() <= 11.0 {
+            ui.allocate_rect(available, egui::Sense::click_and_drag());
+            return;
+        }
         let text_color = COLOR_CHART_TEXT();
         let label_font = egui::FontId::proportional(10.0);
-
-        // Pre-lay-out the axis labels and rotate them diagonally when wider
-        // than the adjacent axis spacing to avoid overlap. Layout
-        // (layout_no_wrap) has text-shaping cost, so we don't recompute it
-        // every frame unless the axis name list changes.
-        if self.label_galleys_cache.is_none()
-            || self.label_galleys_cache_key.as_deref() != Some(&all_names[..])
-        {
-            let galleys: Vec<std::sync::Arc<egui::Galley>> = all_names
-                .iter()
-                .map(|name| painter.layout_no_wrap(name.clone(), label_font.clone(), text_color))
-                .collect();
-            self.label_galleys_cache = Some(galleys);
-            self.label_galleys_cache_key = Some(all_names.clone());
-        }
-        let label_galleys = self.label_galleys_cache.as_ref().unwrap();
-        let max_label_w = visible
+        // egui memoizes text layout and invalidates it when the atlas or DPI
+        // changes. Retaining our own galleys across passes would retain stale UVs.
+        let label_galleys: Vec<_> = visible
             .iter()
-            .map(|&i| label_galleys[i].size().x)
-            .fold(0.0_f32, f32::max);
-        let label_h = label_galleys.first().map(|g| g.size().y).unwrap_or(12.0);
-        let axis_spacing = (available.width() - 2.0 * axis_margin) / (n_visible - 1) as f32;
-        let rotate_labels = max_label_w > axis_spacing - 4.0;
-        let label_angle = if rotate_labels {
-            std::f32::consts::FRAC_PI_4 // 45° rotation (rising to the right)
-        } else {
-            0.0
-        };
-        // Height occupied by labels at the top (diagonal height when rotated).
-        let label_area = if rotate_labels {
-            (max_label_w * label_angle.sin() + label_h * label_angle.cos()).min(110.0) + 8.0
-        } else {
-            label_h + 8.0
-        };
-        let axis_top = available.min.y + label_area;
-        let axis_bottom = available.max.y - 10.0;
-
-        painter.rect_filled(available, 0.0, CENTRAL_BG());
+            .map(|&i| painter.layout_no_wrap(all_names[i].clone(), label_font.clone(), text_color))
+            .collect();
+        let label_layout = layout::axis_label_layout(available, &label_galleys);
+        let axis_x = &label_layout.axis_x;
+        let axis_top = label_layout.axis_top;
+        let axis_bottom = label_layout.axis_bottom;
 
         const N_TICKS: usize = 5;
         let tick_len = 4.0_f32;
@@ -429,28 +390,14 @@ impl ParallelCoordsChart {
                 [egui::pos2(x, axis_top), egui::pos2(x, axis_bottom)],
                 egui::Stroke::new(1.5, COLOR_PARALLEL_AXIS()),
             );
-            let galley = label_galleys[orig].clone();
-            if rotate_labels {
-                // Align the lowest corner (start of the string, bottom-left)
-                // of the "/"-shaped label rotated by -label_angle
-                // (counter-clockwise) to each axis's top point (x, axis_top)
-                // (shared helper, D-12).
-                let applied = -label_angle;
-                let lowest = super::rotated_label_corners(galley.size(), applied).lowest;
-                // Choose pos so the lowest corner sits just above the axis top.
-                let gap = 2.0_f32;
-                let anchor = egui::pos2(x, axis_top - gap);
-                let pos = anchor - egui::vec2(lowest.0, lowest.1);
-                painter
-                    .add(egui::epaint::TextShape::new(pos, galley, text_color).with_angle(applied));
-            } else {
-                let size = galley.size();
-                painter.galley(
-                    egui::pos2(x - size.x * 0.5, available.min.y + 4.0),
-                    galley,
+            painter.add(
+                egui::epaint::TextShape::new(
+                    label_layout.label_pos[disp],
+                    label_galleys[disp].clone(),
                     text_color,
-                );
-            }
+                )
+                .with_angle(label_layout.angle),
+            );
 
             let (mn, mx) = col_ranges[orig];
             for t in 0..N_TICKS {

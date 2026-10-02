@@ -52,6 +52,10 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- Parallel Coordinates Plot axis names now refresh with the font atlas and DPI,
+  and reserve their full horizontal or rotated bounds to avoid clipping outer
+  labels when chart space is sufficient (#216).
+
 - MCDM rankings reject negative criterion weights instead of accepting them or
   silently replacing them with uniform weights. Nonnegative weights retain their
   existing normalization, including uniform weights for a zero or nonfinite sum.
