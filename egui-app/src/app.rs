@@ -185,6 +185,7 @@ impl TunnyApp {
     pub fn new(
         cc: &eframe::CreationContext<'_>,
         initial_path: Option<std::path::PathBuf>,
+        artifact_path: Option<std::path::PathBuf>,
         beta_notice_allowed: bool,
     ) -> Self {
         cc.egui_ctx.set_visuals(crate::theme::tunny_visuals(false));
@@ -220,9 +221,11 @@ impl TunnyApp {
         let (tx, rx) = mpsc::sync_channel(32);
         let is_loading = initial_path.is_some();
         if let Some(path) = initial_path {
-            dispatch_scan(path, tx.clone());
+            dispatch_scan(path, 0, tx.clone());
         }
         let mut app_state = AppState::new();
+        app_state.artifacts_dir = artifact_path.clone();
+        app_state.explicit_artifact_root = artifact_path;
         // Restore persisted preferences (the .ghx Compute/sampler settings and the
         // acknowledged beta-notice version). Absent or unreadable storage falls back
         // to defaults.
@@ -300,6 +303,22 @@ impl TunnyApp {
 
     fn request_artifact_scan(&mut self, base_dir: std::path::PathBuf) {
         self.latest_artifact_scan_id += 1;
+        self.app_state.artifacts_dir = Some(base_dir.clone());
+        if self
+            .app_state
+            .journal_path
+            .as_deref()
+            .is_some_and(crate::io::flat_csv::is_csv_path)
+        {
+            // DesignExplorer img associations are authoritative, never legacy inference.
+            self.app_state.artifact_map = self
+                .app_state
+                .csv_images
+                .as_ref()
+                .map(|images| crate::io::flat_csv::build_artifact_map(&base_dir, images))
+                .unwrap_or_default();
+            return;
+        }
         crate::io::artifacts::scan_artifacts_dir(
             base_dir,
             self.app_state.journal_path.clone(),
@@ -311,7 +330,16 @@ impl TunnyApp {
     /// Processes messages non-blockingly and updates AppState.
     pub fn poll_messages(&mut self, ctx: &egui::Context) {
         while let Ok(msg) = self.rx.try_recv() {
-            if matches!(&msg, AppMessage::ArtifactsDirScanned { scan_id: Some(id), .. } if *id != self.latest_artifact_scan_id)
+            if matches!(&msg, AppMessage::ArtifactsDirScanned { scan_id, .. } if *scan_id != self.latest_artifact_scan_id)
+            {
+                continue;
+            }
+            if matches!(&msg, AppMessage::ArtifactsDirScanned { .. })
+                && self
+                    .app_state
+                    .journal_path
+                    .as_deref()
+                    .is_some_and(crate::io::flat_csv::is_csv_path)
             {
                 continue;
             }
@@ -331,6 +359,13 @@ impl TunnyApp {
             // gets its captured view state re-applied.
             let is_study_activated = matches!(&msg, AppMessage::StudySelected { .. })
                 || matches!(&msg, AppMessage::StudyChunkLoaded { is_final: true, .. });
+            if matches!(
+                &msg,
+                AppMessage::StudySelected { .. }
+                    | AppMessage::StudyChunkLoaded { is_first: true, .. }
+            ) {
+                self.latest_artifact_scan_id += 1;
+            }
             // Async compute completion/failure messages only update the global
             // widget_states. Since each canvas item holds independent WidgetStates
             // (commit 73883d8), the completion state (computing/result/cache) must be
@@ -389,6 +424,9 @@ impl TunnyApp {
             // flight).
             if is_study_activated {
                 self.finish_reload();
+                if let Some(root) = self.app_state.explicit_artifact_root.clone() {
+                    self.request_artifact_scan(root);
+                }
             }
 
             ctx.request_repaint();
@@ -428,6 +466,7 @@ impl TunnyApp {
                 }
                 ToolbarAction::Reload => self.reload_current(),
                 ToolbarAction::ScanArtifacts(base_dir) => {
+                    self.app_state.explicit_artifact_root = Some(base_dir.clone());
                     self.request_artifact_scan(base_dir);
                 }
                 ToolbarAction::ClearLoadError => {
@@ -651,11 +690,15 @@ impl eframe::App for TunnyApp {
 /// Determines the kind of path being opened (RDB URL / flat CSV / SQLite / journal) and
 /// dispatches the corresponding scan to a worker thread. Shared handling (D-12) between
 /// `TunnyApp::new` (initial path) and `open_path` (toolbar / URL dialog).
-fn dispatch_scan(path: std::path::PathBuf, tx: mpsc::SyncSender<AppMessage>) {
+fn dispatch_scan(
+    path: std::path::PathBuf,
+    source_generation: u64,
+    tx: mpsc::SyncSender<AppMessage>,
+) {
     if let Some(url) = crate::io::rdb::path_as_rdb_url(&path) {
         crate::io::study_worker::dispatch_scan_rdb(url, tx);
     } else if crate::io::flat_csv::is_csv_path(&path) {
-        crate::io::study_worker::dispatch_scan_csv(path, tx);
+        crate::io::study_worker::dispatch_scan_csv(path, source_generation, tx);
     } else if crate::io::sqlite::is_sqlite_path(&path) {
         crate::io::study_worker::dispatch_scan_sqlite(path, tx);
     } else {

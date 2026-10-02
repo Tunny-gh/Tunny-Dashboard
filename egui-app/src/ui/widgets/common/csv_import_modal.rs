@@ -27,7 +27,7 @@ pub fn show(ctx: &egui::Context, settings: &mut CsvImportSettings) -> Option<Csv
     let valid = settings.bounds_valid();
 
     let outcome = ModalScaffold::new("csv_import_settings_modal", 440.0)
-        .heading("CSV Import Settings")
+        .heading("DesignExplorer-format CSV Import Settings")
         .show(ctx, |ui| {
             ui.label(
                 RichText::new(format!("Study: {}", settings.study_name))
@@ -35,7 +35,7 @@ pub fn show(ctx: &egui::Context, settings: &mut CsvImportSettings) -> Option<Csv
             );
             ui.add_space(4.0);
             ui.label(
-                "CSV files don't carry optimization directions or parameter ranges. \
+                "DesignExplorer-format CSV files don't carry optimization directions or parameter ranges. \
                  Please confirm or adjust them before loading.",
             );
             ui.separator();

@@ -6,6 +6,253 @@ fn make_channel() -> (mpsc::SyncSender<AppMessage>, mpsc::Receiver<AppMessage>) 
     mpsc::sync_channel(32)
 }
 
+fn artifact_test_app(root: Option<std::path::PathBuf>) -> TunnyApp {
+    let (tx, rx) = make_channel();
+    let mut app_state = AppState::new();
+    app_state.artifacts_dir = root.clone();
+    app_state.explicit_artifact_root = root;
+    TunnyApp {
+        app_state,
+        layout: LayoutState::default(),
+        widget_states: WidgetStates::default(),
+        canvas_widgets: HashMap::new(),
+        is_loading: false,
+        load_error: None,
+        tx,
+        rx,
+        pending_reload: None,
+        latest_artifact_scan_id: 0,
+        reload_when_idle: false,
+        current_window_title: None,
+        beta_notice: BetaNoticeState::default(),
+        beta_notice_ack: None,
+    }
+}
+
+fn poll_until(app: &mut TunnyApp, ready: impl Fn(&TunnyApp) -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !ready(app) {
+        app.poll_messages(&egui::Context::default());
+        assert!(app.load_error.is_none(), "{:?}", app.load_error);
+        assert!(std::time::Instant::now() < deadline, "worker timed out");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn designexplorer_worker_rebases_images_and_gui_selection_survives_late_messages() {
+    let source = tempfile::tempdir().unwrap();
+    let cli_root = tempfile::tempdir().unwrap();
+    let gui_root = tempfile::tempdir().unwrap();
+    let path = source.path().join("results.csv");
+    std::fs::write(
+        &path,
+        "in:x,out:f,img\n1,2,picture.png\n2,3,second.png\n3,4,../outside.png\n",
+    )
+    .unwrap();
+    std::fs::write(cli_root.path().join("picture.png"), b"cli").unwrap();
+    std::fs::write(gui_root.path().join("second.png"), b"gui").unwrap();
+    // A legacy-looking file must not be inferred into the img association map.
+    std::fs::write(gui_root.path().join("0_inferred.png"), b"legacy").unwrap();
+    let mut app = artifact_test_app(Some(cli_root.path().to_path_buf()));
+    app.open_path(path.clone());
+    poll_until(&mut app, |app| app.app_state.csv_import_settings.is_some());
+    let meta = app.app_state.all_studies[0].clone();
+    app.apply_toolbar_actions(vec![ToolbarAction::SelectStudy(meta)]);
+    poll_until(&mut app, |app| app.app_state.csv_images.is_some());
+    assert_eq!(app.app_state.artifact_map.len(), 1);
+    assert_eq!(
+        app.app_state.artifact_map[&0][0].path,
+        cli_root.path().join("picture.png")
+    );
+    let images = app.app_state.csv_images.clone().unwrap();
+    app.apply_toolbar_actions(vec![ToolbarAction::ScanArtifacts(
+        gui_root.path().to_path_buf(),
+    )]);
+    assert_eq!(app.app_state.artifact_map.len(), 1);
+    assert_eq!(
+        app.app_state.artifact_map[&1][0].path,
+        gui_root.path().join("second.png")
+    );
+    app.tx
+        .send(AppMessage::CsvArtifacts {
+            source_path: path.clone(),
+            source_generation: app.app_state.source_generation,
+            images: images.clone(),
+        })
+        .unwrap();
+    app.tx
+        .send(AppMessage::ArtifactsDirScanned {
+            trial_artifacts: HashMap::new(),
+            artifacts_dir: cli_root.path().to_path_buf(),
+            scan_id: app.latest_artifact_scan_id,
+        })
+        .unwrap();
+    app.poll_messages(&egui::Context::default());
+    assert_eq!(
+        app.app_state.artifacts_dir.as_deref(),
+        Some(gui_root.path())
+    );
+    assert!(app.app_state.artifact_map.contains_key(&1));
+
+    // Reopening the same source invalidates even same-path late CSV results.
+    let old_generation = app.app_state.source_generation;
+    app.open_path(path.clone());
+    app.tx
+        .send(AppMessage::CsvArtifacts {
+            source_path: path,
+            source_generation: old_generation,
+            images,
+        })
+        .unwrap();
+    app.poll_messages(&egui::Context::default());
+    assert!(app.app_state.csv_images.is_none());
+    assert!(app.app_state.artifact_map.is_empty());
+    assert_eq!(
+        app.app_state.explicit_artifact_root.as_deref(),
+        Some(gui_root.path())
+    );
+    poll_until(&mut app, |app| {
+        !app.is_loading && !app.app_state.all_studies.is_empty()
+    });
+
+    let other_path = source.path().join("other.csv");
+    std::fs::write(&other_path, "in:x,out:f,img\n5,6,second.png\n").unwrap();
+    app.open_path(other_path);
+    poll_until(&mut app, |app| {
+        !app.is_loading && !app.app_state.all_studies.is_empty()
+    });
+    let meta = app.app_state.all_studies[0].clone();
+    app.apply_toolbar_actions(vec![ToolbarAction::SelectStudy(meta)]);
+    poll_until(&mut app, |app| app.app_state.csv_images.is_some());
+    assert_eq!(
+        app.app_state.artifacts_dir.as_deref(),
+        Some(gui_root.path())
+    );
+    assert_eq!(
+        app.app_state.artifact_map[&0][0].path,
+        gui_root.path().join("second.png")
+    );
+
+    // Switching source formats and the real reload dispatch both retain GUI priority.
+    let journal = source.path().join("study.log");
+    std::fs::write(
+        &journal,
+        "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"test\",\"directions\":[1]}\n",
+    )
+    .unwrap();
+    std::fs::write(gui_root.path().join("10_result.png"), b"journal artifact").unwrap();
+    app.app_state.csv_import_settings = None;
+    app.open_path(journal);
+    poll_until(&mut app, |app| {
+        !app.is_loading && app.app_state.artifact_map.contains_key(&10)
+    });
+    assert_eq!(
+        app.app_state.artifacts_dir.as_deref(),
+        Some(gui_root.path())
+    );
+    let old_scan = app.latest_artifact_scan_id;
+    app.reload_current();
+    assert!(app.is_loading);
+    app.tx
+        .send(AppMessage::ArtifactsDirScanned {
+            trial_artifacts: HashMap::new(),
+            artifacts_dir: cli_root.path().to_path_buf(),
+            scan_id: old_scan,
+        })
+        .unwrap();
+    poll_until(&mut app, |app| {
+        !app.is_loading
+            && app.pending_reload.is_none()
+            && app.app_state.artifact_map.contains_key(&10)
+    });
+    assert_eq!(
+        app.app_state.explicit_artifact_root.as_deref(),
+        Some(gui_root.path())
+    );
+    assert_eq!(
+        app.app_state.artifact_map[&10][0].path,
+        gui_root.path().join("10_result.png")
+    );
+}
+
+#[test]
+fn designexplorer_omission_uses_parent_and_rejects_other_source_messages() {
+    let source = tempfile::tempdir().unwrap();
+    let path = source.path().join("results.csv");
+    std::fs::write(source.path().join("image.png"), b"image").unwrap();
+    let mut app = artifact_test_app(None);
+    app.app_state.journal_path = Some(path.clone());
+    app.tx
+        .send(AppMessage::CsvArtifacts {
+            source_path: path,
+            source_generation: 0,
+            images: vec![(7, "image.png".into())],
+        })
+        .unwrap();
+    app.poll_messages(&egui::Context::default());
+    assert_eq!(app.app_state.artifacts_dir.as_deref(), Some(source.path()));
+    assert_eq!(
+        app.app_state.artifact_map[&7][0].path,
+        source.path().join("image.png")
+    );
+    app.tx
+        .send(AppMessage::CsvArtifacts {
+            source_path: source.path().join("other.csv"),
+            source_generation: 0,
+            images: vec![],
+        })
+        .unwrap();
+    app.poll_messages(&egui::Context::default());
+    assert!(app.app_state.artifact_map.contains_key(&7));
+}
+
+#[test]
+fn session_root_survives_study_activation_and_new_but_omission_still_clears() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("9_result.png"), b"artifact").unwrap();
+    let mut app = artifact_test_app(Some(root.path().to_path_buf()));
+    app.app_state.journal_path = Some("study.log".into());
+    for study_id in [98210, 98211] {
+        app.tx
+            .send(AppMessage::StudyChunkLoaded {
+                study_id,
+                meta: StudyMeta {
+                    study_id,
+                    name: "study".into(),
+                    directions: vec![],
+                    completed_trials: 0,
+                    param_names: vec![],
+                    objective_names: vec![],
+                    param_bounds: Default::default(),
+                },
+                new_rows: vec![],
+                param_names: vec![],
+                objective_names: vec![],
+                user_attr_numeric_names: vec![],
+                user_attr_string_names: vec![],
+                max_constraints: 0,
+                has_constraints: false,
+                is_first: true,
+                is_final: true,
+            })
+            .unwrap();
+        app.poll_messages(&egui::Context::default());
+        poll_until(&mut app, |app| !app.app_state.artifact_map.is_empty());
+        assert_eq!(app.app_state.artifacts_dir.as_deref(), Some(root.path()));
+    }
+    app.reset_to_empty();
+    assert_eq!(
+        app.app_state.explicit_artifact_root.as_deref(),
+        Some(root.path())
+    );
+    assert!(app.app_state.artifact_map.is_empty());
+    let mut omitted = AppState::new();
+    omitted.artifacts_dir = Some(root.path().to_path_buf());
+    omitted.clear();
+    assert!(omitted.artifacts_dir.is_none());
+}
+
 #[test]
 fn unsupported_drop_message_guides_gh_binary_to_ghx() {
     let msg = unsupported_drop_message(&[std::path::PathBuf::from("/a/model.gh")]);

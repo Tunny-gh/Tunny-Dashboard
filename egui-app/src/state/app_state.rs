@@ -69,6 +69,12 @@ pub struct AppState {
     // ── REQ-007: Artifacts ───────────────────────────────────────
     /// The scanned artifacts base directory
     pub artifacts_dir: Option<std::path::PathBuf>,
+    /// Session root supplied by CLI, replaced by an explicit GUI selection.
+    pub explicit_artifact_root: Option<std::path::PathBuf>,
+    /// Unresolved DesignExplorer image paths, retained for rebasing GUI selections.
+    pub csv_images: Option<Vec<(u32, String)>>,
+    /// Identifies the source load that owns asynchronous CSV image paths.
+    pub source_generation: u64,
     /// Map from trial_id -> artifacts (actual path + original file name + MIME)
     pub artifact_map: HashMap<u32, Vec<crate::io::artifacts::ArtifactEntry>>,
 
@@ -160,6 +166,9 @@ impl AppState {
             comparison_colors: Vec::new(),
             comparison_convergence_histories: Vec::new(),
             artifacts_dir: None,
+            explicit_artifact_root: None,
+            csv_images: None,
+            source_generation: 0,
             artifact_map: HashMap::new(),
             best_trial_history: None,
             pinned_trials: Vec::new(),
@@ -237,6 +246,9 @@ impl AppState {
             convergence_indicator: self.convergence_indicator,
             gh_compute_prefs: self.gh_compute_prefs.clone(),
             gh_opt_run: running_opt,
+            explicit_artifact_root: self.explicit_artifact_root.clone(),
+            artifacts_dir: self.explicit_artifact_root.clone(),
+            source_generation: self.source_generation + 1,
             ..Self::new()
         };
     }
@@ -262,7 +274,7 @@ impl AppState {
         // switches (the comparison session is kept until the user explicitly resets it)
 
         // REQ-007: Artifacts are reset on Study switch
-        self.artifacts_dir = None;
+        self.artifacts_dir = self.explicit_artifact_root.clone();
         self.artifact_map.clear();
 
         // REQ-008: convergence history is reset on Study switch
