@@ -1,4 +1,5 @@
 use super::types::{PcaResult, PcaSpace};
+use crate::data::finite_rows::finite_matrix_rows;
 
 fn col_means(data: &[Vec<f64>]) -> Vec<f64> {
     let n = data.len();
@@ -59,10 +60,9 @@ pub(crate) fn run_pca_on_matrix_opts(
     if data.iter().any(|row| row.len() != p) {
         return empty;
     }
-    let row_indices: Vec<usize> = (0..n)
-        .filter(|&i| data[i].iter().all(|v| v.is_finite()))
-        .collect();
-    let data: Vec<Vec<f64>> = row_indices.iter().map(|&i| data[i].clone()).collect();
+    let selected = finite_matrix_rows(data.iter().map(|row| row.iter().copied()));
+    let row_indices = selected.source_indices;
+    let data = selected.values;
     let n = data.len();
     if n < 2 {
         return empty;

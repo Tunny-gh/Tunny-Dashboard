@@ -1,5 +1,6 @@
 use super::data::get_param_numeric_values;
 use super::SobolResult;
+use crate::data::finite_rows::finite_rows;
 use crate::math::rng::SeededRng;
 use crate::math::stats::{column_mean_std, value_range};
 use rayon::prelude::*;
@@ -32,17 +33,6 @@ pub(crate) fn build_quad_features(x_std: &[f64]) -> Vec<f64> {
     }
 
     feat
-}
-
-fn build_row_major_matrix(columns: &[Vec<f64>], n_rows: usize) -> Vec<Vec<f64>> {
-    if columns.is_empty() || n_rows == 0 {
-        return vec![];
-    }
-
-    let n_cols = columns.len();
-    (0..n_rows)
-        .map(|row| (0..n_cols).map(|col| columns[col][row]).collect())
-        .collect()
 }
 
 fn compute_param_ranges_from_columns(param_columns: &[Vec<f64>]) -> Vec<(f64, f64)> {
@@ -240,25 +230,32 @@ pub fn compute_sobol_from_df(
     // built only from rows where the parameters and all objective values are finite. If a NaN
     // objective from a failed/pruned trial propagated into the ridge regression, all metrics
     // would come out as a "silently broken" NaN result.
-    let valid_indices: Vec<usize> = (0..n)
-        .filter(|&i| {
-            raw_param_columns.iter().all(|col| col[i].is_finite())
-                && objective_columns.iter().all(|col| col[i].is_finite())
-        })
+    let required_columns: Vec<&[f64]> = raw_param_columns
+        .iter()
+        .chain(objective_columns.iter())
+        .map(Vec::as_slice)
         .collect();
-    if valid_indices.len() < 2 {
+    let selected = finite_rows(&required_columns, n);
+    if selected.source_indices.len() < 2 {
         return None;
     }
-    let n = valid_indices.len();
-    let param_columns: Vec<Vec<f64>> = raw_param_columns
-        .iter()
-        .map(|col| valid_indices.iter().map(|&i| col[i]).collect())
+    let param_columns: Vec<Vec<f64>> = (0..n_params)
+        .map(|j| selected.values.iter().map(|row| row[j]).collect())
         .collect();
-    let y_matrix: Vec<Vec<f64>> = objective_columns
-        .iter()
-        .map(|col| valid_indices.iter().map(|&i| col[i]).collect())
+    let y_matrix: Vec<Vec<f64>> = (0..n_objectives)
+        .map(|j| {
+            selected
+                .values
+                .iter()
+                .map(|row| row[n_params + j])
+                .collect()
+        })
         .collect();
-    let x_matrix = build_row_major_matrix(&param_columns, n);
+    let x_matrix: Vec<Vec<f64>> = selected
+        .values
+        .iter()
+        .map(|row| row[..n_params].to_vec())
+        .collect();
 
     let surrogate = build_sobol_surrogate(&x_matrix, &y_matrix, n_params, 1.0)?;
 

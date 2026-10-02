@@ -27,6 +27,82 @@ fn setup_df(rows: Vec<TrialRow>, params: &[&str], objs: &[&str]) -> DataFrame {
 }
 
 #[test]
+fn finite_selection_retains_method_specific_requirements() {
+    let rows = vec![
+        make_row_multi(0, &[("x", 0.0), ("other", f64::NAN)], vec![0.0, f64::NAN]),
+        make_row_multi(1, &[("x", f64::NAN), ("other", 1.0)], vec![99.0, 1.0]),
+        make_row_multi(
+            2,
+            &[("x", 2.0), ("other", f64::INFINITY)],
+            vec![4.0, f64::NAN],
+        ),
+        make_row_multi(
+            3,
+            &[("x", 4.0), ("other", f64::NEG_INFINITY)],
+            vec![8.0, f64::NAN],
+        ),
+    ];
+    let df = setup_df(rows, &["x", "other"], &["obj", "unused_obj"]);
+    let pairwise = SpearmanMetric.compute(&df, 0).unwrap();
+    let x_index = pairwise
+        .param_names
+        .iter()
+        .position(|name| name == "x")
+        .unwrap();
+    assert_eq!(
+        pairwise.spearman[x_index][0],
+        compute_spearman(&[0.0, 2.0, 4.0], &[0.0, 4.0, 8.0])
+    );
+    // Ridge requires all supported parameters, Sobol also requires all objectives.
+    let ridge = RidgeMetric.compute(&df, 0).unwrap();
+    assert_eq!(ridge.ridge[0].beta, vec![0.0; 2]);
+    assert_eq!(ridge.ridge[0].r_squared, 0.0);
+    assert!(compute_sobol_from_df(&df, 32).is_none());
+    assert_eq!(compute_spearman(&[0.0], &[0.0, 1.0]), 0.0);
+    assert!(compute_spearman(&[f64::NAN; 2], &[0.0; 3]).is_nan());
+    assert_eq!(compute_spearman(&[0.0, 1.0, 999.0], &[0.0, 2.0]), 1.0);
+}
+
+#[test]
+fn sobol_complete_case_selection_keeps_objectives_and_categories_aligned() {
+    let complete: Vec<_> = (0..12)
+        .map(|i| {
+            let mut row =
+                make_row_multi(i, &[("x", i as f64)], vec![2.0 * i as f64, (i * i) as f64]);
+            row.param_category_label
+                .insert("cat".to_string(), format!("c{}", i % 2));
+            // Non-required constraints must not affect observation selection.
+            row.constraint_values = vec![if i % 2 == 0 { f64::NAN } else { f64::INFINITY }];
+            row
+        })
+        .collect();
+    let mut incomplete = Vec::new();
+    for row in &complete {
+        incomplete.push(row.clone());
+        for (feature, objective) in [
+            (f64::NAN, 999.0),
+            (f64::INFINITY, 999.0),
+            (f64::NEG_INFINITY, 999.0),
+            (999.0, f64::NAN),
+        ] {
+            let mut bad = row.clone();
+            bad.param_display.insert("x".to_string(), feature);
+            bad.objective_values[1] = objective;
+            incomplete.push(bad);
+        }
+    }
+    let clean = setup_df(complete, &["x", "cat"], &["a", "b"]);
+    let filtered = setup_df(incomplete, &["x", "cat"], &["a", "b"]);
+    let expected = compute_sobol_from_df(&clean, 128).unwrap();
+    let actual = compute_sobol_from_df(&filtered, 128).unwrap();
+    assert_eq!(actual.param_names, expected.param_names);
+    assert_eq!(actual.objective_names, expected.objective_names);
+    assert_eq!(actual.first_order, expected.first_order);
+    assert_eq!(actual.total_effect, expected.total_effect);
+    assert_eq!(actual.r_squared, expected.r_squared);
+}
+
+#[test]
 fn tc_801_01_spearman_perfect_positive() {
     let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
     let y = vec![2.0, 4.0, 6.0, 8.0, 10.0];
