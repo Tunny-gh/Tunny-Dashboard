@@ -2,6 +2,80 @@
 
 use crate::ui::widgets::common::range_math;
 
+pub(super) struct AxisLabelLayout {
+    pub axis_x: Vec<f32>,
+    pub axis_top: f32,
+    pub axis_bottom: f32,
+    pub label_pos: Vec<egui::Pos2>,
+    pub angle: f32,
+}
+
+/// Reserve the full label bounds, including glyph overhang, at both outer
+/// axes and above the plot. In cramped charts the clip may cut off text, but
+/// the axis geometry must remain ordered with a positive normalization span.
+pub(super) fn axis_label_layout(
+    available: egui::Rect,
+    galleys: &[std::sync::Arc<egui::Galley>],
+) -> AxisLabelLayout {
+    let max_width = galleys.iter().map(|g| g.size().x).fold(0.0_f32, f32::max);
+    let horizontal_margin = 40.0_f32.max(max_width * 0.5 + 2.0);
+    let spacing =
+        (available.width() - 2.0 * horizontal_margin).max(0.0) / (galleys.len() - 1) as f32;
+    let angle = if max_width > spacing - 4.0 {
+        -std::f32::consts::FRAC_PI_4
+    } else {
+        0.0
+    };
+    let mut offsets = Vec::with_capacity(galleys.len());
+    let (mut left, mut right, mut height) = (40.0_f32, 40.0_f32, 0.0_f32);
+    for galley in galleys {
+        let offset = if angle == 0.0 {
+            egui::vec2(-galley.size().x * 0.5, -galley.size().y)
+        } else {
+            let lowest = crate::ui::widgets::common::axis_labels::rotated_label_corners(
+                galley.size(),
+                angle,
+            )
+            .lowest;
+            -egui::vec2(lowest.0, lowest.1)
+        };
+        let bounds = galley
+            .rect
+            .union(galley.mesh_bounds)
+            .rotate_bb(egui::emath::Rot2::from_angle(angle))
+            .translate(offset);
+        left = left.max(-bounds.left() + 2.0);
+        right = right.max(bounds.right() + 2.0);
+        height = height.max(-bounds.top() + bounds.bottom().max(0.0));
+        offsets.push(offset);
+    }
+    let margin_scale = ((available.width() - 1.0) / (left + right)).clamp(0.0, 1.0);
+    left *= margin_scale;
+    right *= margin_scale;
+    let axis_x: Vec<_> = (0..galleys.len())
+        .map(|i| {
+            available.left()
+                + left
+                + (available.width() - left - right).max(0.0) * i as f32
+                    / (galleys.len() - 1) as f32
+        })
+        .collect();
+    let axis_bottom = available.bottom() - 10.0;
+    let axis_top = available.top() + (height + 8.0).min(available.height() - 11.0);
+    let label_pos = axis_x
+        .iter()
+        .zip(offsets)
+        .map(|(&x, offset)| egui::pos2(x, axis_top - 4.0) + offset)
+        .collect();
+    AxisLabelLayout {
+        axis_x,
+        axis_top,
+        axis_bottom,
+        label_pos,
+        angle,
+    }
+}
+
 /// Formats an axis tick value with precision scaled to the value range.
 pub fn fmt_tick_value(v: f64, mn: f64, mx: f64) -> String {
     let range = (mx - mn).abs();
