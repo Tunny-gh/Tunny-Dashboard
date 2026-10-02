@@ -1,3 +1,4 @@
+use crate::data::finite_rows::finite_rows;
 use crate::math::stats::{pearson_correlation, spearman_correlation};
 
 /// Correlation coefficient to use when building a [`CorrelationMatrix`].
@@ -56,12 +57,8 @@ pub fn compute_correlation_matrix(
 /// side had a duplicate implementation of the same logic).
 pub(crate) fn pairwise_correlation(x: &[f64], y: &[f64], method: CorrelationMethod) -> f64 {
     let n = x.len().min(y.len());
-    let (fx, fy): (Vec<f64>, Vec<f64>) = x[..n]
-        .iter()
-        .zip(&y[..n])
-        .filter(|&(&xi, &yi)| xi.is_finite() && yi.is_finite())
-        .map(|(&xi, &yi)| (xi, yi))
-        .unzip();
+    let selected = finite_rows(&[x, y], n);
+    let (fx, fy): (Vec<f64>, Vec<f64>) = selected.values.iter().map(|row| (row[0], row[1])).unzip();
 
     if fx.len() < 2 {
         return f64::NAN;
@@ -76,6 +73,27 @@ pub(crate) fn pairwise_correlation(x: &[f64], y: &[f64], method: CorrelationMeth
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pairwise_policy_does_not_require_other_columns() {
+        let columns = vec![
+            (
+                "x".to_string(),
+                vec![0.0, f64::NAN, 2.0, f64::INFINITY, 4.0, f64::NEG_INFINITY],
+            ),
+            ("y".to_string(), vec![0.0, 9.0, 4.0, 9.0, 8.0, 9.0, 100.0]),
+            ("unused".to_string(), vec![f64::NAN; 7]),
+        ];
+        for method in [CorrelationMethod::Pearson, CorrelationMethod::Spearman] {
+            let result = compute_correlation_matrix(&columns, method).unwrap();
+            let expected = pairwise_correlation(&[0.0, 2.0, 4.0], &[0.0, 4.0, 8.0], method);
+            assert_eq!(result.values[0][1], expected);
+            assert!(result.values[0][2].is_nan());
+            assert!(pairwise_correlation(&[], &[], method).is_nan());
+            assert!(pairwise_correlation(&[0.0], &[0.0], method).is_nan());
+            assert!(pairwise_correlation(&[f64::NAN; 2], &[0.0; 2], method).is_nan());
+        }
+    }
 
     #[test]
     fn perfect_correlation_pair() {

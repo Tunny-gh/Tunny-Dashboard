@@ -1,3 +1,4 @@
+use crate::data::finite_rows::finite_matrix_rows;
 use crate::math::rng::SeededRng;
 use crate::sensitivity::data::sample_rows;
 use std::sync::Arc;
@@ -53,6 +54,8 @@ fn compute_split(n: usize) -> (bool, usize) {
 
 /// Runs NaN/Inf filtering, downsampling, shuffling, and holdout splitting in one pass.
 /// Returns `None` if the number of valid rows is fewer than 2.
+/// Ridge sensitivity and tree metrics require complete finite features and objective;
+/// public numerical fitting boundaries retain their separate rejection policy.
 pub(crate) fn prepare_training_data(
     x_matrix: &[Vec<f64>],
     y: &[f64],
@@ -62,18 +65,22 @@ pub(crate) fn prepare_training_data(
 ) -> Option<PreparedData> {
     let n = y.len();
 
-    let valid_indices: Vec<usize> = (0..n)
-        .filter(|&i| y[i].is_finite() && x_matrix[i].iter().all(|v| v.is_finite()))
-        .collect();
+    let selected = finite_matrix_rows(
+        (0..n).map(|i| std::iter::once(y[i]).chain(x_matrix[i].iter().copied())),
+    );
 
-    let n_valid = valid_indices.len();
+    let n_valid = selected.source_indices.len();
     if n_valid < 2 {
         return None;
     }
 
     let (x_data, y_data) = if n_valid < n {
-        let x_clean: Vec<Vec<f64>> = valid_indices.iter().map(|&i| x_matrix[i].clone()).collect();
-        let y_clean: Vec<f64> = valid_indices.iter().map(|&i| y[i]).collect();
+        let x_clean: Vec<Vec<f64>> = selected
+            .values
+            .iter()
+            .map(|row| row[1..].to_vec())
+            .collect();
+        let y_clean: Vec<f64> = selected.values.iter().map(|row| row[0]).collect();
         if n_valid > max_rows {
             sample_rows(&x_clean, &y_clean, max_rows, data_seed)
         } else {
@@ -183,7 +190,73 @@ pub(crate) fn normalize(values: &mut [f64]) {
 
 #[cfg(test)]
 mod split_tests {
-    use super::compute_split;
+    use super::*;
+
+    #[test]
+    fn complete_case_selection_preserves_alignment_sampling_and_shuffle() {
+        let x: Vec<_> = (0..12).map(|i| vec![i as f64, (i * i) as f64]).collect();
+        let y: Vec<_> = (0..12).map(|i| 100.0 + i as f64).collect();
+        let mut incomplete_x = Vec::new();
+        let mut incomplete_y = Vec::new();
+        for i in 0..x.len() {
+            incomplete_x.push(x[i].clone());
+            incomplete_y.push(y[i]);
+            incomplete_x.push(vec![f64::NAN, 999.0]);
+            incomplete_y.push(999.0);
+            incomplete_x.push(vec![999.0, 999.0]);
+            incomplete_y.push(f64::INFINITY);
+            incomplete_x.push(vec![999.0, f64::NEG_INFINITY]);
+            incomplete_y.push(999.0);
+        }
+        for max_rows in [5, 100] {
+            let clean = prepare_training_data(&x, &y, max_rows, 17, 29).unwrap();
+            let filtered =
+                prepare_training_data(&incomplete_x, &incomplete_y, max_rows, 17, 29).unwrap();
+            assert_eq!(clean.x_shuffled, filtered.x_shuffled);
+            assert_eq!(clean.y_shuffled, filtered.y_shuffled);
+            assert_eq!(clean.split_idx, filtered.split_idx);
+            assert_eq!(clean.use_holdout, filtered.use_holdout);
+            // Reproduce the existing seeded sampling/shuffling contract on complete data.
+            let (expected_x, expected_y) = if y.len() > max_rows {
+                sample_rows(&x, &y, max_rows, 17)
+            } else {
+                (x.clone(), y.clone())
+            };
+            let mut indices: Vec<_> = (0..expected_y.len()).collect();
+            SeededRng::from_seed(29).shuffle(&mut indices);
+            assert_eq!(
+                *clean.x_shuffled,
+                indices
+                    .iter()
+                    .map(|&i| expected_x[i].clone())
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(
+                clean.y_shuffled,
+                indices.iter().map(|&i| expected_y[i]).collect::<Vec<_>>()
+            );
+            for (row, &objective) in clean.x_shuffled.iter().zip(&clean.y_shuffled) {
+                assert_eq!(objective, 100.0 + row[0]);
+            }
+        }
+        let invalid = vec![vec![f64::NAN]; 3];
+        assert!(prepare_training_data(&invalid, &[1.0; 3], 100, 17, 29).is_none());
+        assert!(prepare_training_data(&[vec![0.0]], &[1.0], 100, 17, 29).is_none());
+    }
+
+    #[test]
+    fn pipeline_keeps_short_and_mismatched_input_rejection() {
+        for (x, y) in [
+            (vec![], vec![]),
+            (vec![vec![1.0]], vec![1.0]),
+            (vec![vec![1.0]; 3], vec![1.0; 2]),
+        ] {
+            let result = run_importances_pipeline(&x, &y, 100, 17, 29, |_| {
+                panic!("invalid input must not reach fitting")
+            });
+            assert_eq!(result, (vec![], 0.0));
+        }
+    }
 
     #[test]
     fn holdout_always_leaves_at_least_two_eval_rows() {
