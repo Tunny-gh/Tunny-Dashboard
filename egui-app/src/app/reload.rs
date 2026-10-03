@@ -42,7 +42,6 @@ pub(super) struct ReloadRestore {
     pinned_trials: Vec<u32>,
     highlighted_trial: Option<u32>,
     filter_ranges: HashMap<String, (f64, f64)>,
-    artifacts_dir: Option<std::path::PathBuf>,
     hv_ref_point_override: Option<Vec<f64>>,
     /// Set once the post-scan study re-selection has been dispatched, so a
     /// later scan result (e.g. the user opening another file mid-reload)
@@ -68,7 +67,6 @@ impl ReloadRestore {
             pinned_trials: app_state.pinned_trials.clone(),
             highlighted_trial: app_state.highlighted_trial,
             filter_ranges: app_state.filter_ranges.clone(),
-            artifacts_dir: app_state.artifacts_dir.clone(),
             hv_ref_point_override: app_state.hv_ref_point_override.clone(),
             reselect_dispatched: false,
         })
@@ -94,10 +92,6 @@ impl ReloadRestore {
 
         app_state.pinned_trials = keep(self.pinned_trials);
         app_state.highlighted_trial = self.highlighted_trial.filter(|id| live.contains(id));
-        app_state.artifacts_dir = app_state
-            .explicit_artifact_root
-            .clone()
-            .or(self.artifacts_dir);
         app_state.hv_ref_point_override = self.hv_ref_point_override;
         app_state.comparison_mode = self.comparison_mode;
         app_state.comparison_base_study = self.comparison_base_study;
@@ -136,9 +130,10 @@ impl TunnyApp {
         self.app_state.comparison_colors.clear();
         self.app_state.comparison_convergence_histories.clear();
         self.pending_reload = Some(restore);
+        // Invalidate earlier scans as soon as an authoritative reload starts.
+        self.latest_artifact_scan_id += 1;
         self.is_loading = true;
         self.load_error = None;
-        self.latest_artifact_scan_id += 1;
         self.app_state.source_generation += 1;
         dispatch_scan(path, self.app_state.source_generation, self.sender());
     }
@@ -194,10 +189,10 @@ impl TunnyApp {
             return;
         };
         let comparison_study_ids = restore.apply(&mut self.app_state);
-        if self.app_state.explicit_artifact_root.is_none() {
-            if let Some(artifacts_dir) = self.app_state.artifacts_dir.clone() {
-                self.request_artifact_scan(artifacts_dir);
-            }
+        // This storage-scoped field survives study activation. Use the current
+        // choice, including a manual folder selected while reload was in flight.
+        if let Some(artifacts_dir) = self.app_state.artifacts_dir.clone() {
+            self.request_artifact_scan(artifacts_dir);
         }
         for study_id in comparison_study_ids {
             let Some(meta) = self
@@ -309,6 +304,8 @@ mod tests {
 
         let restore = ReloadRestore::capture(&before).unwrap();
         before.explicit_artifact_root = Some(gui.path().to_path_buf());
+        // The GUI selection records both the session root and effective folder.
+        before.artifacts_dir = before.explicit_artifact_root.clone();
         before.clear();
         restore.apply(&mut before);
         assert_eq!(before.artifacts_dir.as_deref(), Some(gui.path()));
@@ -343,6 +340,7 @@ mod tests {
             .unwrap();
         app.poll_messages(&egui::Context::default());
         assert!(app.pending_reload.is_none());
+        assert_eq!(app.latest_artifact_scan_id, 1, "reload scans only once");
         let scanned = app
             .rx
             .recv_timeout(std::time::Duration::from_secs(5))
@@ -374,6 +372,7 @@ mod tests {
 
         // Trial 12 is gone from the reloaded study.
         let mut after = state_with_trials(&[10, 11]);
+        after.artifacts_dir = before.artifacts_dir.clone();
         restore.apply(&mut after);
 
         assert_eq!(after.selected_indices, vec![10]);
@@ -440,6 +439,7 @@ mod tests {
         let mut app = test_app();
         app.app_state = state_with_trials(&[10, 11, 12]);
         app.app_state.journal_path = before.journal_path;
+        app.app_state.artifacts_dir = before.artifacts_dir;
         app.pending_reload = Some(restore);
         app.finish_reload();
 

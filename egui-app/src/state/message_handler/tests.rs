@@ -48,8 +48,7 @@ fn make_study_message(trial_count: usize) -> AppMessage {
 /// normally, the store is shared across all tests. Tests using
 /// store_dataframes + snapshot are serialized with this guard to prevent races.
 fn test_store_guard() -> std::sync::MutexGuard<'static, ()> {
-    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    crate::app::test_store_guard()
 }
 
 /// For tests: builds a StudySelected for a single-objective Study, with

@@ -153,8 +153,8 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                         if state.loaded_study_ids.contains(&study_id) {
                             // The DataFrame is already in the store -> activate it directly (single immediate message)
                             let _ = tx.send(crate::io::study::select_study_task(meta));
-                            // For CSV imports, StudySelected's clear() discards the artifacts,
-                            // so resend them every time a selection happens.
+                            // Supply source-identified CSV img associations on activation,
+                            // including the initial import.
                             if let Some(artifacts) = &state.csv_artifacts {
                                 let _ = tx.send(AppMessage::CsvArtifacts {
                                     source_path: artifacts.source_path.clone(),

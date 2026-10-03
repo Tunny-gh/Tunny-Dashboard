@@ -56,6 +56,15 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- Artifact Gallery now reads artifact metadata embedded in Journal trial creation
+  records, associating images with the correct global trial IDs across studies,
+  including trials with no artifacts and non-COMPLETE states.
+  Local Journals automatically load an adjacent `artifacts` folder. Artifact
+  folders and scan results survive Study switches within the same storage;
+  opening a storage or choosing New clears storage results and automatically
+  discovered folders and ignores older scans, while explicit GUI/CLI roots remain
+  session-wide and take priority over adjacent-folder discovery.
+
 - Parallel Coordinates Plot axis names now refresh with the font atlas and DPI,
   and reserve their full horizontal or rotated bounds to avoid clipping outer
   labels when chart space is sufficient (#216).

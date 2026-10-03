@@ -18,6 +18,13 @@ mod run;
 #[cfg(test)]
 mod tests;
 
+/// Desktop tests link the production core, whose DataFrame store is global.
+#[cfg(test)]
+pub(crate) fn test_store_guard() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|p| p.into_inner())
+}
+
 pub use reload::can_reload;
 use reload::ReloadRestore;
 
@@ -220,10 +227,11 @@ impl TunnyApp {
 
         let (tx, rx) = mpsc::sync_channel(32);
         let is_loading = initial_path.is_some();
+        let mut app_state = AppState::new();
         if let Some(path) = initial_path {
+            app_state.journal_path = Some(path.clone());
             dispatch_scan(path, 0, tx.clone());
         }
-        let mut app_state = AppState::new();
         app_state.artifacts_dir = artifact_path.clone();
         app_state.explicit_artifact_root = artifact_path;
         // Restore persisted preferences (the .ghx Compute/sampler settings and the
@@ -303,6 +311,8 @@ impl TunnyApp {
 
     fn request_artifact_scan(&mut self, base_dir: std::path::PathBuf) {
         self.latest_artifact_scan_id += 1;
+        // Record the effective folder immediately, before the scan completes.
+        // Only a GUI selection sets explicit_artifact_root; discovery stays storage-scoped.
         self.app_state.artifacts_dir = Some(base_dir.clone());
         if self
             .app_state
@@ -330,6 +340,22 @@ impl TunnyApp {
     /// Processes messages non-blockingly and updates AppState.
     pub fn poll_messages(&mut self, ctx: &egui::Context) {
         while let Ok(msg) = self.rx.try_recv() {
+            // Open (including D&D while loading) and New replace the requested
+            // source before its worker finishes. Reject old study lists before
+            // they can overwrite the source or launch artifact discovery.
+            if let AppMessage::JournalParsed { path, .. } = &msg {
+                if !self.app_state.journal_path.as_deref().is_some_and(|current| {
+                    // Local workers echo the requested path; RDB workers return
+                    // a normalized URL rather than necessarily the input spelling.
+                    current == path
+                        || matches!(
+                            (crate::io::rdb::path_as_rdb_url(current), crate::io::rdb::path_as_rdb_url(path)),
+                            (Some(a), Some(b)) if a.url == b.url
+                        )
+                }) {
+                    continue;
+                }
+            }
             if matches!(&msg, AppMessage::ArtifactsDirScanned { scan_id, .. } if *scan_id != self.latest_artifact_scan_id)
             {
                 continue;
@@ -359,13 +385,6 @@ impl TunnyApp {
             // gets its captured view state re-applied.
             let is_study_activated = matches!(&msg, AppMessage::StudySelected { .. })
                 || matches!(&msg, AppMessage::StudyChunkLoaded { is_final: true, .. });
-            if matches!(
-                &msg,
-                AppMessage::StudySelected { .. }
-                    | AppMessage::StudyChunkLoaded { is_first: true, .. }
-            ) {
-                self.latest_artifact_scan_id += 1;
-            }
             // Async compute completion/failure messages only update the global
             // widget_states. Since each canvas item holds independent WidgetStates
             // (commit 73883d8), the completion state (computing/result/cache) must be
@@ -388,6 +407,26 @@ impl TunnyApp {
             }
 
             if is_journal_parsed {
+                if self.pending_reload.is_none() {
+                    if let Some(root) = self.app_state.explicit_artifact_root.clone() {
+                        self.request_artifact_scan(root);
+                    } else if self.app_state.artifacts_dir.is_none() {
+                        if let Some(path) = self.app_state.journal_path.as_deref() {
+                            let is_local_journal = crate::io::rdb::path_as_rdb_url(path).is_none()
+                                && !crate::io::flat_csv::is_csv_path(path)
+                                && !crate::io::sqlite::is_sqlite_path(path);
+                            if is_local_journal {
+                                if let Some(dir) = path
+                                    .parent()
+                                    .map(|p| p.join("artifacts"))
+                                    .filter(|p| p.is_dir())
+                                {
+                                    self.request_artifact_scan(dir);
+                                }
+                            }
+                        }
+                    }
+                }
                 // A reload re-runs this same scan, but the study to bring back up
                 // is the one that was on screen — not what the fresh-open
                 // heuristics below would pick — so it takes over the scan result.
@@ -424,9 +463,6 @@ impl TunnyApp {
             // flight).
             if is_study_activated {
                 self.finish_reload();
-                if let Some(root) = self.app_state.explicit_artifact_root.clone() {
-                    self.request_artifact_scan(root);
-                }
             }
 
             ctx.request_repaint();
