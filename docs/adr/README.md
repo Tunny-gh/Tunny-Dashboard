@@ -82,3 +82,4 @@ order:
 | 0008 | [Auto surrogate selection preference](0008-auto-surrogate-selection-preference.md) | Accepted | 2026-10-01 |
 | 0009 | [Exclude nominal categorical parameters from Spearman and Ridge](0009-exclude-nominal-categorical-parameters-from-spearman-and-ridge.md) | Accepted | 2026-10-01 |
 | 0010 | [Reject negative MCDM weights](0010-reject-negative-mcdm-weights.md) | Accepted | 2026-10-01 |
+| 0011 | [Session artifact root default](0011-session-artifact-root-default.md) | Accepted | 2026-10-03 |

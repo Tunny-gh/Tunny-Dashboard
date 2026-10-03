@@ -62,7 +62,7 @@ pub fn open_file_dialog() -> Option<PathBuf> {
             &["log", "csv", "db", "sqlite", "sqlite3", "ghx"],
         )
         .add_filter("Optuna Result (*.log)", &["log"])
-        .add_filter("DesignExplorer (*.csv)", &["csv"])
+        .add_filter("DesignExplorer-format CSV (*.csv)", &["csv"])
         .add_filter(
             "Optuna SQLite (.db/.sqlite/.sqlite3)",
             &["db", "sqlite", "sqlite3"],

@@ -94,7 +94,10 @@ impl ReloadRestore {
 
         app_state.pinned_trials = keep(self.pinned_trials);
         app_state.highlighted_trial = self.highlighted_trial.filter(|id| live.contains(id));
-        app_state.artifacts_dir = self.artifacts_dir;
+        app_state.artifacts_dir = app_state
+            .explicit_artifact_root
+            .clone()
+            .or(self.artifacts_dir);
         app_state.hv_ref_point_override = self.hv_ref_point_override;
         app_state.comparison_mode = self.comparison_mode;
         app_state.comparison_base_study = self.comparison_base_study;
@@ -135,7 +138,9 @@ impl TunnyApp {
         self.pending_reload = Some(restore);
         self.is_loading = true;
         self.load_error = None;
-        dispatch_scan(path, self.sender());
+        self.latest_artifact_scan_id += 1;
+        self.app_state.source_generation += 1;
+        dispatch_scan(path, self.app_state.source_generation, self.sender());
     }
 
     /// Reacts to the study list arriving from a reload's re-scan.
@@ -189,8 +194,10 @@ impl TunnyApp {
             return;
         };
         let comparison_study_ids = restore.apply(&mut self.app_state);
-        if let Some(artifacts_dir) = self.app_state.artifacts_dir.clone() {
-            self.request_artifact_scan(artifacts_dir);
+        if self.app_state.explicit_artifact_root.is_none() {
+            if let Some(artifacts_dir) = self.app_state.artifacts_dir.clone() {
+                self.request_artifact_scan(artifacts_dir);
+            }
         }
         for study_id in comparison_study_ids {
             let Some(meta) = self
@@ -289,6 +296,74 @@ mod tests {
     }
 
     #[test]
+    fn reload_preserves_session_root_and_a_newer_gui_selection() {
+        let cli = tempfile::tempdir().unwrap();
+        let gui = tempfile::tempdir().unwrap();
+        let mut before = state_with_trials(&[10]);
+        before.explicit_artifact_root = Some(cli.path().to_path_buf());
+        before.artifacts_dir = before.explicit_artifact_root.clone();
+        let restore = ReloadRestore::capture(&before).unwrap();
+        before.clear();
+        restore.apply(&mut before);
+        assert_eq!(before.artifacts_dir.as_deref(), Some(cli.path()));
+
+        let restore = ReloadRestore::capture(&before).unwrap();
+        before.explicit_artifact_root = Some(gui.path().to_path_buf());
+        before.clear();
+        restore.apply(&mut before);
+        assert_eq!(before.artifacts_dir.as_deref(), Some(gui.path()));
+    }
+
+    #[test]
+    fn reload_rescans_explicit_root_on_activation_and_ignores_prior_scan() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("10_new.png"), b"image").unwrap();
+        let mut app = test_app();
+        app.app_state = state_with_trials(&[10]);
+        app.app_state.journal_path = Some(root.path().join("study.log"));
+        app.app_state.explicit_artifact_root = Some(root.path().to_path_buf());
+        app.app_state.artifacts_dir = app.app_state.explicit_artifact_root.clone();
+        let mut restore = ReloadRestore::capture(&app.app_state).unwrap();
+        restore.reselect_dispatched = true;
+        app.pending_reload = Some(restore);
+        app.tx
+            .send(AppMessage::StudyChunkLoaded {
+                study_id: 1,
+                meta: meta(1),
+                new_rows: vec![],
+                param_names: vec![],
+                objective_names: vec![],
+                user_attr_numeric_names: vec![],
+                user_attr_string_names: vec![],
+                max_constraints: 0,
+                has_constraints: false,
+                is_first: true,
+                is_final: true,
+            })
+            .unwrap();
+        app.poll_messages(&egui::Context::default());
+        assert!(app.pending_reload.is_none());
+        let scanned = app
+            .rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        app.tx.send(scanned).unwrap();
+        app.tx
+            .send(AppMessage::ArtifactsDirScanned {
+                trial_artifacts: HashMap::new(),
+                artifacts_dir: "old".into(),
+                scan_id: 0,
+            })
+            .unwrap();
+        app.poll_messages(&egui::Context::default());
+        assert_eq!(app.app_state.artifacts_dir.as_deref(), Some(root.path()));
+        assert_eq!(
+            app.app_state.artifact_map[&10][0].path,
+            root.path().join("10_new.png")
+        );
+    }
+
+    #[test]
     fn apply_drops_state_pointing_at_trials_that_disappeared() {
         let mut before = state_with_trials(&[10, 11, 12]);
         before.selected_indices = vec![10, 12];
@@ -374,10 +449,7 @@ mod tests {
             .unwrap();
         assert!(matches!(
             &scanned,
-            AppMessage::ArtifactsDirScanned {
-                scan_id: Some(1),
-                ..
-            }
+            AppMessage::ArtifactsDirScanned { scan_id: 1, .. }
         ));
         app.tx.send(scanned).unwrap();
         app.poll_messages(&egui::Context::default());
@@ -393,7 +465,7 @@ mod tests {
             .send(AppMessage::ArtifactsDirScanned {
                 trial_artifacts: HashMap::from([(11, vec![])]),
                 artifacts_dir: dir.path().to_path_buf(),
-                scan_id: Some(0),
+                scan_id: 0,
             })
             .unwrap();
         app.poll_messages(&egui::Context::default());

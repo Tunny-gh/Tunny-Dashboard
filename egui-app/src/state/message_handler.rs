@@ -256,6 +256,26 @@ impl MessageHandler {
                 app_state.artifact_map = trial_artifacts;
                 app_state.artifacts_dir = Some(artifacts_dir);
             }
+            AppMessage::CsvArtifacts {
+                source_path,
+                source_generation,
+                images,
+            } => {
+                if app_state.source_generation != source_generation
+                    || app_state.journal_path.as_ref() != Some(&source_path)
+                {
+                    return;
+                }
+                let root = app_state.explicit_artifact_root.clone().unwrap_or_else(|| {
+                    source_path
+                        .parent()
+                        .unwrap_or(std::path::Path::new("."))
+                        .to_path_buf()
+                });
+                app_state.artifact_map = crate::io::flat_csv::build_artifact_map(&root, &images);
+                app_state.artifacts_dir = Some(root);
+                app_state.csv_images = Some(images);
+            }
             AppMessage::ComparisonStudyLoadFailed(err) => {
                 *load_error = Some(err);
             }

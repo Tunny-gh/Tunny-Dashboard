@@ -15,10 +15,11 @@ Supported storage sources:
 - **Journal log files** (`JournalFileBackend`)
 - **SQLite** databases (`sqlite:///study.db`)
 - **PostgreSQL / MySQL** RDB storage (connection URL, SQLAlchemy-style URLs accepted)
-- **Flat CSV** import for non-Optuna data
+- **DesignExplorer-format CSV** import (one trial per row, `in:<name>` parameters,
+  `out:<name>` objectives, and optional `img` relative artifact paths)
 
 Journal and RDB imports retain the JSON types of Optuna Trial User Attributes,
-including arrays, objects, booleans, and null. Flat CSV import does not infer
+including arrays, objects, booleans, and null. DesignExplorer-format CSV import does not infer
 JSON types from text.
 
 All sources support **Reload**: press it to re-read the open storage, so trials written by a run in progress show up on demand.
