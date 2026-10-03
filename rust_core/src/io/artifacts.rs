@@ -3,7 +3,8 @@
 //! In Optuna's artifact feature, the actual file is stored as `artifacts/<artifact_id>`
 //! (no extension, filename = artifact_id), and the mapping to the trial, the original
 //! filename, and the MIME type are recorded as a JSON string in the Journal's
-//! `set_trial_system_attr` (key `artifacts:<artifact_id>`). Therefore **the trial_id
+//! `set_trial_system_attr` or trial creation's inline `system_attrs` (key
+//! `artifacts:<artifact_id>`). Therefore **the trial_id
 //! cannot be inferred from the filename**, and the Journal metadata must be consulted
 //! to link a trial to its artifacts.
 
@@ -155,12 +156,15 @@ pub fn extract_trial_id(path: &Path) -> Option<u32> {
 /// `set_trial_system_attr` (op_code 9, key `system_attr`) or in the inline `system_attrs`
 /// (op_code 4) emitted at trial creation. Since trial_id is unique across the whole Journal,
 /// all entries are returned together without distinguishing by study.
+/// Inline entries use the zero-based global CREATE_TRIAL ordinal, including
+/// artifactless trials and all states, rather than a study-local trial number.
 pub fn parse_artifact_metadata(journal_path: &Path) -> HashMap<u32, Vec<ArtifactMeta>> {
     let mut map: HashMap<u32, Vec<ArtifactMeta>> = HashMap::new();
     let Ok(file) = std::fs::File::open(journal_path) else {
         return map;
     };
     let reader = std::io::BufReader::new(file);
+    let mut next_trial_id = 0u64;
     for line in reader.lines() {
         // Lines that fail to read (e.g. non-UTF-8) are skipped individually while
         // scanning continues (`map_while(Result::ok)` would abort the entire scan
@@ -169,6 +173,15 @@ pub fn parse_artifact_metadata(journal_path: &Path) -> HashMap<u32, Vec<Artifact
         let Ok(line) = line else {
             continue;
         };
+        // Count every CREATE_TRIAL before the artifact filter, using the same
+        // string-level op scan as the Journal reader's global ID bookkeeping.
+        let created_trial_id = if super::journal::line_u32_field(&line, "op_code") == Some(4) {
+            let id = next_trial_id;
+            next_trial_id += 1;
+            Some(id)
+        } else {
+            None
+        };
         // Skip JSON parsing for lines that don't contain `artifacts:` (optimization for large Journals).
         if !line.contains("artifacts:") {
             continue;
@@ -176,10 +189,10 @@ pub fn parse_artifact_metadata(journal_path: &Path) -> HashMap<u32, Vec<Artifact
         let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) else {
             continue;
         };
-        // Skip if trial_id doesn't fit in u32 (do not silently truncate).
-        let Some(trial_id) = json
-            .get("trial_id")
-            .and_then(|v| v.as_u64())
+        // CREATE_TRIAL has no explicit ID; later updates keep their explicit ID.
+        // Skip if either ID doesn't fit in u32 (do not silently truncate).
+        let Some(trial_id) = created_trial_id
+            .or_else(|| json.get("trial_id").and_then(|v| v.as_u64()))
             .and_then(|v| u32::try_from(v).ok())
         else {
             continue;
@@ -384,6 +397,48 @@ mod tests {
     }
 
     // ── Journal metadata parsing ───────────────────────────────────
+
+    #[test]
+    fn parse_artifact_metadata_inline_ids_count_all_studies_and_states() {
+        let tmp = tempfile::tempdir().unwrap();
+        let journal = tmp.path().join("study.journal");
+        let records = [
+            r#"{"op_code":0,"study_name":"a","directions":[1]}"#,
+            r#"{"op_code":0,"study_name":"b","directions":[1]}"#,
+            r#"{"op_code":4,"study_id":0,"state":0}"#, // running, ID 0
+            r#"{"op_code":4,"study_id":1,"state":2}"#, // pruned, ID 1
+            r#"{"op_code":4,"study_id":0,"state":3}"#, // failed, ID 2
+            r#"{"op_code":4,"study_id":1,"state":1,"system_attrs":{"artifacts:inline":"{\"filename\":\"artifact_trial_1_image_0.png\",\"mimetype\":\"image/png\"}"}}"#,
+            r#"{"op_code":9,"trial_id":0,"system_attr":{"artifacts:later":"{\"filename\":\"later.csv\"}"}}"#,
+            r#"{"op_code":4,"study_id":0,"state":1}"#, // complete, ID 4
+            r#"{"op_code":4,"study_id":0,"state":1,"system_attrs":{"artifacts:last":"{\"artifact_id\":\"last\",\"filename\":\"result.png\"}"}}"#,
+        ];
+        std::fs::write(&journal, records.join("\n")).unwrap();
+
+        let map = parse_artifact_metadata(&journal);
+        assert_eq!(map.len(), 3);
+        assert_eq!(map[&0][0].artifact_id, "later");
+        assert_eq!(map[&3][0].artifact_id, "inline");
+        assert_eq!(map[&3][0].filename, "artifact_trial_1_image_0.png");
+        assert_eq!(map[&3][0].mimetype, "image/png");
+        assert_eq!(map[&5][0].artifact_id, "last");
+        assert_eq!(
+            crate::io::journal::count_created_trials(records.join("\n").as_bytes()),
+            6
+        );
+    }
+
+    #[test]
+    fn parse_artifact_metadata_continues_after_invalid_lines() {
+        let tmp = tempfile::tempdir().unwrap();
+        let journal = tmp.path().join("study.journal");
+        let mut data = b"not JSON artifacts:\n\xff\n".to_vec();
+        data.extend_from_slice(br#"{"op_code":4,"study_id":0,"system_attrs":{"artifacts:valid":"{\"filename\":\"result.png\"}"}}"#);
+        std::fs::write(&journal, data).unwrap();
+        let map = parse_artifact_metadata(&journal);
+        assert_eq!(map.len(), 1);
+        assert_eq!(map[&0][0].artifact_id, "valid");
+    }
 
     #[test]
     fn parse_artifact_metadata_reads_system_attr_op9() {

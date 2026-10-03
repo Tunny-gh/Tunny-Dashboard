@@ -5,6 +5,15 @@ Dashboard.
 
 ## Language
 
+**Journal trial ID**: The zero-based global ordinal of a trial's `CREATE_TRIAL`
+(`op_code=4`) record in a journal, counting trials across all studies and states,
+including trials with no artifacts. Artifact metadata is associated with trials
+by this ID.
+
+**Study trial number**: A trial's ordinal within its study, not its Journal trial
+ID.
+_Avoid_: Journal trial ID as a synonym for Study trial number.
+
 **Feasible**: A trial whose complete, finite constraint evaluation confirms
 that every constraint satisfies the Optuna convention `c <= 0`.
 

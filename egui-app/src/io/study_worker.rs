@@ -64,7 +64,7 @@ struct WorkerState {
     loaded_study_ids: HashSet<u32>,
     /// Artifacts derived from the `img` column when importing a flat CSV.
     /// `(artifacts_dir, trial_id -> entries)`. Kept so it can be resent every time a Study is
-    /// selected (since StudySelected's `clear()` discards artifacts). Reset to None when a Journal is opened.
+    /// selected. Reset to None when a Journal is opened.
     csv_artifacts: Option<(PathBuf, HashMap<u32, Vec<ArtifactEntry>>)>,
 }
 
@@ -141,8 +141,7 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                         if state.loaded_study_ids.contains(&study_id) {
                             // The DataFrame is already in the store -> activate it directly (single immediate message)
                             let _ = tx.send(crate::io::study::select_study_task(meta));
-                            // For CSV imports, StudySelected's clear() discards the artifacts,
-                            // so resend them every time a selection happens.
+                            // Supply CSV artifacts on activation, including initial import.
                             if let Some((dir, artifacts)) = &state.csv_artifacts {
                                 let _ = tx.send(AppMessage::ArtifactsDirScanned {
                                     trial_artifacts: artifacts.clone(),

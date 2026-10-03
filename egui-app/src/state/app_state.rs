@@ -261,9 +261,8 @@ impl AppState {
         // REQ-006: comparison_mode/studies/colors are preserved across Study
         // switches (the comparison session is kept until the user explicitly resets it)
 
-        // REQ-007: Artifacts are reset on Study switch
-        self.artifacts_dir = None;
-        self.artifact_map.clear();
+        // Artifacts belong to the storage, not the selected Study. The gallery
+        // restricts this shared map to the current Study's global trial IDs.
 
         // REQ-008: convergence history is reset on Study switch
         self.best_trial_history = None;
@@ -409,7 +408,7 @@ mod tests {
     }
 
     #[test]
-    fn task2110_clear_resets_artifact_and_history_fields() {
+    fn clear_preserves_storage_artifacts_and_resets_history() {
         // TC-009, TC-010
         let mut state = AppState::new();
         state.artifact_map.insert(
@@ -425,8 +424,8 @@ mod tests {
 
         state.clear();
 
-        assert!(state.artifact_map.is_empty());
-        assert!(state.artifacts_dir.is_none());
+        assert_eq!(state.artifact_map.len(), 1);
+        assert_eq!(state.artifacts_dir, Some(std::path::PathBuf::from("/tmp")));
         assert!(state.best_trial_history.is_none());
     }
 

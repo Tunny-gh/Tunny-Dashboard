@@ -169,6 +169,7 @@ mod tests {
 
     #[test]
     fn load_csv_builds_study_and_artifacts() {
+        let _guard = crate::app::test_store_guard();
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
         std::fs::write(base.join("img0.png"), b"i0").unwrap();
