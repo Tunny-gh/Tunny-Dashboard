@@ -49,3 +49,13 @@ when their labels look numeric.
 **Criterion weight**: The nonnegative relative importance of an objective in
 multi-criteria decision-making (MCDM). Objective direction specifies whether to
 minimize or maximize, not the weight's sign.
+
+**Artifact root directory**: A directory used as the root for resolving trial
+artifacts, specified independently of the optimization result source. It is not
+an individual artifact file.
+
+**DesignExplorer-format CSV**: The CSV output format from the DesignExplorer
+application targeted by Tunny Dashboard's parser: one trial per row, with
+`in:<name>` parameter columns, `out:<name>` objective columns, and an optional
+`img` column containing relative artifact paths.
+_Avoid_: Generic CSV or Flat CSV as names for this specific format.

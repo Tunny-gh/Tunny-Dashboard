@@ -36,6 +36,10 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Added
 
+- `-a` / `--artifact <directory>` sets a session-wide artifact root independently
+  of `--input`. It requires an existing directory; GUI Artifacts selections take
+  priority across source changes, study switches, and reload. DesignExplorer-format
+  CSV `img` paths resolve against the explicit root while preserving trial associations.
 - **Rank Plot 3D** displays three distinct parameters with objective rank colors,
   shared 3D navigation, hover details, Trial Detail, and full-row CSV export.
   The two-parameter chart is named **Rank Plot 2D**; both use the same rank and
@@ -57,7 +61,9 @@ and `Security` as needed — omit headings that have nothing under them.
   including trials with no artifacts and non-COMPLETE states.
   Local Journals automatically load an adjacent `artifacts` folder. Artifact
   folders and scan results survive Study switches within the same storage;
-  opening a storage or choosing New clears them and ignores older scans.
+  opening a storage or choosing New clears storage results and automatically
+  discovered folders and ignores older scans, while explicit GUI/CLI roots remain
+  session-wide and take priority over adjacent-folder discovery.
 
 - Parallel Coordinates Plot axis names now refresh with the font atlas and DPI,
   and reserve their full horizontal or rotated bounds to avoid clipping outer

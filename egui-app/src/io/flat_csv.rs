@@ -1,22 +1,21 @@
-//! Import of the flat CSV (1 row = 1 trial) format (egui-app side bridge).
+//! Import of DesignExplorer-format CSV (1 row = 1 trial), egui-app side bridge.
 //!
 //! Calls rust_core's [`tunny_core::flat_csv::parse_flat_csv`] to register a single
-//! Study into the shared store, and resolves artifacts in the same directory as the
-//! CSV from the `img` column.
+//! Study into the shared store. Unresolved `img` paths are kept for session-root
+//! resolution after activation.
 
 use std::collections::HashMap;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Component, Path};
 
 use crate::io::artifacts::ArtifactEntry;
 use crate::state::app_state::StudyMeta;
 
-/// Return value on successful CSV import: `(StudyMeta, artifacts_dir, trial_id -> artifacts)`.
-pub type CsvLoadResult = (StudyMeta, PathBuf, HashMap<u32, Vec<ArtifactEntry>>);
+/// Successful import: metadata and unresolved img paths associated with trial IDs.
+pub type CsvLoadResult = (StudyMeta, Vec<(u32, String)>);
 
 /// Reads a CSV and registers a single Study into the shared store.
 ///
-/// On success, returns `(StudyMeta, artifacts_dir, trial_id -> artifacts)`.
-/// `artifacts_dir` is the CSV's parent directory (the base path for the `img` column).
+/// Paths are resolved after activation against the effective session root.
 pub fn load_csv(path: &Path) -> Result<CsvLoadResult, String> {
     let data = std::fs::read(path).map_err(|e| e.to_string())?;
     let study_name = path
@@ -30,25 +29,20 @@ pub fn load_csv(path: &Path) -> Result<CsvLoadResult, String> {
     // Register into the shared store as a single Study (study_id = 0).
     tunny_core::dataframe::store_dataframes(vec![result.dataframe]);
 
-    let base_dir = path
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."));
-    let artifact_map = build_artifact_map(&base_dir, &result.images);
     let meta = crate::io::journal::convert_study_meta(result.meta);
 
-    Ok((meta, base_dir, artifact_map))
+    Ok((meta, result.images))
 }
 
-/// Resolves `img` column file names against actual files in the same directory as the
-/// CSV, grouped by trial_id. Files that don't exist are excluded.
-fn build_artifact_map(
+/// Resolves DesignExplorer `img` paths against the effective root, grouped by
+/// trial_id. Files that don't exist are excluded; relative path rules are unchanged.
+pub fn build_artifact_map(
     base_dir: &Path,
     images: &[(u32, String)],
 ) -> HashMap<u32, Vec<ArtifactEntry>> {
     let mut map: HashMap<u32, Vec<ArtifactEntry>> = HashMap::new();
     for (trial_id, filename) in images {
-        // Prevent references outside the CSV directory. File names containing an
+        // Keep the existing root-relative rules. File names containing an
         // absolute path (RootDir / Windows Prefix) or a parent directory reference
         // (`..`) are excluded without resolving.
         if !is_safe_relative_filename(filename) {
@@ -70,9 +64,9 @@ fn build_artifact_map(
 }
 
 /// Determines whether the `img` column's file name is a safe relative path that stays
-/// within the CSV directory. Returns `false` if it contains an absolute path
+/// within the artifact root. Returns `false` if it contains an absolute path
 /// (`RootDir` / Windows `Prefix`) or a parent directory reference (`ParentDir` = `..`),
-/// preventing file references outside the CSV directory (directory traversal).
+/// preventing parent-directory references (directory traversal).
 fn is_safe_relative_filename(filename: &str) -> bool {
     Path::new(filename).components().all(|c| {
         !matches!(
@@ -93,6 +87,7 @@ pub fn is_csv_path(path: &Path) -> bool {
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::path::PathBuf;
 
     fn write_temp(dir: &Path, name: &str, content: &str) -> PathBuf {
         let p = dir.join(name);
@@ -178,7 +173,8 @@ mod tests {
                    2.0,4,20.5,missing.png\n";
         let csv_path = write_temp(base, "data.csv", csv);
 
-        let (meta, _dir, artifacts) = load_csv(&csv_path).unwrap();
+        let (meta, images) = load_csv(&csv_path).unwrap();
+        let artifacts = build_artifact_map(base, &images);
         assert_eq!(meta.name, "data");
         assert_eq!(meta.param_names, vec!["x".to_string(), "y".to_string()]);
         assert_eq!(meta.objective_names, vec!["f".to_string()]);

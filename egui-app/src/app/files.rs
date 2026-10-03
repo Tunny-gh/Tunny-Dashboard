@@ -57,9 +57,11 @@ impl TunnyApp {
         self.is_loading = true;
         self.load_error = None;
         self.latest_artifact_scan_id += 1;
-        self.app_state.artifacts_dir = None;
-        self.app_state.artifact_map.clear();
         self.app_state.journal_path = Some(path.clone());
+        self.app_state.source_generation += 1;
+        self.app_state.csv_images = None;
+        self.app_state.artifact_map.clear();
+        self.app_state.artifacts_dir = self.app_state.explicit_artifact_root.clone();
         self.app_state.all_studies.clear();
         self.app_state.current_study = None;
         // Opening a different file (a different URL) changes the study_id space, so
@@ -69,7 +71,7 @@ impl TunnyApp {
         // being replaced, and the incoming scan result is not theirs.
         self.pending_reload = None;
         self.reload_when_idle = false;
-        dispatch_scan(path, self.sender());
+        dispatch_scan(path, self.app_state.source_generation, self.sender());
     }
 
     // ── File D&D (.ghx -> optimization setup modal, storage -> open) ────

@@ -1,4 +1,4 @@
-# ADR-0011: Scope artifacts to storage
+# ADR-0012: Scope artifacts to storage
 
 Status: Accepted
 Date: 2026-10-03
@@ -12,14 +12,20 @@ before selection, including manual scans. Users expect a local Journal's adjacen
 
 ## Decision
 
-Keep the artifact folder and scan results for the lifetime of the open storage.
+Keep the effective artifact folder and scan results for the lifetime of the open storage.
 The gallery filters that shared map to the selected study. After opening a local
 Journal, discover `<journal parent>/artifacts` if it exists and no folder has
 already been explicitly selected. Do not discover folders for CSV, SQLite, or
 remote RDB storage. Explicit folder selection remains authoritative.
 
-Opening a storage, even the same path again, or choosing New clears artifacts
-and invalidates pending directory scans. Reload retains the chosen directory,
+The explicit GUI/CLI root is session-scoped as defined in
+[ADR-0011](0011-session-artifact-root-default.md) and takes priority over adjacent
+Journal discovery. An automatically discovered directory does not become an
+explicit session root.
+
+Opening a storage, even the same path again, or choosing New clears storage scan
+results and the automatically discovered directory, but retains the explicit
+session root and invalidates pending directory scans. Reload retains the effective directory,
 invalidates older scans, and rescans after the study is reloaded.
 Study-list completions must match the currently requested source before they
 can update state or trigger discovery. Reload rescans the current folder choice,

@@ -1,9 +1,8 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, SyncSender};
 use std::sync::{Arc, OnceLock};
 
-use crate::io::artifacts::ArtifactEntry;
 use crate::state::app_state::StudyMeta;
 use crate::state::messages::AppMessage;
 
@@ -19,6 +18,7 @@ enum StudyCommand {
     /// Loads a flat CSV (1 row = 1 trial) format and registers it as a single Study.
     ScanCsv {
         path: PathBuf,
+        source_generation: u64,
         tx: SyncSender<AppMessage>,
     },
     /// Opens Optuna SQLite (RDBStorage) and retrieves only the list of Studies.
@@ -62,10 +62,14 @@ struct WorkerState {
     rdb_url: Option<RdbUrl>,
     /// Set of study_ids whose DataFrame has been registered in the global store
     loaded_study_ids: HashSet<u32>,
-    /// Artifacts derived from the `img` column when importing a flat CSV.
-    /// `(artifacts_dir, trial_id -> entries)`. Kept so it can be resent every time a Study is
-    /// selected. Reset to None when a Journal is opened.
-    csv_artifacts: Option<(PathBuf, HashMap<u32, Vec<ArtifactEntry>>)>,
+    /// Unresolved img paths and their source identity, resent on CSV activation.
+    csv_artifacts: Option<CsvArtifacts>,
+}
+
+struct CsvArtifacts {
+    source_path: PathBuf,
+    source_generation: u64,
+    images: Vec<(u32, String)>,
 }
 
 fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
@@ -93,9 +97,13 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                         }
                         let _ = tx.send(msg);
                     }
-                    StudyCommand::ScanCsv { path, tx } => {
+                    StudyCommand::ScanCsv {
+                        path,
+                        source_generation,
+                        tx,
+                    } => {
                         match crate::io::flat_csv::load_csv(&path) {
-                            Ok((meta, artifacts_dir, artifacts)) => {
+                            Ok((meta, images)) => {
                                 // CSV immediately registers its single Study in the store. It
                                 // doesn't use the Journal's streaming path, so it's treated as loaded.
                                 state.journal_data = None;
@@ -103,7 +111,11 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                                 state.rdb_url = None;
                                 state.loaded_study_ids.clear();
                                 state.loaded_study_ids.insert(meta.study_id);
-                                state.csv_artifacts = Some((artifacts_dir, artifacts));
+                                state.csv_artifacts = Some(CsvArtifacts {
+                                    source_path: path.clone(),
+                                    source_generation,
+                                    images,
+                                });
                                 let _ = tx.send(AppMessage::JournalParsed {
                                     studies: vec![meta],
                                     path,
@@ -141,12 +153,13 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                         if state.loaded_study_ids.contains(&study_id) {
                             // The DataFrame is already in the store -> activate it directly (single immediate message)
                             let _ = tx.send(crate::io::study::select_study_task(meta));
-                            // Supply CSV artifacts on activation, including initial import.
-                            if let Some((dir, artifacts)) = &state.csv_artifacts {
-                                let _ = tx.send(AppMessage::ArtifactsDirScanned {
-                                    trial_artifacts: artifacts.clone(),
-                                    artifacts_dir: dir.clone(),
-                                    scan_id: None,
+                            // Supply source-identified CSV img associations on activation,
+                            // including the initial import.
+                            if let Some(artifacts) = &state.csv_artifacts {
+                                let _ = tx.send(AppMessage::CsvArtifacts {
+                                    source_path: artifacts.source_path.clone(),
+                                    source_generation: artifacts.source_generation,
+                                    images: artifacts.images.clone(),
                                 });
                             }
                         } else if let Some(ref data) = state.journal_data {
@@ -242,8 +255,12 @@ pub fn dispatch_scan_journal(path: PathBuf, tx: SyncSender<AppMessage>) {
 }
 
 /// Loads a flat CSV and registers it as a single Study.
-pub fn dispatch_scan_csv(path: PathBuf, tx: SyncSender<AppMessage>) {
-    let _ = worker_sender().send(StudyCommand::ScanCsv { path, tx });
+pub fn dispatch_scan_csv(path: PathBuf, source_generation: u64, tx: SyncSender<AppMessage>) {
+    let _ = worker_sender().send(StudyCommand::ScanCsv {
+        path,
+        source_generation,
+        tx,
+    });
 }
 
 /// Opens the Optuna SQLite storage and retrieves the list of Studies.
