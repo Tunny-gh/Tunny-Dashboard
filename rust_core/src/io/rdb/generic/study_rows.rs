@@ -15,6 +15,7 @@ use super::study_list::{fetch_directions, fetch_metric_names, objective_names_fo
 use super::{ensure_optuna_schema, query_scalar_i64};
 
 struct TrialAccum {
+    distribution_metadata: crate::dataframe::DistributionMetadata,
     trial_number: u32,
     objective_values: Vec<(i64, f64)>,
     param_display: HashMap<String, f64>,
@@ -113,6 +114,7 @@ pub fn parse_single_study_rows(
             accum.insert(
                 trial_id,
                 TrialAccum {
+                    distribution_metadata: Default::default(),
                     trial_number: number,
                     objective_values: Vec::new(),
                     param_display: HashMap::new(),
@@ -197,8 +199,14 @@ pub fn parse_single_study_rows(
                     .param_display
                     .insert(param_name.clone(), distribution.to_display_f64(param_value));
                 if let Some(label) = distribution.categorical_label(param_value) {
-                    trial.param_category_label.insert(param_name, label);
+                    trial.param_category_label.insert(param_name.clone(), label);
                 }
+                distribution.record_metadata(
+                    &mut trial.distribution_metadata,
+                    &param_name,
+                    Some(param_value),
+                    None,
+                );
             }
             Ok(())
         },
@@ -293,6 +301,7 @@ pub fn parse_single_study_rows(
         let mut objective_values = trial.objective_values;
         objective_values.sort_by_key(|(objective, _)| *objective);
         rows.push(TrialRow {
+            distribution_metadata: trial.distribution_metadata,
             trial_id,
             trial_number: trial.trial_number,
             param_display: trial.param_display,

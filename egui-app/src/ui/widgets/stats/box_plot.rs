@@ -2,8 +2,8 @@ use crate::state::types::StudyView;
 use crate::theme::chart_colors::{COLOR_BAR_NEGATIVE, COLOR_BAR_PRIMARY};
 use crate::ui::widgets::common::axis_labels::{draw_plot_x_labels, plot_x_label_band};
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
-use crate::ui::widgets::common::range_math::value_range;
-use tunny_core::statistics::{compute_boxplot, BoxPlotStats};
+use crate::ui::widgets::distribution::{DistributionCache, DistributionSelection};
+use tunny_core::statistics::BoxPlotStats;
 
 /// Width assumed for the y axis on the very first frame, before the plot has reported
 /// its actual frame. From the second frame on, the measured width is used instead.
@@ -12,121 +12,24 @@ const Y_AXIS_WIDTH_GUESS: f32 = 56.0;
 /// Floor on the plot height, so a long rotated label band cannot collapse the boxes.
 const MIN_PLOT_HEIGHT: f32 = 80.0;
 
-/// The target column group for the box plot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
-pub enum BoxPlotSource {
-    #[default]
-    Objectives,
-    Parameters,
-}
-
-impl BoxPlotSource {
-    fn label(self) -> &'static str {
-        match self {
-            BoxPlotSource::Objectives => "Objectives",
-            BoxPlotSource::Parameters => "Parameters",
-        }
-    }
-
-    fn disc(self) -> u8 {
-        match self {
-            BoxPlotSource::Objectives => 0,
-            BoxPlotSource::Parameters => 1,
-        }
-    }
-}
-
-/// (study_name, source_disc, normalize, row_count)
-type BoxCacheKey = (String, u8, bool, usize);
-
-/// A widget that displays box plots for multiple columns side by side.
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct BoxPlotChart {
-    pub source: BoxPlotSource,
-    /// Whether to min-max normalize each column for display ([0,1]; the statistics
-    /// themselves are unchanged).
-    pub normalize: bool,
+    pub selection: DistributionSelection,
     #[serde(skip)]
-    cache: Option<(BoxCacheKey, Vec<(String, BoxPlotStats)>)>,
+    cache: DistributionCache<Vec<(String, BoxPlotStats)>>,
 }
 
 impl BoxPlotChart {
-    pub fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        view: &StudyView,
-        param_names: &[String],
-        obj_names: &[String],
-        study_name: &str,
-    ) {
-        ui.horizontal(|ui| {
-            egui::ComboBox::from_id_salt("box_plot_source_combo")
-                .selected_text(self.source.label())
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut self.source,
-                        BoxPlotSource::Objectives,
-                        BoxPlotSource::Objectives.label(),
-                    );
-                    ui.selectable_value(
-                        &mut self.source,
-                        BoxPlotSource::Parameters,
-                        BoxPlotSource::Parameters.label(),
-                    );
-                });
-
-            ui.toggle_value(&mut self.normalize, "Normalize [0,1]")
-                .on_hover_text("Min-max normalize each column for display");
-        });
-
-        let names: &[String] = match self.source {
-            BoxPlotSource::Objectives => obj_names,
-            BoxPlotSource::Parameters => param_names,
-        };
-        let columns: Vec<&String> = names
-            .iter()
-            .filter(|n| view.numeric_column(n).is_some())
-            .collect();
-
-        if columns.is_empty() {
-            ui.centered_and_justified(|ui| {
-                ui.label(egui::RichText::new("No data.").weak());
-            });
-            return;
-        }
-
-        let key: BoxCacheKey = (
-            study_name.to_string(),
-            self.source.disc(),
-            self.normalize,
-            view.row_count(),
-        );
-        if self.cache.as_ref().map(|(k, _)| k) != Some(&key) {
-            let normalize = self.normalize;
-            let stats: Vec<(String, BoxPlotStats)> = columns
-                .iter()
-                .filter_map(|name| {
-                    let raw = view.numeric_column(name)?;
-                    let values = if normalize {
-                        normalize_minmax(raw)
-                    } else {
-                        raw.to_vec()
-                    };
-                    compute_boxplot(&values).map(|s| ((*name).clone(), s))
-                })
-                .collect();
-            self.cache = Some((key, stats));
-        }
-
-        let stats = &self.cache.as_ref().expect("cache just populated above").1;
+    pub fn show(&mut self, ui: &mut egui::Ui, view: &StudyView) {
+        self.selection.controls(ui, view);
+        let stats = self.cache.get(view, &self.selection, |p| p.boxes());
         if stats.is_empty() {
             ui.centered_and_justified(|ui| {
-                ui.label(egui::RichText::new("No data.").weak());
+                ui.label(egui::RichText::new("No finite data.").weak());
             });
             return;
         }
-
         let labels: Vec<String> = stats.iter().map(|(name, _)| name.clone()).collect();
         let boxes: Vec<egui_plot::BoxElem> = stats
             .iter()
@@ -143,11 +46,10 @@ impl BoxPlotChart {
                 outlier_pts.push([i as f64, v]);
             }
         }
-
         let box_plot = egui_plot::BoxPlot::new("Box Plot", boxes).color(COLOR_BAR_PRIMARY());
 
         // egui_plot derives its own x tick spacing from the available width and offers
-        // no way to rotate tick labels, so with more than a couple of columns it drops
+        // no way to rotate tick labels, so with more than a couple of groups it drops
         // most of the names. Hide its x axis and paint every label into a band reserved
         // below the plot instead, slanting them once they no longer fit side by side.
         // The band has to be sized before the plot is laid out, so the "do the names
@@ -163,12 +65,19 @@ impl BoxPlotChart {
             .unwrap_or_else(|| (avail.x - Y_AXIS_WIDTH_GUESS).max(1.0));
         let plan = plot_x_label_band(ui, &labels, plot_width);
         let plot_height = (avail.y - plan.height).max(MIN_PLOT_HEIGHT);
-
         let resp = egui_plot::Plot::new("box_plot_plot")
             .unified_nav()
             .legend(egui_plot::Legend::default())
             .show_axes([false, true])
             .height(plot_height)
+            .y_axis_label(
+                self.selection
+                    .value
+                    .as_ref()
+                    .map(|v| v.label())
+                    .unwrap_or_default(),
+            )
+            .x_axis_label(self.selection.group_by.as_deref().unwrap_or(""))
             .show(ui, |plot_ui| {
                 apply_wheel_zoom(plot_ui);
                 plot_ui.box_plot(box_plot);
@@ -182,7 +91,6 @@ impl BoxPlotChart {
                     );
                 }
             });
-
         let measured_width = resp.transform.frame().width();
         ui.data_mut(|d| d.insert_temp(width_memo_id, measured_width));
         let (band, _) =
@@ -191,66 +99,92 @@ impl BoxPlotChart {
     }
 }
 
-/// Independently min-max normalizes each column (for display only). A constant column
-/// (min == max) collapses every value to 0.0.
-/// Non-finite values are passed through unchanged and excluded later by `compute_boxplot`.
-/// Exposed within the crate so the same normalization can be reproduced for CSV export.
-pub(crate) fn normalize_minmax(values: &[f64]) -> Vec<f64> {
-    let finite: Vec<f64> = values.iter().copied().filter(|v| v.is_finite()).collect();
-    if finite.is_empty() {
-        return values.to_vec();
-    }
-    // Just confirmed above that `finite` is non-empty.
-    let (min, max) = value_range(finite.iter().copied()).unwrap();
-    values
-        .iter()
-        .map(|&v| {
-            if !v.is_finite() {
-                v
-            } else if max > min {
-                (v - min) / (max - min)
-            } else {
-                0.0
-            }
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::widgets::distribution::DistributionValue;
+    use std::sync::Arc;
+    use tunny_core::dataframe::{DataFrame, TrialRow};
 
     #[test]
-    fn box_plot_chart_default_values() {
-        let chart = BoxPlotChart::default();
-        assert_eq!(chart.source, BoxPlotSource::Objectives);
-        assert!(!chart.normalize);
-        assert!(chart.cache.is_none());
-    }
-
-    #[test]
-    fn cache_key_changes_with_source() {
-        let key_a: BoxCacheKey = ("s".into(), BoxPlotSource::Objectives.disc(), false, 5);
-        let key_b: BoxCacheKey = ("s".into(), BoxPlotSource::Parameters.disc(), false, 5);
-        assert_ne!(key_a, key_b);
-    }
-
-    #[test]
-    fn cache_key_changes_with_normalize() {
-        let key_a: BoxCacheKey = ("s".into(), 0, false, 5);
-        let key_b: BoxCacheKey = ("s".into(), 0, true, 5);
-        assert_ne!(key_a, key_b);
-    }
-
-    #[test]
-    fn normalize_minmax_scales_to_unit_range() {
-        let normalized = normalize_minmax(&[0.0, 5.0, 10.0]);
-        assert_eq!(normalized, vec![0.0, 0.5, 1.0]);
-    }
-
-    #[test]
-    fn normalize_minmax_constant_column_collapses_to_zero() {
-        let normalized = normalize_minmax(&[3.0, 3.0, 3.0]);
-        assert_eq!(normalized, vec![0.0, 0.0, 0.0]);
+    fn value_combo_updates_statistics_in_same_frame_and_same_count_refreshes() {
+        let view = |scale: f64| {
+            let rows = [1.0, 2.0].map(|y| TrialRow {
+                objective_values: vec![y * scale, y * scale * 10.0],
+                ..Default::default()
+            });
+            StudyView::new(
+                Arc::new(DataFrame::from_trials(
+                    &rows,
+                    &[],
+                    &["obj0".into(), "obj1".into()],
+                    &[],
+                    &[],
+                    0,
+                )),
+                vec![],
+            )
+        };
+        let old = view(1.0);
+        let new = view(100.0);
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut chart = BoxPlotChart::default();
+        let input = |node: Option<egui::accesskit::NodeId>| egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(900.0, 600.0),
+            )),
+            events: node
+                .map(|target_node| {
+                    egui::Event::AccessKitActionRequest(egui::accesskit::ActionRequest {
+                        action: egui::accesskit::Action::Click,
+                        target_tree: egui::accesskit::TreeId::ROOT,
+                        target_node,
+                        data: None,
+                    })
+                })
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        let first = ctx.run_ui(input(None), |ui| chart.show(ui, &old));
+        let combo = first
+            .platform_output
+            .accesskit_update
+            .unwrap()
+            .nodes
+            .into_iter()
+            .find(|(_, n)| {
+                n.role() == egui::accesskit::Role::ComboBox && n.value() == Some("Objective: obj0")
+            })
+            .unwrap()
+            .0;
+        let menu = ctx.run_ui(input(Some(combo)), |ui| chart.show(ui, &old));
+        let choice = menu
+            .platform_output
+            .accesskit_update
+            .unwrap()
+            .nodes
+            .into_iter()
+            .find(|(_, n)| {
+                n.role() == egui::accesskit::Role::Button && n.label() == Some("Objective: obj1")
+            })
+            .unwrap()
+            .0;
+        let _ = ctx.run_ui(input(Some(choice)), |ui| chart.show(ui, &old));
+        assert_eq!(
+            chart.selection.value,
+            Some(DistributionValue::Objective("obj1".into()))
+        );
+        let stats = chart.cache.get(&old, &chart.selection, |_| {
+            panic!("renderer must already have populated current selection")
+        });
+        assert_eq!(stats[0].1.median, 15.0);
+        let _ = ctx.run_ui(input(None), |ui| chart.show(ui, &new));
+        let stats = chart.cache.get(&new, &chart.selection, |_| {
+            panic!("renderer must have refreshed the snapshot")
+        });
+        assert_eq!(stats[0].1.median, 1500.0);
     }
 }

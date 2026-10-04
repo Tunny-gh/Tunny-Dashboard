@@ -66,6 +66,9 @@ pub(super) fn finalize_state(state: ParserState) -> Vec<FinalizedStudy> {
             for name in trial.param_display.keys() {
                 study.param_names.insert(name.clone());
             }
+            for name in trial.distribution_metadata.categories.keys() {
+                study.param_names.insert(name.clone());
+            }
             for name in trial.user_attrs_json.keys() {
                 study.user_attr_names.insert(name.clone());
             }
@@ -85,6 +88,7 @@ pub(super) fn finalize_state(state: ParserState) -> Vec<FinalizedStudy> {
         }
 
         per_study_rows[study_idx].push(TrialRow {
+            distribution_metadata: trial.distribution_metadata,
             trial_id,
             trial_number: trial.trial_number,
             param_display: trial.param_display,

@@ -296,6 +296,7 @@ mod store_tests {
                 trial_id: i as u32,
                 trial_number: i as u32,
                 param_display: std::collections::HashMap::new(),
+                distribution_metadata: Default::default(),
                 param_category_label: std::collections::HashMap::new(),
                 objective_values: vec![i as f64],
                 user_attrs_numeric: std::collections::HashMap::new(),

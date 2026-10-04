@@ -488,6 +488,9 @@ impl StreamAccum {
         for name in b.param_category_label.keys() {
             self.param_set.insert(name.clone());
         }
+        for name in b.distribution_metadata.categories.keys() {
+            self.param_set.insert(name.clone());
+        }
         for name in b.user_attrs_numeric.keys() {
             self.uan_set.insert(name.clone());
         }
@@ -509,6 +512,7 @@ impl StreamAccum {
             trial_number: b.trial_number,
             param_display: b.param_display,
             param_category_label: b.param_category_label,
+            distribution_metadata: b.distribution_metadata,
             objective_values: b.values.unwrap_or_default(),
             user_attrs_numeric: b.user_attrs_numeric,
             user_attrs_string: b.user_attrs_string,

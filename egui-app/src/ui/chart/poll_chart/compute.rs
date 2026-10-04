@@ -25,17 +25,6 @@ pub(crate) fn numeric_param_names(ctx: &StudyContext) -> Vec<String> {
         .collect()
 }
 
-/// List of categorical (string) parameter names, used to offer grouping choices to
-/// widgets like the violin plot.
-pub(crate) fn categorical_param_names(ctx: &StudyContext) -> Vec<String> {
-    ctx.meta
-        .param_names
-        .iter()
-        .filter(|p| ctx.view.string_column(p).is_some())
-        .cloned()
-        .collect()
-}
-
 /// Extracts constraint columns as `ConstraintData`. Keeps only the rows specified by `kept_rows`,
 /// aligning them with the non-finite-filtered fit matrix (X from `build_numeric_fit_xy`).
 pub(super) fn collect_constraints(
@@ -343,6 +332,7 @@ mod categorical_tests {
                     trial_id: i,
                     trial_number: i,
                     param_display: [("cat".into(), (i % 3) as f64), ("x".into(), i as f64)].into(),
+                    distribution_metadata: Default::default(),
                     param_category_label: [(
                         "cat".into(),
                         ["steel", "wood", "glass"][i as usize % 3].into(),

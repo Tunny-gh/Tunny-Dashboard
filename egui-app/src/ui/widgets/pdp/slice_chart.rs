@@ -297,6 +297,7 @@ mod tests {
                 trial_id: i as u32,
                 trial_number: i as u32,
                 param_display: HashMap::from([("x".to_string(), param_vals[i])]),
+                distribution_metadata: Default::default(),
                 param_category_label: HashMap::new(),
                 objective_values: vec![obj_vals[i]],
                 user_attrs_numeric: HashMap::new(),
@@ -390,6 +391,7 @@ mod tests {
                 trial_id: 0,
                 trial_number: 0,
                 param_display: HashMap::from([("x".to_string(), 1.0)]),
+                distribution_metadata: Default::default(),
                 param_category_label: HashMap::new(),
                 objective_values: vec![], // no objective function → NaN
                 user_attrs_numeric: HashMap::new(),
@@ -401,6 +403,7 @@ mod tests {
                 trial_id: 1,
                 trial_number: 1,
                 param_display: HashMap::from([("x".to_string(), 3.0)]),
+                distribution_metadata: Default::default(),
                 param_category_label: HashMap::new(),
                 objective_values: vec![4.0],
                 user_attrs_numeric: HashMap::new(),

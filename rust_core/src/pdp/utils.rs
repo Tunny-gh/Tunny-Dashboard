@@ -186,6 +186,7 @@ mod tests {
                     ("y".to_string(), (i % 2) as f64),
                 ]
                 .into(),
+                distribution_metadata: Default::default(),
                 param_category_label: [("category".to_string(), format!("label{}", i % 2))].into(),
                 objective_values: vec![i as f64],
                 user_attrs_numeric: Default::default(),
@@ -244,6 +245,7 @@ mod tests {
                 trial_id: i as u32,
                 trial_number: i as u32,
                 param_display: x.map(|v| ("x".to_string(), v)).into_iter().collect(),
+                distribution_metadata: Default::default(),
                 param_category_label: Default::default(),
                 objective_values: vec![i as f64],
                 user_attrs_numeric: Default::default(),
@@ -406,6 +408,7 @@ mod tests {
                 param_display: vec![("x".to_string(), 0.5), ("y".to_string(), 2.0)]
                     .into_iter()
                     .collect(),
+                distribution_metadata: Default::default(),
                 param_category_label: HashMap::new(),
                 objective_values: vec![1.0],
                 user_attrs_numeric: HashMap::new(),
@@ -419,6 +422,7 @@ mod tests {
                 param_display: vec![("x".to_string(), 1.5), ("y".to_string(), 3.0)]
                     .into_iter()
                     .collect(),
+                distribution_metadata: Default::default(),
                 param_category_label: HashMap::new(),
                 objective_values: vec![2.0],
                 user_attrs_numeric: HashMap::new(),
@@ -464,6 +468,7 @@ mod tests {
             trial_id: 0,
             trial_number: 0,
             param_display: vec![("x".to_string(), 0.5)].into_iter().collect(),
+            distribution_metadata: Default::default(),
             param_category_label: HashMap::new(),
             objective_values: vec![1.0],
             user_attrs_numeric: HashMap::new(),
@@ -500,6 +505,7 @@ mod tests {
                 trial_id: i as u32,
                 trial_number: i as u32,
                 param_display: vec![("x".to_string(), i as f64)].into_iter().collect(),
+                distribution_metadata: Default::default(),
                 param_category_label: HashMap::new(),
                 objective_values: vec![i as f64 * 10.0],
                 user_attrs_numeric: HashMap::new(),
@@ -548,6 +554,7 @@ mod tests {
             trial_id: 0,
             trial_number: 0,
             param_display: vec![("x".to_string(), 0.5)].into_iter().collect(),
+            distribution_metadata: Default::default(),
             param_category_label: HashMap::new(),
             objective_values: vec![1.0],
             user_attrs_numeric: HashMap::new(),

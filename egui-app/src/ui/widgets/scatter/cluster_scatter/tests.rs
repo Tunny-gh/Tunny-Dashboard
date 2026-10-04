@@ -39,6 +39,7 @@ fn make_view_with_objs(obj_vals: &[Vec<f64>]) -> StudyView {
             trial_id: i as u32,
             trial_number: i as u32,
             param_display: HashMap::new(),
+            distribution_metadata: Default::default(),
             param_category_label: HashMap::new(),
             objective_values: obj_vals[i].clone(),
             user_attrs_numeric: HashMap::new(),
@@ -178,6 +179,7 @@ fn cluster_matrix_filters_missing_numeric_params_and_preserves_targets() {
             } else {
                 [("x".to_string(), i as f64)].into()
             },
+            distribution_metadata: Default::default(),
             param_category_label: Default::default(),
             objective_values: vec![i as f64],
             user_attrs_numeric: Default::default(),
@@ -213,6 +215,7 @@ fn mixed_type_cluster_matrix_keeps_categories_constant_and_filters_missing_numbe
             trial_id: 100 + i,
             trial_number: i,
             param_display: [("x".to_string(), i as f64)].into(),
+            distribution_metadata: Default::default(),
             param_category_label: [("category".to_string(), format!("label{}", i % 2))].into(),
             objective_values: vec![i as f64],
             user_attrs_numeric: Default::default(),

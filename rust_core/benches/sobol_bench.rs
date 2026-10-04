@@ -23,6 +23,7 @@ fn setup_sobol_df(n: usize, n_params: usize, n_objectives: usize) {
                 trial_id: i as u32,
                 trial_number: i as u32,
                 param_display,
+                distribution_metadata: Default::default(),
                 param_category_label: HashMap::new(),
                 objective_values,
                 user_attrs_numeric: HashMap::new(),

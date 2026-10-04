@@ -56,6 +56,7 @@ pub use decision::radar_comparison;
 mod stats;
 pub use stats::box_plot;
 pub use stats::correlation_matrix;
+pub use stats::distribution;
 pub use stats::histogram;
 pub use stats::violin_plot;
 

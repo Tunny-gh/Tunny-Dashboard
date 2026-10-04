@@ -22,6 +22,7 @@ fn render_pcp(
             trial_id: i,
             trial_number: i,
             param_display: HashMap::new(),
+            distribution_metadata: Default::default(),
             param_category_label: HashMap::new(),
             objective_values: vec![i as f64; names.len()],
             user_attrs_numeric: HashMap::new(),

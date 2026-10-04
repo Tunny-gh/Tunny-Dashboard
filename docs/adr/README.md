@@ -84,3 +84,5 @@ order:
 | 0010 | [Reject negative MCDM weights](0010-reject-negative-mcdm-weights.md) | Accepted | 2026-10-01 |
 | 0011 | [Session artifact root default](0011-session-artifact-root-default.md) | Accepted | 2026-10-03 |
 | 0012 | [Scope artifacts to storage](0012-scope-artifacts-to-storage.md) | Accepted | 2026-10-03 |
+| 0013 | [Preserve parameter distributions for grouping](0013-preserve-parameter-distributions-for-grouping.md) | Accepted | 2026-10-04 |
+| 0014 | [Preserve category identity and presence](0014-preserve-category-identity-and-presence.md) | Accepted | 2026-10-04 |

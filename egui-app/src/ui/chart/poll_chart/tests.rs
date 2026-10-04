@@ -17,6 +17,7 @@ fn study(id: u32, constraints: Vec<Vec<f64>>, constrained: bool) -> StudyContext
             objective_values: vec![i as f64 + 1.0, 200.0 - i as f64],
             constraint_values,
             param_display: Default::default(),
+            distribution_metadata: Default::default(),
             param_category_label: Default::default(),
             user_attrs_numeric: Default::default(),
             user_attrs_string: Default::default(),

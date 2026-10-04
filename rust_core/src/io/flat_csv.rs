@@ -241,6 +241,7 @@ pub fn parse_flat_csv(data: &[u8], study_name: &str) -> Result<FlatCsvParseResul
             trial_number: row as u32,
             param_display,
             param_category_label,
+            distribution_metadata: Default::default(),
             objective_values,
             user_attrs_numeric,
             user_attrs_string,
