@@ -65,6 +65,11 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- Artifact Gallery scopes Artifact # to the current study in All, Cluster, and
+  MCDM modes. The zero-based "of up to" bound now matches the selector maximum;
+  switching studies clamps invalid indices while preserving valid selections,
+  and studies with at most one artifact per trial use index 0 without a selector.
+
 - Artifact Gallery now reads artifact metadata embedded in Journal trial creation
   records, associating images with the correct global trial IDs across studies,
   including trials with no artifacts and non-COMPLETE states.

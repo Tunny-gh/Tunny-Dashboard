@@ -205,6 +205,19 @@ impl ArtifactGallery {
             return;
         }
 
+        // Use the same study membership as the cards, not the storage-wide map.
+        let max_artifact_index = app_state
+            .current_study
+            .as_ref()
+            .into_iter()
+            .flat_map(|ctx| &ctx.view.trial_ids)
+            .filter_map(|id| app_state.artifact_map.get(id))
+            .map(Vec::len)
+            .max()
+            .unwrap_or(0)
+            .saturating_sub(1);
+        self.artifact_index = self.artifact_index.min(max_artifact_index);
+
         if app_state.artifact_map.is_empty() {
             ui.centered_and_justified(|ui| {
                 ui.label(
@@ -215,18 +228,6 @@ impl ArtifactGallery {
                 );
             });
             return;
-        }
-
-        // Maximum number of artifacts per trial (used as the range for the index selector).
-        let max_artifacts = app_state
-            .artifact_map
-            .values()
-            .map(|v| v.len())
-            .max()
-            .unwrap_or(1)
-            .max(1);
-        if self.artifact_index >= max_artifacts {
-            self.artifact_index = max_artifacts - 1;
         }
 
         // Mode selector + artifact index selector.
@@ -257,15 +258,17 @@ impl ArtifactGallery {
                 });
 
             // Only shown when a trial has more than one artifact.
-            if max_artifacts > 1 {
+            if max_artifact_index > 0 {
                 ui.separator();
                 ui.label("Artifact #:");
-                ui.add(egui::DragValue::new(&mut self.artifact_index).range(0..=max_artifacts - 1))
-                    .on_hover_text(
-                        "Which artifact to show per trial (0-based). \
+                ui.add(
+                    egui::DragValue::new(&mut self.artifact_index).range(0..=max_artifact_index),
+                )
+                .on_hover_text(
+                    "Which artifact to show per trial (0-based). \
                      Trials without this index are skipped.",
-                    );
-                ui.label(format!("of up to {max_artifacts}"));
+                );
+                ui.label(format!("of up to {max_artifact_index}"));
             }
         });
         ui.separator();
@@ -652,6 +655,121 @@ impl ArtifactGallery {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn study(ids: &[u32]) -> crate::state::types::StudyContext {
+        use crate::state::types::{StudyContext, StudyMeta, TrialRow};
+        let rows = ids
+            .iter()
+            .enumerate()
+            .map(|(i, &trial_id)| TrialRow {
+                trial_id,
+                trial_number: i as u32,
+                params: HashMap::new(),
+                objectives: vec![],
+                pareto_rank: 0,
+                cluster_id: None,
+                user_attrs: HashMap::new(),
+            })
+            .collect();
+        StudyContext::from_rows_for_test(
+            StudyMeta {
+                study_id: 0,
+                name: "test".into(),
+                directions: vec![],
+                completed_trials: ids.len(),
+                param_names: vec![],
+                objective_names: vec![],
+                param_bounds: Default::default(),
+            },
+            rows,
+        )
+    }
+
+    fn rendered_text(gallery: &mut ArtifactGallery, state: &mut AppState) -> Vec<String> {
+        fn collect(shape: &egui::epaint::Shape, text: &mut Vec<String>) {
+            match shape {
+                egui::epaint::Shape::Text(t) => text.push(t.galley.text().to_owned()),
+                egui::epaint::Shape::Vec(shapes) => {
+                    for shape in shapes {
+                        collect(shape, text);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let ctx = egui::Context::default();
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| gallery.show(ui, state));
+        let mut text = Vec::new();
+        for shape in output.shapes {
+            collect(&shape.shape, &mut text);
+        }
+        text
+    }
+
+    #[test]
+    fn study_scoped_selector_and_switching_in_every_mode() {
+        for mode in [
+            ArtifactViewMode::All,
+            ArtifactViewMode::Cluster,
+            ArtifactViewMode::Mcdm,
+        ] {
+            let mut state = AppState::new();
+            for (id, count) in [(0, 3), (1, 1), (100, 2), (101, 1), (200, 1), (300, 0)] {
+                state.artifact_map.insert(
+                    id,
+                    (0..count)
+                        .map(|i| ArtifactEntry {
+                            path: format!("{id}-{i}.csv").into(),
+                            filename: format!("{id}-{i}.csv"),
+                            mimetype: "text/csv".into(),
+                        })
+                        .collect(),
+                );
+            }
+            // A selection filter must not narrow the study's selector range.
+            state.selected_indices = vec![1];
+            let mut gallery = ArtifactGallery {
+                mode,
+                artifact_index: usize::MAX,
+                ..Default::default()
+            };
+            state.current_study = Some(study(&[0, 1]));
+            let text = rendered_text(&mut gallery, &mut state);
+            assert_eq!(gallery.artifact_index, 2);
+            assert!(text.iter().any(|t| t == "of up to 2"));
+            assert!(text.iter().any(|t| t == "Artifact #:"));
+
+            // Switching to two entries clamps to 1, the bound displayed by the UI.
+            state.current_study = Some(study(&[100, 101]));
+            let text = rendered_text(&mut gallery, &mut state);
+            assert_eq!(gallery.artifact_index, 1);
+            assert!(text.iter().any(|t| t == "of up to 1"));
+            assert!(!text.iter().any(|t| t == "of up to 2"));
+
+            state.current_study = Some(study(&[0, 1]));
+            rendered_text(&mut gallery, &mut state);
+            assert_eq!(gallery.artifact_index, 1); // Valid nonzero selection survives.
+            gallery.artifact_index = 0;
+            state.current_study = Some(study(&[100, 101]));
+            rendered_text(&mut gallery, &mut state);
+            assert_eq!(gallery.artifact_index, 0); // Valid zero selection survives too.
+
+            // Single entry, empty entries, missing map entries, and empty study.
+            for ids in [&[200][..], &[300][..], &[400][..], &[][..]] {
+                gallery.artifact_index = 2;
+                state.current_study = Some(study(ids));
+                let text = rendered_text(&mut gallery, &mut state);
+                assert_eq!(gallery.artifact_index, 0);
+                assert!(!text.iter().any(|t| t == "Artifact #:"));
+                assert!(!text.iter().any(|t| t.starts_with("of up to")));
+            }
+            state.artifact_map.clear();
+            gallery.artifact_index = 2;
+            let text = rendered_text(&mut gallery, &mut state);
+            assert_eq!(gallery.artifact_index, 0);
+            assert!(text.iter().any(|t| t.starts_with("No artifacts loaded.")));
+        }
+    }
 
     #[test]
     fn adopt_cluster_runtime_clears_stuck_computing() {
