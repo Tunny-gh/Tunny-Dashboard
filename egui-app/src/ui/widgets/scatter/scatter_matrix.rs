@@ -56,11 +56,6 @@ pub struct ScatterMatrix {
     /// Cache of cell statistics (column range / histogram / correlation) and point colors (H-4).
     #[serde(skip)]
     stats_cache: Option<MatrixStatsCache>,
-    /// Cache of pre-laid-out row/column label Galleys (recomputed only when the axis name list changes).
-    #[serde(skip)]
-    label_galleys_cache: Option<Vec<std::sync::Arc<egui::Galley>>>,
-    #[serde(skip)]
-    label_galleys_cache_key: Option<Vec<String>>,
 }
 
 /// Cache of cell statistics (column range / histogram / correlation) and point colors (H-4).
@@ -109,8 +104,6 @@ impl Default for ScatterMatrix {
             downsample_cache: None,
             downsample_cache_key: None,
             stats_cache: None,
-            label_galleys_cache: None,
-            label_galleys_cache_key: None,
         }
     }
 }
@@ -256,22 +249,16 @@ impl ScatterMatrix {
             self.downsample_cache.as_ref().unwrap();
 
         // Pre-layout row/column labels and measure their sizes.
-        // The layout is not recomputed each frame unless the axis name list changes.
+        // Rely on egui's memoization within the current font atlas and DPI, rather
+        // than retaining Galleys across passes where their atlas coordinates can expire.
         let outer = ui.available_rect_before_wrap();
         let painter = ui.painter().clone();
         let label_color = ui.visuals().text_color();
         let label_font = egui::FontId::proportional(10.0);
-        if self.label_galleys_cache.is_none()
-            || self.label_galleys_cache_key.as_deref() != Some(&all_names[..])
-        {
-            let galleys: Vec<std::sync::Arc<egui::Galley>> = all_names
-                .iter()
-                .map(|name| painter.layout_no_wrap(name.clone(), label_font.clone(), label_color))
-                .collect();
-            self.label_galleys_cache = Some(galleys);
-            self.label_galleys_cache_key = Some(all_names.clone());
-        }
-        let label_galleys = self.label_galleys_cache.as_ref().unwrap();
+        let label_galleys: Vec<_> = all_names
+            .iter()
+            .map(|name| painter.layout_no_wrap(name.clone(), label_font.clone(), label_color))
+            .collect();
         let max_label_w = label_galleys
             .iter()
             .map(|g| g.size().x)

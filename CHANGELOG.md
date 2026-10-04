@@ -65,6 +65,9 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- Scatter Matrix row and column labels now refresh after font atlas recreation,
+  DPI changes, and theme changes instead of retaining stale text layouts.
+
 - Artifact Gallery scopes Artifact # to the current study in All, Cluster, and
   MCDM modes. The zero-based "of up to" bound now matches the selector maximum;
   switching studies clamps invalid indices while preserving valid selections,
