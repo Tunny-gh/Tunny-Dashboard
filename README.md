@@ -22,7 +22,10 @@ Journal and RDB imports retain the JSON types of Optuna Trial User Attributes,
 including arrays, objects, booleans, and null. DesignExplorer-format CSV import does not infer
 JSON types from text.
 
-All sources support **Reload**: press it to re-read the open storage, so trials written by a run in progress show up on demand.
+Journal, SQLite, and PostgreSQL / MySQL sources support manual **Reload**: press
+it to re-read the open storage and pick up new trials on demand.
+DesignExplorer-format CSV is a one-time import with user-confirmed optimization
+directions and parameter ranges; it does not support Reload.
 
 <img width="800" height="516" alt="1782045917513" src="https://github.com/user-attachments/assets/ab008af2-0556-4c10-9ff7-1bc50f0a595f" />
 
