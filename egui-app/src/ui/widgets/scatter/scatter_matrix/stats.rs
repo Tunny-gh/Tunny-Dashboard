@@ -65,14 +65,23 @@ pub(super) fn compute_histogram(data: &[f64], n_bins: usize) -> Vec<usize> {
     let Some((v_min, v_max)) = finite_value_range(data.iter().copied()) else {
         return vec![0; n_bins];
     };
-    if (v_max - v_min).abs() < f64::EPSILON {
+    let span = v_max - v_min;
+    if span.abs() < f64::EPSILON {
         let mut bins = vec![0usize; n_bins];
         bins[n_bins / 2] = data.iter().filter(|v| v.is_finite()).count();
         return bins;
     }
+    let scale_down = !span.is_finite();
+    let (v_min, span) = if scale_down {
+        // Halve finite endpoints before subtraction to avoid span and numerator overflow.
+        (v_min * 0.5, v_max * 0.5 - v_min * 0.5)
+    } else {
+        (v_min, span)
+    };
     let mut bins = vec![0usize; n_bins];
     for &v in data.iter().filter(|v| v.is_finite()) {
-        let idx = ((v - v_min) / (v_max - v_min) * n_bins as f64) as usize;
+        let v = if scale_down { v * 0.5 } else { v };
+        let idx = ((v - v_min) / span * n_bins as f64) as usize;
         let idx = idx.min(n_bins - 1);
         bins[idx] += 1;
     }

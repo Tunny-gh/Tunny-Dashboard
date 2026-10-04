@@ -65,6 +65,9 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- Scatter Matrix histograms now place extreme finite observations in the correct
+  bins even when the difference between their endpoints overflows.
+
 - Scatter Matrix histograms now derive bin ranges and counts only from finite
   observations, excluding missing (NaN) and infinite values. Columns with no
   finite observations show no bars; constant columns count only finite values.
