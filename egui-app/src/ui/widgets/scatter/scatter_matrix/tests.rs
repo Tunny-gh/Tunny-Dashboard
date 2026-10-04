@@ -376,6 +376,7 @@ fn compute_histogram_bins_count() {
     assert_eq!(bins.len(), 5);
     let total: usize = bins.iter().sum();
     assert_eq!(total, data.len());
+    assert_eq!(bins, vec![1, 1, 1, 1, 1]);
 }
 
 #[test]
@@ -384,6 +385,7 @@ fn compute_histogram_all_in_same_bin() {
     let bins = compute_histogram(&data, 4);
     let total: usize = bins.iter().sum();
     assert_eq!(total, 10);
+    assert_eq!(bins, vec![0, 0, 10, 0]);
 }
 
 #[test]
@@ -391,6 +393,47 @@ fn compute_histogram_empty_data() {
     let bins = compute_histogram(&[], 5);
     assert_eq!(bins.len(), 5);
     assert!(bins.iter().all(|&b| b == 0));
+}
+
+#[test]
+fn compute_histogram_mixed_finite_and_nonfinite() {
+    let data = [f64::NAN, -2.0, 0.0, f64::INFINITY, 2.0, f64::NEG_INFINITY];
+    assert_eq!(compute_histogram(&data, 4), vec![1, 0, 1, 1]);
+    assert_eq!(
+        compute_histogram(&[0.0, 1.0, f64::NAN], 4),
+        vec![1, 0, 0, 1]
+    );
+}
+
+#[test]
+fn compute_histogram_constant_with_nonfinite() {
+    let data = [5.0, f64::NAN, 5.0, f64::INFINITY, f64::NEG_INFINITY];
+    assert_eq!(compute_histogram(&data, 4), vec![0, 0, 2, 0]);
+    assert_eq!(compute_histogram(&[5.0, f64::NAN], 5), vec![0, 0, 1, 0, 0]);
+}
+
+#[test]
+fn compute_histogram_all_nonfinite() {
+    let data = [f64::NAN, f64::INFINITY, f64::NEG_INFINITY];
+    assert_eq!(compute_histogram(&data, 4), vec![0; 4]);
+}
+
+#[test]
+fn compute_histogram_all_nan() {
+    assert_eq!(compute_histogram(&[f64::NAN, f64::NAN], 4), vec![0; 4]);
+}
+
+#[test]
+fn compute_histogram_zero_bins() {
+    for data in [
+        &[][..],
+        &[0.0, 1.0][..],
+        &[5.0, 5.0][..],
+        &[0.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY][..],
+        &[f64::NAN, f64::INFINITY, f64::NEG_INFINITY][..],
+    ] {
+        assert_eq!(compute_histogram(data, 0), Vec::<usize>::new());
+    }
 }
 
 #[test]
