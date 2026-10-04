@@ -92,7 +92,7 @@ fn render_matrix(
 
 fn assert_current_matrix_labels(render: &RenderedMatrix, rotated: bool) {
     assert_eq!(render.labels.len(), render.fresh.len() * 2);
-    for (pair, fresh) in render.labels.chunks_exact(2).zip(&render.fresh) {
+    for (pair, fresh) in render.labels.as_chunks::<2>().0.iter().zip(&render.fresh) {
         // Each axis is painted once as a column header and once as a row header.
         for label in pair {
             assert_eq!(
