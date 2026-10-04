@@ -54,6 +54,9 @@ minimize or maximize, not the weight's sign.
 artifacts, specified independently of the optimization result source. It is not
 an individual artifact file.
 
+**Artifact #**: The zero-based index of an artifact entry within a trial, not
+the artifact count or the count of unique MIME types.
+
 **DesignExplorer-format CSV**: The CSV output format from the DesignExplorer
 application targeted by Tunny Dashboard's parser: one trial per row, with
 `in:<name>` parameter columns, `out:<name>` objective columns, and an optional
