@@ -9,6 +9,7 @@ fn public_pca_preserves_mixed_features_and_complete_row_outputs() {
             trial_id: 100 + i,
             trial_number: 20 + i,
             param_display: [("x".to_string(), 2.0 * i as f64)].into(),
+            distribution_metadata: Default::default(),
             param_category_label: [("category".to_string(), format!("c{i}"))].into(),
             objective_values: vec![10.0 * i as f64],
             user_attrs_numeric: Default::default(),
@@ -86,6 +87,7 @@ fn public_pca_handles_absent_params_and_insufficient_complete_rows() {
                 ("y".to_string(), 2.0 * i as f64),
             ]
             .into(),
+            distribution_metadata: Default::default(),
             param_category_label: Default::default(),
             objective_values: vec![10.0 * i as f64],
             user_attrs_numeric: Default::default(),

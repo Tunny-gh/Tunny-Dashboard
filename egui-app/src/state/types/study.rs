@@ -191,6 +191,7 @@ impl StudyContext {
                 trial_id: r.trial_id,
                 trial_number: r.trial_number,
                 param_display: r.params.clone(),
+                distribution_metadata: Default::default(),
                 param_category_label: HashMap::new(),
                 objective_values: r.objectives.clone(),
                 user_attrs_numeric: HashMap::new(),

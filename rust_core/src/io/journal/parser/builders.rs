@@ -20,6 +20,7 @@ pub(super) struct StudyBuilder {
 
 /// Intermediate state for assembling a single trial's data from the journal's event stream.
 pub(super) struct TrialBuilder {
+    pub(super) distribution_metadata: crate::dataframe::DistributionMetadata,
     pub(super) study_id: u32,
     /// The 0-based trial.number within the study (creation order = order of op_code=4 occurrences within the study).
     pub(super) trial_number: u32,

@@ -6,6 +6,7 @@ fn make_trial(params: &[(&str, f64)], objective_values: Vec<f64>) -> TrialRow {
         trial_id: 0,
         trial_number: 0,
         param_display: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+        distribution_metadata: Default::default(),
         param_category_label: HashMap::new(),
         objective_values,
         user_attrs_numeric: HashMap::new(),
@@ -17,6 +18,74 @@ fn make_trial(params: &[(&str, f64)], objective_values: Vec<f64>) -> TrialRow {
 
 fn to_bytes(s: &str) -> Vec<u8> {
     s.as_bytes().to_vec()
+}
+
+#[test]
+fn distribution_metadata_and_column_identity_survive_late_columns_and_filtering() {
+    use serde_json::json;
+    let first = TrialRow {
+        objective_values: vec![10.0],
+        user_attrs_numeric: [("shared".into(), 100.0)].into(),
+        constraint_values: vec![-1.0],
+        ..Default::default()
+    };
+    let second = TrialRow {
+        param_display: [("shared".into(), 2.0)].into(),
+        objective_values: vec![20.0],
+        distribution_metadata: DistributionMetadata {
+            numeric_discrete: [("shared".into(), true)].into(),
+            categories: [("cat".into(), json!(""))].into(),
+            ..Default::default()
+        },
+        user_attrs_numeric: [("shared".into(), 200.0)].into(),
+        constraint_values: vec![1.0],
+        ..Default::default()
+    };
+    let third = TrialRow {
+        param_display: [("shared".into(), 3.0)].into(),
+        objective_values: vec![30.0],
+        distribution_metadata: DistributionMetadata {
+            numeric_discrete: [("shared".into(), true)].into(),
+            categories: [("cat".into(), json!(1))].into(),
+            ..Default::default()
+        },
+        constraint_values: vec![-1.0],
+        ..Default::default()
+    };
+    let mut df = DataFrame::from_trials(
+        &[first],
+        &[],
+        &["shared".into()],
+        &["shared".into()],
+        &[],
+        1,
+    );
+    for row in [second, third] {
+        df.append_trials(
+            &[row],
+            &["shared".into(), "cat".into()],
+            &["shared".into()],
+            &["shared".into()],
+            &[],
+            1,
+        );
+    }
+    assert_eq!(df.objective_column("shared").unwrap(), &[10.0, 20.0, 30.0]);
+    let param = df.numeric_parameter_column("shared").unwrap();
+    assert!(param[0].is_nan());
+    assert_eq!(&param[1..], &[2.0, 3.0]);
+    assert_eq!(
+        df.category_values("cat").unwrap(),
+        &[None, Some(json!("")), Some(json!(1))]
+    );
+    let filtered = df.filter_feasible();
+    assert_eq!(
+        filtered.category_values("cat").unwrap(),
+        &[None, Some(json!(1))]
+    );
+    assert_eq!(filtered.objective_column("shared").unwrap(), &[10.0, 30.0]);
+    assert_eq!(filtered.numeric_parameter_column("shared").unwrap()[1], 3.0);
+    assert!(filtered.is_discrete_parameter("shared"));
 }
 
 #[test]

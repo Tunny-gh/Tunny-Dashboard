@@ -25,6 +25,7 @@ fn row(id: u32, params: &[(&str, f64)], objs: &[f64]) -> TrialRow {
         trial_id: id,
         trial_number: id,
         param_display: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+        distribution_metadata: Default::default(),
         param_category_label: HashMap::new(),
         objective_values: objs.to_vec(),
         user_attrs_numeric: HashMap::new(),

@@ -50,6 +50,9 @@ fn append_json_attrs(
 /// and shared by the UI, export, and analysis code.
 #[derive(Clone, Debug)]
 pub struct DataFrame {
+    /// Additive metadata used by distribution charts; existing labels stay unchanged.
+    category_values: BTreeMap<String, Vec<Option<Value>>>,
+    numeric_discrete: HashMap<String, bool>,
     row_count: usize,
     /// trial_id, in row-index order.
     trial_ids: Vec<u32>,
@@ -61,7 +64,9 @@ pub struct DataFrame {
     string_cols: Vec<(String, Vec<String>)>,
     /// Parameter column names (in generation order).
     param_col_names: Vec<String>,
+    param_numeric_indices: HashMap<String, usize>,
     objective_col_names: Vec<String>,
+    objective_col_indices: Vec<usize>,
     user_attr_numeric_col_names: Vec<String>,
     user_attr_string_col_names: Vec<String>,
     /// Positions of user-attribute columns in the corresponding value vectors.
@@ -79,16 +84,95 @@ pub struct DataFrame {
 }
 
 impl DataFrame {
+    fn append_distribution_metadata(&mut self, rows: &[TrialRow], old_n: usize) {
+        for row in rows {
+            for name in row
+                .param_category_label
+                .keys()
+                .chain(row.distribution_metadata.categories.keys())
+                .chain(row.distribution_metadata.categorical.iter())
+            {
+                self.category_values
+                    .entry(name.clone())
+                    .or_insert_with(|| vec![None; old_n]);
+            }
+            for name in row.param_display.keys() {
+                if !row.param_category_label.contains_key(name)
+                    && !row.distribution_metadata.categories.contains_key(name)
+                    && !row.distribution_metadata.categorical.contains(name)
+                {
+                    let eligible = row
+                        .distribution_metadata
+                        .numeric_discrete
+                        .get(name)
+                        .copied()
+                        .unwrap_or(false);
+                    self.numeric_discrete
+                        .entry(name.clone())
+                        .and_modify(|e| *e &= eligible)
+                        .or_insert(eligible);
+                }
+            }
+        }
+        for (name, values) in &mut self.category_values {
+            values.extend(rows.iter().map(|row| {
+                row.distribution_metadata
+                    .categories
+                    .get(name)
+                    .cloned()
+                    .or_else(|| {
+                        if row
+                            .distribution_metadata
+                            .numeric_discrete
+                            .contains_key(name)
+                        {
+                            None
+                        } else {
+                            row.param_category_label
+                                .get(name)
+                                .cloned()
+                                .map(Value::String)
+                        }
+                    })
+            }));
+        }
+    }
+
+    pub fn category_values(&self, name: &str) -> Option<&[Option<Value>]> {
+        self.category_values.get(name).map(Vec::as_slice)
+    }
+
+    pub fn is_discrete_parameter(&self, name: &str) -> bool {
+        self.numeric_discrete.get(name).copied().unwrap_or(false)
+    }
+
+    /// Objective identity is independent of same-named parameter columns.
+    pub fn objective_column(&self, name: &str) -> Option<&[f64]> {
+        let position = self.objective_col_names.iter().position(|n| n == name)?;
+        self.numeric_cols
+            .get(*self.objective_col_indices.get(position)?)
+            .map(|(_, v)| v.as_slice())
+    }
+
+    pub fn numeric_parameter_column(&self, name: &str) -> Option<&[f64]> {
+        self.numeric_cols
+            .get(*self.param_numeric_indices.get(name)?)
+            .map(|(_, v)| v.as_slice())
+    }
     /// Returns an empty DataFrame with 0 rows and 0 columns.
     pub fn empty() -> Self {
         DataFrame {
+            category_values: BTreeMap::new(),
+            numeric_discrete: HashMap::new(),
             row_count: 0,
             trial_ids: vec![],
             trial_numbers: vec![],
             numeric_cols: vec![],
             string_cols: vec![],
             param_col_names: vec![],
+            param_numeric_indices: HashMap::new(),
             objective_col_names: vec![],
+            objective_col_indices: vec![],
             user_attr_numeric_col_names: vec![],
             user_attr_string_col_names: vec![],
             user_attr_numeric_col_indices: vec![],
@@ -134,7 +218,9 @@ impl DataFrame {
         let mut numeric_cols: Vec<(String, Vec<f64>)> = Vec::new();
         let mut string_cols: Vec<(String, Vec<String>)> = Vec::new();
         let mut param_col_names = Vec::new();
+        let mut param_numeric_indices = HashMap::new();
         let mut objective_col_names = Vec::new();
+        let mut objective_col_indices = Vec::new();
         let mut user_attr_numeric_col_names = Vec::new();
         let mut user_attr_string_col_names = Vec::new();
         let mut user_attr_numeric_col_indices = Vec::new();
@@ -164,6 +250,7 @@ impl DataFrame {
                     .iter()
                     .map(|r| *r.param_display.get(name).unwrap_or(&f64::NAN))
                     .collect();
+                param_numeric_indices.insert(name.clone(), numeric_cols.len());
                 numeric_cols.push((name.clone(), vals));
             }
             param_col_names.push(name.clone());
@@ -174,6 +261,7 @@ impl DataFrame {
                 .iter()
                 .map(|r| r.objective_values.get(i).copied().unwrap_or(f64::NAN))
                 .collect();
+            objective_col_indices.push(numeric_cols.len());
             numeric_cols.push((name.clone(), vals));
             objective_col_names.push(name.clone());
         }
@@ -235,14 +323,16 @@ impl DataFrame {
             derived_col_names.push("constraint_sum".to_string());
         }
 
-        DataFrame {
+        let mut df = DataFrame {
             row_count: n,
             trial_ids,
             trial_numbers,
             numeric_cols,
             string_cols,
             param_col_names,
+            param_numeric_indices,
             objective_col_names,
+            objective_col_indices,
             user_attr_numeric_col_names,
             user_attr_string_col_names,
             user_attr_numeric_col_indices,
@@ -251,7 +341,11 @@ impl DataFrame {
             user_attr_array_lengths,
             constraint_col_names,
             derived_col_names,
-        }
+            category_values: BTreeMap::new(),
+            numeric_discrete: HashMap::new(),
+        };
+        df.append_distribution_metadata(trial_rows, 0);
+        df
     }
 
     /// Appends new trial rows to an existing DataFrame (for streaming loads / live updates).
@@ -285,6 +379,7 @@ impl DataFrame {
             return;
         }
         let old_n = self.row_count;
+        self.append_distribution_metadata(new_rows, old_n);
 
         self.trial_ids.extend(new_rows.iter().map(|r| r.trial_id));
         self.trial_numbers
@@ -312,6 +407,19 @@ impl DataFrame {
                     .or_default()
                     .push_back(i);
             }
+        }
+        // Late parameters may physically follow same-named objectives. Preserve
+        // semantic extension order rather than relying on physical column order.
+        for (name, queue) in &mut numeric_pending {
+            queue.make_contiguous().sort_by_key(|index| {
+                if self.param_numeric_indices.get(name) == Some(index) {
+                    0
+                } else if self.objective_col_indices.contains(index) {
+                    1
+                } else {
+                    2
+                }
+            });
         }
         let mut string_pending: HashMap<String, VecDeque<usize>> = HashMap::new();
         let string_attr_positions: std::collections::HashSet<usize> =
@@ -380,6 +488,8 @@ impl DataFrame {
                             .iter()
                             .map(|r| *r.param_display.get(name).unwrap_or(&f64::NAN)),
                     );
+                    self.param_numeric_indices
+                        .insert(name.clone(), self.numeric_cols.len());
                     self.numeric_cols.push((name.clone(), vals));
                 }
                 self.param_col_names.push(name.clone());
@@ -404,6 +514,17 @@ impl DataFrame {
                     .and_then(VecDeque::pop_front)
                 {
                     self.numeric_cols.remove(idx);
+                    self.param_numeric_indices.remove(name);
+                    for param_idx in self.param_numeric_indices.values_mut() {
+                        if *param_idx > idx {
+                            *param_idx -= 1;
+                        }
+                    }
+                    for objective_idx in &mut self.objective_col_indices {
+                        if *objective_idx > idx {
+                            *objective_idx -= 1;
+                        }
+                    }
                     for attr_idx in &mut self.user_attr_numeric_col_indices {
                         if *attr_idx > idx {
                             *attr_idx -= 1;
@@ -443,6 +564,7 @@ impl DataFrame {
             } else {
                 let mut vals = vec![f64::NAN; old_n];
                 vals.extend(values);
+                self.objective_col_indices.push(self.numeric_cols.len());
                 self.numeric_cols.push((name.clone(), vals));
                 self.objective_col_names.push(name.clone());
                 objective_name_set.insert(name.clone());
@@ -822,6 +944,24 @@ impl DataFrame {
 
         DataFrame {
             row_count: trial_ids.len(),
+            category_values: self
+                .category_values
+                .iter()
+                .map(|(name, values)| {
+                    (
+                        name.clone(),
+                        values
+                            .iter()
+                            .enumerate()
+                            .filter(|(i, _)| mask.get(*i).copied().unwrap_or(false))
+                            .map(|(_, v)| v.clone())
+                            .collect(),
+                    )
+                })
+                .collect(),
+            numeric_discrete: self.numeric_discrete.clone(),
+            param_numeric_indices: self.param_numeric_indices.clone(),
+            objective_col_indices: self.objective_col_indices.clone(),
             trial_ids,
             trial_numbers,
             numeric_cols,

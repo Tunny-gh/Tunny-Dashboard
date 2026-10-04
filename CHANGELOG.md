@@ -13,6 +13,15 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Changed
 
+- Box Plot and Violin Plot share a single Value, optional Group by, and global
+  Normalize selection. Grouping supports categorical and explicitly declared
+  Optuna integer/stepped parameters, not continuous parameters or CSV numeric
+  parameters without distribution metadata. Missing/non-finite data is excluded;
+  categorical identity and presence are retained, including empty-string choices.
+  Box plots include singleton/constant groups; violins report omitted groups.
+  CSV exports use the displayed groups and scale, and distribution caches refresh
+  when the underlying study snapshot changes.
+
 - Spearman and Ridge sensitivity now evaluate numerical parameters only. Nominal
   categorical parameters (including numeric-looking Optuna choices) are explicitly
   marked `Unsupported (categorical)` in charts, heatmaps, CSV and reports, never

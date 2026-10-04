@@ -146,12 +146,21 @@ impl ParserState {
 
             let mut param_display: HashMap<String, f64> = HashMap::new();
             let mut param_category_label: HashMap<String, String> = HashMap::new();
+            let mut distribution_metadata = crate::dataframe::DistributionMetadata::default();
 
             let dist_obj = json
                 .get("distributions")
                 .and_then(|value| value.as_object());
             if let Some(params_obj) = json.get("params").and_then(|value| value.as_object()) {
                 for (name, value) in params_obj {
+                    if let Some(dist) = dist_obj.and_then(|d| d.get(name)) {
+                        Distribution::from_json(dist).record_metadata(
+                            &mut distribution_metadata,
+                            name,
+                            None,
+                            Some(value),
+                        );
+                    }
                     if let Some(number) = value.as_f64() {
                         param_display.insert(name.clone(), number);
                     } else if let Some(text) = value.as_str() {
@@ -245,6 +254,7 @@ impl ParserState {
                     values,
                     param_display,
                     param_category_label,
+                    distribution_metadata,
                     user_attrs_numeric,
                     user_attrs_string,
                     user_attrs_json,
@@ -265,6 +275,7 @@ impl ParserState {
                     values: None,
                     param_display: HashMap::new(),
                     param_category_label: HashMap::new(),
+                    distribution_metadata: Default::default(),
                     user_attrs_numeric: HashMap::new(),
                     user_attrs_string: HashMap::new(),
                     user_attrs_json: HashMap::new(),
@@ -287,7 +298,7 @@ impl ParserState {
         let internal = json
             .get("param_value_internal")
             .and_then(|value| value.as_f64())
-            .unwrap_or(0.0);
+            .unwrap_or(f64::NAN);
         let distribution = json
             .get("distribution")
             .map(Distribution::from_json)
@@ -307,6 +318,12 @@ impl ParserState {
         }
 
         if let Some(trial) = self.trial_builders.get_mut(&trial_id) {
+            distribution.record_metadata(
+                &mut trial.distribution_metadata,
+                &param_name,
+                json.get("param_value_internal").and_then(Value::as_f64),
+                None,
+            );
             trial
                 .param_display
                 .insert(param_name.clone(), distribution.to_display_f64(internal));

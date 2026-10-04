@@ -462,14 +462,10 @@ pub(crate) fn render_chart(
                 .show(ui, &ctx.view, param_names, obj_names, &ctx.meta.name);
         }
         ChartId::BoxPlot => {
-            widgets
-                .box_plot
-                .show(ui, &ctx.view, param_names, obj_names, &ctx.meta.name);
+            widgets.box_plot.show(ui, &ctx.view);
         }
         ChartId::ViolinPlot => {
-            widgets
-                .violin_plot
-                .show(ui, &ctx.view, param_names, obj_names, &ctx.meta.name);
+            widgets.violin_plot.show(ui, &ctx.view);
         }
         ChartId::CorrelationMatrix => {
             widgets

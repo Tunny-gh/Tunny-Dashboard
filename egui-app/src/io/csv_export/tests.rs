@@ -879,19 +879,25 @@ fn violin_plot_csv_writes_group_value_density_rows() {
         make_trial(3, HashMap::new(), vec![4.0]),
     ]);
     state.current_study = Some(study);
-    // Defaults: source = Objectives, no category, no normalization. The empty
-    // selected_numeric falls back to the first numeric candidate ("f").
+    // The default selection falls back to the first objective ("f").
     let widgets = WidgetStates::default();
 
     let csv = build_violin_plot_csv(&state, &widgets).unwrap();
     let lines: Vec<&str> = csv.lines().collect();
-    assert_eq!(lines[0], "group,value,density");
+    assert_eq!(
+        lines[0],
+        "value,group_by,scale,group,group_identity,grid,density"
+    );
     assert_eq!(
         lines.len(),
-        1 + crate::ui::widgets::violin_plot::GRID_POINTS,
+        1 + crate::ui::widgets::distribution::GRID_POINTS,
         "expected a header plus one row per KDE grid point"
     );
-    assert!(lines[1].starts_with("f,"), "group label: {}", lines[1]);
+    assert!(
+        lines[1].starts_with("Objective: f,None,raw,f,"),
+        "group label: {}",
+        lines[1]
+    );
 }
 
 #[test]
@@ -920,6 +926,7 @@ fn make_category_study() -> StudyContext {
         trial_id: id,
         trial_number: id,
         param_display: HashMap::from([("x".to_string(), x)]),
+        distribution_metadata: Default::default(),
         param_category_label: HashMap::from([("cat".to_string(), cat.to_string())]),
         objective_values: vec![],
         user_attrs_numeric: HashMap::new(),
@@ -953,6 +960,7 @@ fn all_trials_csv_follows_user_attribute_toggle_without_changing_chart_csv() {
         trial_id: 1,
         trial_number: 0,
         param_display: HashMap::from([("shared".to_string(), 10.0)]),
+        distribution_metadata: Default::default(),
         param_category_label: HashMap::new(),
         objective_values: vec![20.0],
         user_attrs_numeric: HashMap::new(),
@@ -969,6 +977,7 @@ fn all_trials_csv_follows_user_attribute_toggle_without_changing_chart_csv() {
         trial_id: 2,
         trial_number: 1,
         param_display: HashMap::from([("shared".to_string(), 11.0)]),
+        distribution_metadata: Default::default(),
         param_category_label: HashMap::new(),
         objective_values: vec![21.0],
         user_attrs_numeric: HashMap::new(),
@@ -1031,6 +1040,7 @@ fn all_trials_csv_distinguishes_json_null_missing_and_literal_text() {
         trial_id: id,
         trial_number: id,
         param_display: HashMap::new(),
+        distribution_metadata: Default::default(),
         param_category_label: HashMap::new(),
         objective_values: vec![],
         user_attrs_numeric: HashMap::new(),
@@ -1089,26 +1099,291 @@ fn all_trials_csv_distinguishes_json_null_missing_and_literal_text() {
 
 #[test]
 fn violin_plot_csv_category_mode_writes_one_group_per_level() {
-    use crate::ui::widgets::violin_plot::{ViolinSource, GRID_POINTS};
+    use crate::ui::widgets::distribution::{DistributionValue, GRID_POINTS};
 
     let state = AppState {
         current_study: Some(make_category_study()),
         ..AppState::default()
     };
     let mut widgets = WidgetStates::default();
-    widgets.violin_plot.source = ViolinSource::Parameters;
-    widgets.violin_plot.category = Some("cat".to_string());
-    widgets.violin_plot.selected_numeric = "x".to_string();
+    widgets.violin_plot.selection.group_by = Some("cat".to_string());
+    widgets.violin_plot.selection.value = Some(DistributionValue::Parameter("x".to_string()));
 
     let csv = build_violin_plot_csv(&state, &widgets).unwrap();
     let lines: Vec<&str> = csv.lines().collect();
-    assert_eq!(lines[0], "group,value,density");
+    assert_eq!(
+        lines[0],
+        "value,group_by,scale,group,group_identity,grid,density"
+    );
     // One curve per non-empty category level ("a", "b"), each over GRID_POINTS rows.
     assert_eq!(lines.len(), 1 + 2 * GRID_POINTS);
-    assert!(lines[1].starts_with("a,"), "first group: {}", lines[1]);
     assert!(
-        lines[1 + GRID_POINTS].starts_with("b,"),
+        lines[1].starts_with("Parameter: x,Parameter: cat,raw,a,"),
+        "first group: {}",
+        lines[1]
+    );
+    assert!(
+        lines[1 + GRID_POINTS].starts_with("Parameter: x,Parameter: cat,raw,b,"),
         "second group: {}",
         lines[1 + GRID_POINTS]
     );
+}
+
+#[test]
+fn distribution_csv_matches_prepared_chart_groups_scale_and_sparse_eligibility() {
+    use crate::state::types::StudyView;
+    use crate::ui::widgets::distribution::{DistributionSelection, DistributionValue, GRID_POINTS};
+    use std::sync::Arc;
+    use tunny_core::dataframe::{DataFrame, DistributionMetadata, TrialRow as CoreRow};
+    use tunny_core::export::{CsvField, CsvWriter};
+    let categories = [
+        Some(serde_json::json!("")),
+        Some(serde_json::json!("")),
+        Some(serde_json::json!(1)),
+        Some(serde_json::json!("1")),
+        None,
+    ];
+    let rows = categories
+        .into_iter()
+        .zip([0.0, 2.0, 4.0, 6.0, 12.0])
+        .map(|(cat, y)| CoreRow {
+            objective_values: vec![y],
+            distribution_metadata: DistributionMetadata {
+                categories: cat.map(|v| [("cat".into(), v)].into()).unwrap_or_default(),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .collect::<Vec<_>>();
+    let mut study = make_category_study();
+    study.meta.param_names = vec!["cat".into()];
+    study.meta.objective_names = vec!["y".into()];
+    study.view = StudyView::new(
+        Arc::new(DataFrame::from_trials(
+            &rows,
+            &["cat".into()],
+            &["y".into()],
+            &[],
+            &[],
+            0,
+        )),
+        vec![],
+    );
+    let state = AppState {
+        current_study: Some(study),
+        ..Default::default()
+    };
+    let mut widgets = WidgetStates::default();
+    let selection = DistributionSelection {
+        value: Some(DistributionValue::Objective("y".into())),
+        group_by: Some("cat".into()),
+        normalize: true,
+    };
+    widgets.box_plot.selection = selection.clone();
+    widgets.violin_plot.selection = selection;
+    let prepared = widgets
+        .box_plot
+        .selection
+        .prepare(&state.current_study.as_ref().unwrap().view);
+    let boxes = prepared.boxes();
+    let (curves, _) = prepared.violins();
+    assert_eq!(boxes.len(), 3);
+    assert_eq!(curves.len(), 1);
+    let box_csv = build_box_plot_csv(&state, &widgets).unwrap();
+    assert_eq!(box_csv.lines().count(), 4);
+    for (label, s) in &boxes {
+        let mut expected = CsvWriter::new();
+        expected.row([
+            CsvField::Text("Objective: y"),
+            CsvField::Text("Parameter: cat"),
+            CsvField::Text("normalized [0,1]"),
+            CsvField::Text(label),
+            CsvField::Text(prepared.group_identity(label)),
+            CsvField::UInt(s.n as u64),
+            CsvField::Num(s.mean),
+            CsvField::Num(s.min),
+            CsvField::Num(s.q1),
+            CsvField::Num(s.median),
+            CsvField::Num(s.q3),
+            CsvField::Num(s.max),
+            CsvField::Num(s.whisker_low),
+            CsvField::Num(s.whisker_high),
+            CsvField::UInt(s.outliers.len() as u64),
+        ]);
+        assert!(box_csv.contains(&expected.finish()));
+    }
+    let violin_csv = build_violin_plot_csv(&state, &widgets).unwrap();
+    assert_eq!(violin_csv.lines().count(), 1 + GRID_POINTS);
+    for (label, curve) in &curves {
+        for (&grid, &density) in curve.grid.iter().zip(&curve.density) {
+            let mut expected = CsvWriter::new();
+            expected.row([
+                CsvField::Text("Objective: y"),
+                CsvField::Text("Parameter: cat"),
+                CsvField::Text("normalized [0,1]"),
+                CsvField::Text(label),
+                CsvField::Text(prepared.group_identity(label)),
+                CsvField::Num(grid),
+                CsvField::Num(density),
+            ]);
+            assert!(violin_csv.contains(&expected.finish()));
+        }
+    }
+    assert_eq!(curves[0].1.data_max, 1.0 / 6.0);
+    widgets.violin_plot.selection.group_by = Some("missing".into());
+    widgets.violin_plot.selection.value = Some(DistributionValue::Objective("stale".into()));
+    let fallback_csv = build_violin_plot_csv(&state, &widgets).unwrap();
+    assert!(fallback_csv
+        .lines()
+        .nth(1)
+        .unwrap()
+        .starts_with("Objective: y,None,"));
+}
+
+#[test]
+fn constant_distribution_csv_exports_box_only() {
+    let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);
+    study.set_rows_for_test(vec![
+        make_trial(0, HashMap::new(), vec![5.0]),
+        make_trial(1, HashMap::new(), vec![5.0]),
+    ]);
+    let state = AppState {
+        current_study: Some(study),
+        ..Default::default()
+    };
+    let mut widgets = WidgetStates::default();
+    widgets.box_plot.selection.normalize = true;
+    widgets.violin_plot.selection.normalize = true;
+    let csv = build_box_plot_csv(&state, &widgets).unwrap();
+    assert_eq!(csv.lines().count(), 2);
+    assert!(csv
+        .lines()
+        .nth(1)
+        .unwrap()
+        .ends_with("f,Value: Objective: f,2,0,0,0,0,0,0,0,0,0"));
+    assert!(build_violin_plot_csv(&state, &widgets).is_none());
+}
+
+#[test]
+fn decimal_constant_raw_violin_csv_omits_constant_group_but_exports_nonconstant_group() {
+    use crate::ui::widgets::distribution::GRID_POINTS;
+    use std::sync::Arc;
+    use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+
+    let mut rows: Vec<_> = (0..3)
+        .map(|_| CoreRow {
+            param_display: [("x".into(), 0.1)].into(),
+            param_category_label: [("cat".into(), "constant".into())].into(),
+            ..Default::default()
+        })
+        .collect();
+    let mut study = make_category_study();
+    study.view = crate::state::types::StudyView::new(
+        Arc::new(DataFrame::from_trials(
+            &rows,
+            &study.meta.param_names,
+            &[],
+            &[],
+            &[],
+            0,
+        )),
+        vec![],
+    );
+    let mut state = AppState {
+        current_study: Some(study),
+        ..Default::default()
+    };
+    let mut widgets = WidgetStates::default();
+    assert!(!widgets.violin_plot.selection.normalize);
+    assert!(build_violin_plot_csv(&state, &widgets).is_none());
+    widgets.violin_plot.selection.group_by = Some("cat".into());
+    widgets.box_plot.selection.group_by = Some("cat".into());
+    assert!(build_violin_plot_csv(&state, &widgets).is_none());
+    assert_eq!(
+        build_box_plot_csv(&state, &widgets)
+            .unwrap()
+            .lines()
+            .count(),
+        2
+    );
+
+    rows.extend([0.0, 0.2].map(|value| CoreRow {
+        param_display: [("x".into(), value)].into(),
+        param_category_label: [("cat".into(), "varying".into())].into(),
+        ..Default::default()
+    }));
+    let study = state.current_study.as_mut().unwrap();
+    study.view = crate::state::types::StudyView::new(
+        Arc::new(DataFrame::from_trials(
+            &rows,
+            &study.meta.param_names,
+            &[],
+            &[],
+            &[],
+            0,
+        )),
+        vec![],
+    );
+    let csv = build_violin_plot_csv(&state, &widgets).unwrap();
+    assert_eq!(csv.lines().count(), 1 + GRID_POINTS);
+    assert!(csv
+        .lines()
+        .skip(1)
+        .all(|line| line.starts_with("Parameter: x,Parameter: cat,raw,varying,")));
+    assert!(!csv.contains("constant"));
+    assert_eq!(
+        build_box_plot_csv(&state, &widgets)
+            .unwrap()
+            .lines()
+            .count(),
+        3
+    );
+}
+
+#[test]
+fn distribution_csv_preserves_identity_when_formula_guards_collide() {
+    use std::sync::Arc;
+    use tunny_core::dataframe::{DataFrame, DistributionMetadata, TrialRow as CoreRow};
+    use tunny_core::export::{CsvField, CsvWriter};
+    let mut study = make_category_study();
+    let rows = ["=1", "=1", "'=1", "'=1"]
+        .into_iter()
+        .enumerate()
+        .map(|(i, category)| CoreRow {
+            param_display: [("x".into(), i as f64)].into(),
+            distribution_metadata: DistributionMetadata {
+                categories: [("cat".into(), serde_json::json!(category))].into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .collect::<Vec<_>>();
+    study.view = crate::state::types::StudyView::new(
+        Arc::new(DataFrame::from_trials(
+            &rows,
+            &study.meta.param_names,
+            &[],
+            &[],
+            &[],
+            0,
+        )),
+        vec![],
+    );
+    let state = AppState {
+        current_study: Some(study),
+        ..Default::default()
+    };
+    let mut widgets = WidgetStates::default();
+    widgets.box_plot.selection.group_by = Some("cat".into());
+    widgets.violin_plot.selection.group_by = Some("cat".into());
+    for csv in [
+        build_box_plot_csv(&state, &widgets).unwrap(),
+        build_violin_plot_csv(&state, &widgets).unwrap(),
+    ] {
+        for identity in ["Category: \"=1\"", "Category: \"'=1\""] {
+            let mut expected = CsvWriter::new();
+            expected.row([CsvField::Text(identity)]);
+            assert!(csv.contains(expected.finish().trim()));
+        }
+    }
 }

@@ -1,9 +1,19 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+/// Declared numeric grouping eligibility and original categorical values.
+#[derive(Clone, Debug, Default)]
+pub struct DistributionMetadata {
+    /// Declared categorical parameters, even when a value cannot be resolved.
+    pub categorical: HashSet<String>,
+    pub numeric_discrete: HashMap<String, bool>,
+    pub categories: HashMap<String, serde_json::Value>,
+}
 
 /// A row holding data for one trial. The intermediate representation used as input for
 /// building a DataFrame.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct TrialRow {
+    pub distribution_metadata: DistributionMetadata,
     /// Global trial_id across storages (in order of op_code=4 occurrence).
     pub trial_id: u32,
     /// 0-based trial.number within the study (Optuna's `trial.number`, creation order).

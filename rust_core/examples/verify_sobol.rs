@@ -55,6 +55,7 @@ fn build_df(param_names: &[&str], obj_name: &str, x: &[Vec<f64>], y: &[f64]) -> 
                 .zip(xi.iter())
                 .map(|(&name, &v)| (name.to_string(), v))
                 .collect(),
+            distribution_metadata: Default::default(),
             param_category_label: HashMap::new(),
             objective_values: vec![yi],
             user_attrs_numeric: HashMap::new(),

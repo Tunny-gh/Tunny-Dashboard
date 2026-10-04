@@ -91,6 +91,7 @@ mod tests {
             trial_id,
             trial_number: trial_id,
             param_display: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+            distribution_metadata: Default::default(),
             param_category_label: HashMap::new(),
             objective_values: obj,
             user_attrs_numeric: HashMap::new(),

@@ -13,6 +13,7 @@ fn make_test_df() -> DataFrame {
                 m.insert("x2".to_string(), 2.0);
                 m
             },
+            distribution_metadata: Default::default(),
             param_category_label: HashMap::new(),
             objective_values: vec![10.0, 20.0],
             user_attrs_numeric: HashMap::new(),
@@ -29,6 +30,7 @@ fn make_test_df() -> DataFrame {
                 m.insert("x2".to_string(), 4.5);
                 m
             },
+            distribution_metadata: Default::default(),
             param_category_label: HashMap::new(),
             objective_values: vec![30.0, 40.0],
             user_attrs_numeric: HashMap::new(),

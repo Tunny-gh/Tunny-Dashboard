@@ -204,6 +204,7 @@ fn make_view_2p_ranked(p1: &[f64], p2: &[f64], obj: &[f64], ranks: Vec<u32>) -> 
             trial_id: i as u32,
             trial_number: i as u32,
             param_display: [("p1".to_string(), p1[i]), ("p2".to_string(), p2[i])].into(),
+            distribution_metadata: Default::default(),
             param_category_label: HashMap::new(),
             objective_values: vec![obj[i]],
             user_attrs_numeric: HashMap::new(),

@@ -21,4 +21,4 @@ pub use state::{
     store_dataframes, store_extras, store_extras_for, swap_extras, swap_snapshot, with_active_df,
     with_df, SharedStudyStore,
 };
-pub use types::TrialRow;
+pub use types::{DistributionMetadata, TrialRow};

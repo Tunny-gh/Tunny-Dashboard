@@ -4,6 +4,87 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 #[test]
+fn distribution_metadata_survives_inline_events_streaming_and_filtering() {
+    use serde_json::json;
+    for inline in [true, false] {
+        let categorical =
+            json!({"name":"CategoricalDistribution","attributes":{"choices":["",1,"1",null]}});
+        let distributions = json!({
+            "cat": categorical,
+            "integer": {"name":"IntDistribution","attributes":{"low":0,"high":10,"step":1}},
+            "stepped": {"name":"FloatDistribution","attributes":{"low":0,"high":10,"step":0.5}},
+            "continuous": {"name":"FloatDistribution","attributes":{"low":0,"high":10,"step":null}}
+        });
+        let mut lines = vec![json!({"op_code":0,"study_name":"s","directions":[1]}).to_string()];
+        for i in 0..5 {
+            if inline {
+                let mut params = json!({"integer":2,"stepped":2.5,"continuous":2});
+                if i < 4 {
+                    params["cat"] = distributions["cat"]["attributes"]["choices"][i].clone();
+                }
+                lines.push(json!({"op_code":4,"study_id":0,"state":1,"values":[i],"distributions":distributions,"params":params}).to_string());
+            } else {
+                lines.push(json!({"op_code":4,"study_id":0}).to_string());
+                for (name, dist) in distributions.as_object().unwrap() {
+                    if name == "cat" && i == 4 {
+                        continue;
+                    }
+                    let value = if name == "cat" { i as f64 } else { 2.0 };
+                    lines.push(json!({"op_code":5,"trial_id":i,"param_name":name,"param_value_internal":value,"distribution":dist.to_string()}).to_string());
+                }
+                lines.push(json!({"op_code":6,"trial_id":i,"state":1,"values":[i]}).to_string());
+            }
+        }
+        let data = lines.join("\n") + "\n";
+        let (_, initial, _) = parse_single_study(data.as_bytes(), 0).unwrap();
+        let mut streamed = DataFrame::empty();
+        parse_single_study_streaming(data.as_bytes(), 0, 1, |batch| {
+            streamed.append_trials(
+                &batch.new_rows,
+                &batch.param_names,
+                &batch.objective_names,
+                &batch.user_attr_numeric_names,
+                &batch.user_attr_string_names,
+                batch.max_constraints,
+            );
+        })
+        .unwrap();
+        for df in [&initial, &streamed] {
+            assert!(df.is_discrete_parameter("integer"));
+            assert!(df.is_discrete_parameter("stepped"));
+            assert!(!df.is_discrete_parameter("continuous"));
+            assert_eq!(
+                df.category_values("cat").unwrap(),
+                &[
+                    Some(json!("")),
+                    Some(json!(1)),
+                    Some(json!("1")),
+                    Some(Value::Null),
+                    None
+                ]
+            );
+            let filtered = df.filter_feasible();
+            assert_eq!(filtered.category_values("cat"), df.category_values("cat"));
+            assert!(filtered.is_discrete_parameter("stepped"));
+        }
+    }
+}
+
+#[test]
+fn missing_param_event_values_do_not_fabricate_numeric_or_category_groups() {
+    let data = concat!(
+        "{\"op_code\":0,\"study_name\":\"s\",\"directions\":[1]}\n",
+        "{\"op_code\":4,\"study_id\":0}\n",
+        "{\"op_code\":5,\"trial_id\":0,\"param_name\":\"n\",\"distribution\":{\"name\":\"IntDistribution\",\"attributes\":{\"low\":0,\"high\":5}}}\n",
+        "{\"op_code\":5,\"trial_id\":0,\"param_name\":\"cat\",\"distribution\":{\"name\":\"CategoricalDistribution\",\"attributes\":{\"choices\":[\"\",\"a\"]}}}\n",
+        "{\"op_code\":6,\"trial_id\":0,\"state\":1,\"values\":[2]}\n"
+    );
+    let (_, df, _) = parse_single_study(data.as_bytes(), 0).unwrap();
+    assert!(df.numeric_parameter_column("n").unwrap()[0].is_nan());
+    assert_eq!(df.category_values("cat").unwrap(), &[None]);
+}
+
+#[test]
 fn objective_nonfinite_positions_survive_op4_and_op6_and_are_excluded_from_reports() {
     use crate::report::{
         build_study_report, render_html, render_markdown, Outcome, ReportLang, ReportOptions,
@@ -1099,6 +1180,7 @@ fn tc_101_p01_performance_50000_lines() {
 #[test]
 fn distribution_float_display_is_identity() {
     let dist = Distribution::Float {
+        step: None,
         low: 0.0,
         high: 1.0,
     };
@@ -1140,6 +1222,7 @@ fn trial_builder_constraint_values_stored() {
         state: 1,
         values: None,
         param_display: HashMap::new(),
+        distribution_metadata: Default::default(),
         param_category_label: HashMap::new(),
         user_attrs_numeric: HashMap::new(),
         user_attrs_string: HashMap::new(),

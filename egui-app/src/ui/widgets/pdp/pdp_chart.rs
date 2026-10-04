@@ -571,6 +571,7 @@ mod tests {
                 trial_id: i as u32,
                 trial_number: i as u32,
                 param_display: [("x".to_string(), x_vals[i])].into(),
+                distribution_metadata: Default::default(),
                 param_category_label: HashMap::new(),
                 objective_values: vec![y_vals[i]],
                 user_attrs_numeric: HashMap::new(),

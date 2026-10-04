@@ -19,7 +19,6 @@ use compute::*;
 use mcdm::*;
 use surrogate::*;
 
-pub(crate) use compute::categorical_param_names;
 pub(crate) use compute::numeric_param_names;
 
 pub(crate) fn poll_chart_work(

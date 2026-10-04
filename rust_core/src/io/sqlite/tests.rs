@@ -1,5 +1,63 @@
 use super::*;
 
+#[test]
+fn sqlite_generic_rdb_metadata_survives_row_ingestion_and_append_refresh() {
+    use serde_json::json;
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+    let categorical =
+        json!({"name":"CategoricalDistribution","attributes":{"choices":["",1,"1"]}}).to_string();
+    let stepped =
+        json!({"name":"FloatDistribution","attributes":{"low":0,"high":10,"step":0.5}}).to_string();
+    for id in 1..=3 {
+        conn.execute("INSERT INTO trial_params (trial_id,param_name,param_value,distribution_json) VALUES (?,'typed',?,?)", rusqlite::params![id, id - 1, categorical]).unwrap();
+        conn.execute("INSERT INTO trial_params (trial_id,param_name,param_value,distribution_json) VALUES (?,'stepped',2.5,?)", rusqlite::params![id, stepped]).unwrap();
+    }
+    let (_, initial, _) = parse_single_study(file.path(), 1).unwrap();
+    let rows = parse_single_study_rows(file.path(), 1).unwrap();
+    let mut appended = crate::dataframe::DataFrame::empty();
+    for row in &rows.rows {
+        appended.append_trials(
+            std::slice::from_ref(row),
+            &rows.param_names,
+            &rows.objective_names,
+            &rows.user_attr_numeric_names,
+            &rows.user_attr_string_names,
+            rows.max_constraints,
+        );
+    }
+    for df in [&initial, &appended] {
+        assert_eq!(
+            df.category_values("typed").unwrap(),
+            &[Some(json!("")), Some(json!(1)), Some(json!("1"))]
+        );
+        assert!(df.is_discrete_parameter("stepped"));
+    }
+    conn.execute(
+        "INSERT INTO trials (trial_id,number,study_id,state) VALUES (50,4,1,'COMPLETE')",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO trial_values (trial_id,objective,value,value_type) VALUES (50,0,99,'FINITE')",
+        [],
+    )
+    .unwrap();
+    let refreshed = parse_single_study_rows(file.path(), 1).unwrap();
+    appended.append_trials(
+        &refreshed.rows[3..],
+        &refreshed.param_names,
+        &refreshed.objective_names,
+        &refreshed.user_attr_numeric_names,
+        &refreshed.user_attr_string_names,
+        refreshed.max_constraints,
+    );
+    assert_eq!(appended.category_values("typed").unwrap()[3], None);
+    assert!(appended.is_discrete_parameter("stepped"));
+}
+
 fn create_schema(conn: &Connection) {
     conn.execute_batch(
         "

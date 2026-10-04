@@ -372,6 +372,7 @@ mod tests {
                 } else {
                     Default::default()
                 },
+                distribution_metadata: Default::default(),
                 param_category_label: Default::default(),
                 objective_values: vec![20.0 * i as f64],
                 user_attrs_numeric: Default::default(),

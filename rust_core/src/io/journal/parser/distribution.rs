@@ -9,13 +9,51 @@ use serde_json::Value;
 /// an index into the `choices` array.
 #[derive(Debug)]
 pub(crate) enum Distribution {
-    Float { low: f64, high: f64 },
-    Int { low: i64, high: i64 },
-    Categorical { choices: Vec<Value> },
+    Float {
+        low: f64,
+        high: f64,
+        step: Option<f64>,
+    },
+    Int {
+        low: i64,
+        high: i64,
+    },
+    Categorical {
+        choices: Vec<Value>,
+    },
     Uniform,
 }
 
 impl Distribution {
+    pub(crate) fn record_metadata(
+        &self,
+        metadata: &mut crate::dataframe::DistributionMetadata,
+        name: &str,
+        internal: Option<f64>,
+        external: Option<&Value>,
+    ) {
+        let discrete = match self {
+            Self::Int { .. } => true,
+            Self::Float {
+                step: Some(step), ..
+            } => step.is_finite() && *step > 0.0,
+            _ => false,
+        };
+        metadata.numeric_discrete.insert(name.to_string(), discrete);
+        if let Self::Categorical { choices } = self {
+            metadata.categorical.insert(name.to_string());
+            let value = external.cloned().or_else(|| {
+                let index = internal?;
+                if !index.is_finite() || index < 0.0 || index.fract() != 0.0 {
+                    return None;
+                }
+                choices.get(index as usize).cloned()
+            });
+            if let Some(value) = value {
+                metadata.categories.insert(name.to_string(), value);
+            }
+        }
+    }
     /// Parses the journal's distribution JSON (including the case where it's double-serialized as a string).
     pub(crate) fn from_json(json: &Value) -> Self {
         if let Some(serialized) = json.as_str() {
@@ -33,6 +71,7 @@ impl Distribution {
             .unwrap_or("")
         {
             "FloatDistribution" => Distribution::Float {
+                step: attrs.get("step").and_then(Value::as_f64),
                 low: attrs
                     .get("low")
                     .and_then(|value| value.as_f64())
@@ -69,7 +108,7 @@ impl Distribution {
     /// Returns None for Categorical / Uniform, or when the values are missing or degenerate (high <= low).
     pub(crate) fn bounds(&self) -> Option<(f64, f64)> {
         match self {
-            Distribution::Float { low, high } => {
+            Distribution::Float { low, high, .. } => {
                 if low.is_finite() && high.is_finite() && high > low {
                     Some((*low, *high))
                 } else {
