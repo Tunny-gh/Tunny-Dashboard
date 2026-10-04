@@ -3,7 +3,7 @@
 //! None of these touch egui — they operate purely on numeric slices/indices
 //! so they're cheap to unit test and to cache in `MatrixStatsCache`.
 
-use crate::ui::widgets::common::range_math::value_range;
+use crate::ui::widgets::common::range_math::{finite_value_range, value_range};
 
 /// Pure function that resolves the objective name used for coloring.
 /// - If `selected` is present in `obj_names`, returns that name.
@@ -57,20 +57,21 @@ pub fn downsample_indices_to_cap(indices: &[u32], cap: usize) -> Vec<u32> {
     indices.iter().step_by(step).copied().collect()
 }
 
-/// Computes histogram bin counts.
+/// Computes histogram bin counts and range from finite observations only.
 pub(super) fn compute_histogram(data: &[f64], n_bins: usize) -> Vec<usize> {
     if data.is_empty() || n_bins == 0 {
         return vec![0; n_bins];
     }
-    // `data` is guaranteed non-empty by the emptiness check above.
-    let (v_min, v_max) = value_range(data.iter().cloned()).unwrap();
+    let Some((v_min, v_max)) = finite_value_range(data.iter().copied()) else {
+        return vec![0; n_bins];
+    };
     if (v_max - v_min).abs() < f64::EPSILON {
         let mut bins = vec![0usize; n_bins];
-        bins[n_bins / 2] = data.len();
+        bins[n_bins / 2] = data.iter().filter(|v| v.is_finite()).count();
         return bins;
     }
     let mut bins = vec![0usize; n_bins];
-    for &v in data {
+    for &v in data.iter().filter(|v| v.is_finite()) {
         let idx = ((v - v_min) / (v_max - v_min) * n_bins as f64) as usize;
         let idx = idx.min(n_bins - 1);
         bins[idx] += 1;
