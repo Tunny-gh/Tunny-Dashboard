@@ -5,6 +5,245 @@ use super::stats::{
 };
 use super::*;
 
+struct RenderedMatrix {
+    labels: Vec<egui::epaint::TextShape>,
+    fresh: Vec<std::sync::Arc<egui::Galley>>,
+    output: egui::FullOutput,
+}
+
+fn render_matrix(
+    ctx: &egui::Context,
+    chart: &mut ScatterMatrix,
+    view: &crate::state::app_state::StudyView,
+    names: &[String],
+    rotated: bool,
+    prime_atlas: bool,
+) -> RenderedMatrix {
+    let mut fresh = Vec::new();
+    let output = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1200.0, 800.0),
+            )),
+            max_texture_side: Some(1024),
+            ..Default::default()
+        },
+        |ui| {
+            if prime_atlas {
+                // Another widget allocates glyphs first after the pressure reset,
+                // so rebuilding cannot accidentally reuse the old label coordinates.
+                let _ = ui.painter().layout_no_wrap(
+                    "Other widget glyphs".into(),
+                    egui::FontId::proportional(23.0),
+                    egui::Color32::WHITE,
+                );
+            }
+            let rect = egui::Rect::from_min_size(
+                egui::pos2(20.0, 20.0),
+                egui::vec2(if rotated { 300.0 } else { 1000.0 }, 600.0),
+            );
+            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+            chart.show(
+                &mut child,
+                view,
+                &[],
+                names,
+                &crate::theme::colormap::ColorMap::viridis(),
+            );
+            fresh = names
+                .iter()
+                .map(|name| {
+                    child.painter().layout_no_wrap(
+                        name.clone(),
+                        egui::FontId::proportional(10.0),
+                        child.visuals().text_color(),
+                    )
+                })
+                .collect();
+        },
+    );
+    fn collect(shape: &egui::Shape, names: &[String], labels: &mut Vec<egui::epaint::TextShape>) {
+        match shape {
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    collect(shape, names, labels);
+                }
+            }
+            egui::Shape::Text(text)
+                if names.contains(&text.galley.job.text)
+                    && text.galley.job.sections[0].format.font_id.size == 10.0 =>
+            {
+                labels.push(text.clone());
+            }
+            _ => {}
+        }
+    }
+    let mut labels = Vec::new();
+    for shape in &output.shapes {
+        collect(&shape.shape, names, &mut labels);
+    }
+    RenderedMatrix {
+        labels,
+        fresh,
+        output,
+    }
+}
+
+fn assert_current_matrix_labels(render: &RenderedMatrix, rotated: bool) {
+    assert_eq!(render.labels.len(), render.fresh.len() * 2);
+    for (pair, fresh) in render.labels.chunks_exact(2).zip(&render.fresh) {
+        // Each axis is painted once as a column header and once as a row header.
+        for label in pair {
+            assert_eq!(
+                label.angle,
+                if rotated {
+                    -std::f32::consts::FRAC_PI_4
+                } else {
+                    0.0
+                }
+            );
+            assert!(
+                label.galley.as_ref() == fresh.as_ref(),
+                "stale label: {} (rendered DPI {}, fresh DPI {})",
+                fresh.job.text,
+                label.galley.pixels_per_point,
+                fresh.pixels_per_point
+            );
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum LabelRefresh {
+    TextOptions,
+    AtlasPressure,
+    Dpi,
+    Theme,
+}
+
+fn check_matrix_label_refresh(rotated: bool, trigger: LabelRefresh) {
+    use std::{collections::HashMap, sync::Arc};
+    use tunny_core::dataframe::{DataFrame, TrialRow};
+    let names: Vec<_> = (0..2)
+        .map(|i| format!("axis_{i}_long_parameter_name"))
+        .collect();
+    let rows: Vec<_> = (0..3)
+        .map(|i| TrialRow {
+            trial_id: i,
+            trial_number: i,
+            param_display: HashMap::new(),
+            distribution_metadata: Default::default(),
+            param_category_label: HashMap::new(),
+            objective_values: vec![i as f64; names.len()],
+            user_attrs_numeric: HashMap::new(),
+            user_attrs_string: HashMap::new(),
+            user_attrs_json: HashMap::new(),
+            constraint_values: vec![],
+        })
+        .collect();
+    let view = crate::state::app_state::StudyView::new(
+        Arc::new(DataFrame::from_trials(&rows, &[], &names, &[], &[], 0)),
+        vec![0; 3],
+    );
+    let ctx = egui::Context::default();
+    ctx.set_theme(egui::Theme::Dark);
+    let mut chart = ScatterMatrix::default();
+    render_matrix(&ctx, &mut chart, &view, &names, rotated, false);
+    let before = render_matrix(&ctx, &mut chart, &view, &names, rotated, false);
+    assert_current_matrix_labels(&before, rotated);
+    match trigger {
+        LabelRefresh::TextOptions => ctx.all_styles_mut(|style| {
+            style.visuals.text_options.font_hinting = !style.visuals.text_options.font_hinting;
+        }),
+        LabelRefresh::AtlasPressure => {
+            let mut fill = 0.0;
+            let _ = ctx.run_ui(
+                egui::RawInput {
+                    max_texture_side: Some(1024),
+                    ..Default::default()
+                },
+                |ui| {
+                    let text: String = ('!'..='~').collect();
+                    for size in 12..100 {
+                        let _ = ui.painter().layout_no_wrap(
+                            text.clone(),
+                            egui::FontId::proportional(size as f32),
+                            egui::Color32::WHITE,
+                        );
+                        fill = ctx.fonts(|fonts| fonts.font_atlas_fill_ratio());
+                        if fill > 0.8 {
+                            break;
+                        }
+                    }
+                },
+            );
+            assert!(fill > 0.8, "atlas pressure was not reached: {fill}");
+        }
+        LabelRefresh::Dpi => ctx.set_pixels_per_point(2.0),
+        LabelRefresh::Theme => ctx.set_theme(egui::Theme::Light),
+    }
+    let prime_atlas = matches!(trigger, LabelRefresh::AtlasPressure);
+    let after = render_matrix(&ctx, &mut chart, &view, &names, rotated, prime_atlas);
+    match trigger {
+        LabelRefresh::TextOptions | LabelRefresh::AtlasPressure => {
+            assert!(
+                after.output.textures_delta.set.iter().any(|(id, delta)| {
+                    *id == egui::TextureId::Managed(0) && delta.pos.is_none()
+                }),
+                "font atlas was not recreated"
+            );
+            let uvs = |g: &egui::Galley| {
+                g.rows
+                    .iter()
+                    .flat_map(|r| r.row.visuals.mesh.vertices.iter().map(|v| v.uv))
+                    .collect::<Vec<_>>()
+            };
+            assert_ne!(
+                uvs(&before.fresh[0]),
+                uvs(&after.fresh[0]),
+                "atlas coordinates did not change"
+            );
+        }
+        LabelRefresh::Dpi => {
+            assert_eq!(before.fresh[0].pixels_per_point, 1.0);
+            assert_eq!(after.output.pixels_per_point, 2.0);
+            assert_eq!(after.fresh[0].pixels_per_point, 2.0);
+        }
+        LabelRefresh::Theme => assert_ne!(
+            before.fresh[0].job.sections[0].format.color,
+            after.fresh[0].job.sections[0].format.color,
+            "theme text color did not change",
+        ),
+    }
+    assert_current_matrix_labels(&after, rotated);
+    let again = render_matrix(&ctx, &mut chart, &view, &names, rotated, prime_atlas);
+    assert_current_matrix_labels(&again, rotated);
+    assert_eq!(after.labels, again.labels);
+}
+
+macro_rules! matrix_label_refresh_test {
+    ($name:ident, $rotated:expr, $trigger:ident) => {
+        #[test]
+        fn $name() {
+            check_matrix_label_refresh($rotated, LabelRefresh::$trigger);
+        }
+    };
+}
+
+matrix_label_refresh_test!(matrix_labels_horizontal_text_options, false, TextOptions);
+matrix_label_refresh_test!(matrix_labels_rotated_text_options, true, TextOptions);
+matrix_label_refresh_test!(
+    matrix_labels_horizontal_atlas_pressure,
+    false,
+    AtlasPressure
+);
+matrix_label_refresh_test!(matrix_labels_rotated_atlas_pressure, true, AtlasPressure);
+matrix_label_refresh_test!(matrix_labels_horizontal_dpi, false, Dpi);
+matrix_label_refresh_test!(matrix_labels_rotated_dpi, true, Dpi);
+matrix_label_refresh_test!(matrix_labels_horizontal_theme, false, Theme);
+matrix_label_refresh_test!(matrix_labels_rotated_theme, true, Theme);
+
 // ── resolve_color_objective ──────────────────────────────────────
 
 #[test]
