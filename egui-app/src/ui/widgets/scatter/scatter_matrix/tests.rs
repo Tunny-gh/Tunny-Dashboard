@@ -380,6 +380,58 @@ fn compute_histogram_bins_count() {
 }
 
 #[test]
+fn compute_histogram_extreme_endpoints() {
+    assert_eq!(
+        compute_histogram(&[-f64::MAX, f64::MAX], 4),
+        vec![1, 0, 0, 1]
+    );
+}
+
+#[test]
+fn compute_histogram_extreme_asymmetric_intermediates() {
+    let data = [-1.0, -0.5, -0.125, 0.0, 0.25, 0.5].map(|v| v * f64::MAX);
+    assert_eq!(compute_histogram(&data, 4), vec![1, 1, 2, 2]);
+    let reflected = data.map(|v| -v);
+    assert_eq!(compute_histogram(&reflected, 4), vec![2, 2, 1, 1]);
+}
+
+#[test]
+fn compute_histogram_extreme_mixed_counts() {
+    let data = [
+        -f64::MAX,
+        -f64::MAX,
+        -0.75 * f64::MAX,
+        -0.25 * f64::MAX,
+        0.0,
+        0.25 * f64::MAX,
+        0.75 * f64::MAX,
+        f64::MAX,
+        f64::MAX,
+        f64::NAN,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+    ];
+    for expected in [
+        vec![9],
+        vec![4, 5],
+        vec![3, 3, 3],
+        vec![3, 1, 2, 3],
+        vec![2, 1, 0, 1, 1, 1, 0, 3],
+    ] {
+        let bins = compute_histogram(&data, expected.len());
+        assert_eq!(bins.iter().sum::<usize>(), 9);
+        assert_eq!(bins, expected);
+    }
+    assert!(compute_histogram(&data, 0).is_empty());
+}
+
+#[test]
+fn compute_histogram_near_constant_with_nonfinite() {
+    let data = [0.0, f64::EPSILON / 2.0, f64::NAN, f64::INFINITY];
+    assert_eq!(compute_histogram(&data, 4), vec![0, 0, 2, 0]);
+}
+
+#[test]
 fn compute_histogram_all_in_same_bin() {
     let data = vec![5.0; 10];
     let bins = compute_histogram(&data, 4);
