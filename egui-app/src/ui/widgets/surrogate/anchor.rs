@@ -29,7 +29,7 @@ pub fn center_label(choice: CenterChoice, view: &StudyView) -> String {
         CenterChoice::BestTrial => "Best trial".to_string(),
         CenterChoice::Pinned(id) => match view.trial_ids.iter().position(|&t| t == id) {
             Some(row) => {
-                let number = view.df.get_trial_number(row).unwrap_or(id);
+                let number = view.df.get_trial_number(row).unwrap_or(row as u32);
                 format!("Trial #{number}")
             }
             None => "Best trial".to_string(),

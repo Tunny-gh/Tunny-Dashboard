@@ -179,7 +179,7 @@ impl RadarComparisonChart {
                 })
                 .collect();
 
-            let number = view.df.get_trial_number(row).unwrap_or(trial_id);
+            let number = view.df.get_trial_number(row).unwrap_or(row as u32);
             let label = format!("Trial #{number}");
             let color = cmap.sample_categorical(pin_idx, n_pins);
             legend_entries.push((color, label.clone()));

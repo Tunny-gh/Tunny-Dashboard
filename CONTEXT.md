@@ -10,8 +10,8 @@ Dashboard.
 including trials with no artifacts. Artifact metadata is associated with trials
 by this ID.
 
-**Study trial number**: A trial's ordinal within its study, not its Journal trial
-ID.
+**Study trial number**: A trial's zero-based creation-order ordinal within its
+Study, counting all trial states, not its Journal trial ID.
 _Avoid_: Journal trial ID as a synonym for Study trial number.
 
 **Feasible**: A trial whose complete, finite constraint evaluation confirms

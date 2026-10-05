@@ -70,7 +70,7 @@ impl McdmTable {
                 .resizable(true)
                 .column(Column::exact(30.0)) // Pin
                 .column(Column::initial(50.0).at_least(40.0)) // Rank
-                .column(Column::initial(70.0).at_least(50.0)) // Trial
+                .column(Column::initial(110.0).at_least(50.0)) // Trial Number
                 .column(Column::initial(80.0).at_least(50.0)) // Score
                 .columns(Column::initial(90.0).at_least(50.0), obj_names.len()) // each objective
                 .columns(Column::initial(90.0).at_least(50.0), param_names.len()) // each variable
@@ -82,7 +82,7 @@ impl McdmTable {
                         ui.strong("Rank");
                     });
                     header.col(|ui| {
-                        ui.strong("Trial");
+                        ui.strong("Trial Number");
                     });
                     header.col(|ui| {
                         ui.strong("Score");
