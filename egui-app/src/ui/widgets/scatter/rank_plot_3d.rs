@@ -207,64 +207,54 @@ impl RankPlot3D {
             ui.label("No finite points to plot.");
             return;
         }
-        ui.horizontal(|ui| {
-            let available = ui.available_size();
-            ui.allocate_ui(
-                egui::vec2((available.x - 34.0).max(200.0), available.y),
-                |ui| {
-                    let (painter, _, project, click, hover) = setup_3d_canvas(ui, &mut self.camera);
-                    draw_3d_grid(&painter, &project);
-                    draw_3d_axes(&painter, &project, names, cache.ranges);
-                    // Only the capped sample is projected/sorted each frame as the camera moves.
-                    let mut points = Vec::with_capacity(cache.points.len());
-                    let mut candidates = Vec::with_capacity(cache.points.len());
-                    for point in &cache.points {
-                        let (pos, depth) = project_value_3d(&project, point.xyz, cache.ranges);
-                        points.push(DepthPoint {
-                            pos,
-                            depth,
-                            color: point.color,
-                            radius: 3.0,
-                        });
-                        candidates.push((point.trial_id, point.row, pos));
-                    }
-                    draw_depth_sorted_points(&painter, &mut points, None);
-                    let rank_row = |row| {
-                        (
-                            "Rank Percentile".to_string(),
-                            fmt_opt(cache.ranks.get(row).copied()),
-                        )
-                    };
-                    show_hover_and_click_detail(
-                        ui,
-                        view,
-                        &candidates,
-                        hover,
-                        click,
-                        "rank3d_hover",
-                        &mut self.detail_modal,
-                        |row| {
-                            let mut rows: Vec<_> = names
-                                .iter()
-                                .map(|name| axis_row(name, view.numeric_column(name), row))
-                                .collect();
-                            rows.push(axis_row(objective, view.numeric_column(objective), row));
-                            rows.push(rank_row(row));
-                            rows
-                        },
-                        |row| vec![rank_row(row)],
-                    );
-                },
-            );
-            ui.vertical(|ui| {
-                ui.add_space(14.0);
-                let (rect, _) = ui.allocate_exact_size(
-                    egui::vec2(14.0, available.y.clamp(60.0, 160.0)),
-                    egui::Sense::hover(),
-                );
-                draw_rank_legend(ui, rect, cmap);
+        let (painter, canvas_rect, project, click, hover) = setup_3d_canvas(ui, &mut self.camera);
+        draw_3d_grid(&painter, &project);
+        draw_3d_axes(&painter, &project, names, cache.ranges);
+        // Only the capped sample is projected/sorted each frame as the camera moves.
+        let mut points = Vec::with_capacity(cache.points.len());
+        let mut candidates = Vec::with_capacity(cache.points.len());
+        for point in &cache.points {
+            let (pos, depth) = project_value_3d(&project, point.xyz, cache.ranges);
+            points.push(DepthPoint {
+                pos,
+                depth,
+                color: point.color,
+                radius: 3.0,
             });
-        });
+            candidates.push((point.trial_id, point.row, pos));
+        }
+        draw_depth_sorted_points(&painter, &mut points, None);
+        let rank_row = |row| {
+            (
+                "Rank Percentile".to_string(),
+                fmt_opt(cache.ranks.get(row).copied()),
+            )
+        };
+        show_hover_and_click_detail(
+            ui,
+            view,
+            &candidates,
+            hover,
+            click,
+            "rank3d_hover",
+            &mut self.detail_modal,
+            |row| {
+                let mut rows: Vec<_> = names
+                    .iter()
+                    .map(|name| axis_row(name, view.numeric_column(name), row))
+                    .collect();
+                rows.push(axis_row(objective, view.numeric_column(objective), row));
+                rows.push(rank_row(row));
+                rows
+            },
+            |row| vec![rank_row(row)],
+        );
+        // Paint the legend inside the canvas without reserving layout space.
+        let legend_rect = egui::Rect::from_min_size(
+            egui::pos2(canvas_rect.right() - 24.0, canvas_rect.top() + 16.0),
+            egui::vec2(14.0, (canvas_rect.height() - 32.0).clamp(0.0, 160.0)),
+        );
+        draw_rank_legend(ui, legend_rect, cmap);
         self.detail_modal
             .show(ui, view, param_names, obj_names, artifact_map);
     }
@@ -403,6 +393,91 @@ mod tests {
             &chart.cache.as_ref().unwrap().source,
             &study.view.df
         ));
+    }
+
+    #[test]
+    fn canvas_fills_remaining_area_and_legend_stays_inside_on_resize() {
+        let study = study();
+        let ctx = egui::Context::default();
+        let mut chart = RankPlot3D::default();
+        let cmap = ColorMap::viridis();
+        let artifacts = HashMap::new();
+        // Reuse the context and chart across both growing and shrinking frames.
+        for size in [
+            egui::vec2(900.0, 650.0),
+            egui::vec2(1200.0, 900.0),
+            egui::vec2(600.0, 300.0),
+            egui::vec2(900.0, 650.0),
+        ] {
+            let mut available = egui::Rect::NOTHING;
+            let output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                    ..Default::default()
+                },
+                |ui| {
+                    available = ui.available_rect_before_wrap();
+                    chart.show(
+                        ui,
+                        &study.view,
+                        &study.meta.param_names,
+                        &study.meta.objective_names,
+                        &study.meta.directions,
+                        &cmap,
+                        &artifacts,
+                    );
+                },
+            );
+            let canvas = output
+                .shapes
+                .iter()
+                .find_map(|s| match &s.shape {
+                    egui::Shape::Rect(r) if r.fill == crate::theme::chart_colors::COLOR_3D_BG() => {
+                        Some(r.rect)
+                    }
+                    _ => None,
+                })
+                .expect("3D canvas background rendered");
+            assert!(
+                canvas.height() > available.height() - 60.0,
+                "full-height canvas at {size:?}"
+            );
+            assert!((canvas.left() - available.left()).abs() < 1.0);
+            assert!((canvas.right() - available.right()).abs() < 1.0);
+            assert!((canvas.bottom() - available.bottom()).abs() < 1.0);
+            assert!(
+                canvas.top() > available.top(),
+                "selectors precede the canvas"
+            );
+            let bar = output
+                .shapes
+                .iter()
+                .find_map(|s| match &s.shape {
+                    egui::Shape::Rect(r) if r.rect.width() == 14.0 && r.stroke.width == 0.5 => {
+                        Some(r.rect)
+                    }
+                    _ => None,
+                })
+                .expect("vertical rank legend rendered");
+            assert!(canvas.contains_rect(bar));
+            assert_eq!(bar.height(), 160.0);
+            assert!((canvas.right() - bar.right() - 10.0).abs() < 1.0);
+            for label in ["Best", "Worst"] {
+                let (bounds, clip) = output
+                    .shapes
+                    .iter()
+                    .find_map(|s| match &s.shape {
+                        egui::Shape::Text(t) if t.galley.text() == label => Some((
+                            egui::Rect::from_min_size(t.pos, t.galley.size()),
+                            s.clip_rect,
+                        )),
+                        _ => None,
+                    })
+                    .expect("rank label rendered");
+                assert!(canvas.contains_rect(bounds), "{label} stays inside canvas");
+                assert!(clip.contains_rect(bounds), "{label} is not clipped");
+            }
+        }
     }
 
     #[test]

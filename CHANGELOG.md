@@ -11,6 +11,11 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ## [Unreleased]
 
+### Fixed
+
+- Rank Plot 3D now fills the remaining chart area and resizes with the widget,
+  with its vertical Best/Worst legend overlaid inside the canvas's right edge.
+
 ### Changed
 
 - Box Plot and Violin Plot share a single Value, optional Group by, and global
