@@ -93,6 +93,187 @@ fn make_topsis_result(scores: Vec<f64>, ranked_indices: Vec<u32>) -> McdmResult 
     })
 }
 
+// Exercise the actual painted labels, not a separate label-formatting helper.
+fn rank_chart_text(
+    chart: &mut McdmRankChart,
+    view: &StudyView,
+    result: &McdmResult,
+) -> Vec<String> {
+    fn collect(shape: &egui::epaint::Shape, text: &mut Vec<String>) {
+        match shape {
+            egui::epaint::Shape::Text(t) => text.push(t.galley.text().to_string()),
+            egui::epaint::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    collect(shape, text);
+                }
+            }
+            _ => {}
+        }
+    }
+    let ctx = egui::Context::default();
+    let mut text = vec![];
+    for _ in 0..2 {
+        let output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1200.0, 1000.0),
+                )),
+                ..Default::default()
+            },
+            |ui| chart.show(ui, view, &["Objective".into()], Some(result)),
+        );
+        text.clear();
+        for shape in output.shapes {
+            collect(&shape.shape, &mut text);
+        }
+    }
+    text
+}
+
+fn rank_chart_results() -> Vec<McdmResult> {
+    use crate::state::results::{PrometheeResult, VikorResult};
+    let scores = vec![0.4, 0.2, 0.6, 0.1, 0.3, 0.7, 0.5];
+    let ranked = vec![5, 2, 6, 0, 4, 1, 3];
+    let promethee = PrometheeResult {
+        phi_plus: scores.clone(),
+        phi_minus: vec![0.3, 0.5, 0.1, 0.6, 0.4, 0.0, 0.2],
+        phi_net: vec![0.1, -0.3, 0.5, -0.5, -0.1, 0.7, 0.3],
+        ranked_indices_i: ranked.clone(),
+        // Deliberately different to catch use of the wrong PROMETHEE order.
+        ranked_indices_ii: vec![6, 0, 5, 2, 1, 3, 4],
+        incomparable_counts: vec![0, 1, 0, 1, 0, 0, 0],
+        duration_ms: 1.0,
+    };
+    vec![
+        make_topsis_result(scores.clone(), ranked.clone()),
+        McdmResult::Vikor(VikorResult {
+            s_values: scores.clone(),
+            r_values: scores.clone(),
+            q_values: scores.iter().map(|s| 1.0 - s).collect(),
+            display_scores: scores,
+            ranked_indices: ranked,
+            compromise_indices: vec![5],
+            duration_ms: 1.0,
+        }),
+        McdmResult::PrometheeI(promethee.clone()),
+        McdmResult::PrometheeII(promethee),
+    ]
+}
+
+fn assert_rank_chart_labels(view: &StudyView, numbers: &[u32]) {
+    for result in rank_chart_results() {
+        let before = format!("{result:?}");
+        let mut chart = McdmRankChart::default();
+        chart.controls.method = result.method();
+        // Change Top N on the same widget: truncation must not renumber rows.
+        for top_n in [McdmTopN::Top5, McdmTopN::Top10, McdmTopN::Top5] {
+            chart.controls.top_n = top_n;
+            let text = rank_chart_text(&mut chart, view, &result);
+            let expected: Vec<_> = result
+                .ranked_indices()
+                .iter()
+                .take(top_n.value())
+                .map(|&idx| format!("Trial {}", numbers[idx as usize]))
+                .collect();
+            let labels: Vec<_> = text
+                .iter()
+                .filter(|text| text.starts_with("Trial "))
+                .cloned()
+                .collect();
+            assert_eq!(labels, expected, "{} {top_n:?}", result.method_label());
+            let rows = build_ranking_rows(&result, view, &[], &[], top_n.value());
+            assert_eq!(
+                labels,
+                rows.iter()
+                    .map(|row| format!("Trial {}", row.trial_number))
+                    .collect::<Vec<_>>()
+            );
+            for (rank, row) in rows.iter().enumerate() {
+                let idx = result.ranked_indices()[rank] as usize;
+                assert_eq!(row.trial_id, view.trial_ids[idx]);
+                assert_eq!(row.score, result.primary_scores()[idx]);
+                let score_text = match &result {
+                    McdmResult::PrometheeI(r) => {
+                        let suffix = if r.incomparable_counts[idx] > 0 {
+                            format!(" ⇹{}", r.incomparable_counts[idx])
+                        } else {
+                            String::new()
+                        };
+                        format!("Φ+{:.3} Φ-{:.3}{suffix}", r.phi_plus[idx], r.phi_minus[idx])
+                    }
+                    _ => format!("{:.4}", row.score),
+                };
+                let label_pos = text.iter().position(|t| t == &labels[rank]).unwrap();
+                assert_eq!(text[label_pos + 1], score_text);
+            }
+        }
+        assert_eq!(
+            format!("{result:?}"),
+            before,
+            "Rendering must not change calculations"
+        );
+    }
+}
+
+#[test]
+fn rank_chart_all_paths_keep_journal_gaps_and_study_local_numbers() {
+    let mut lines = vec![
+        serde_json::json!({"op_code":0,"study_name":"A","directions":[1]}),
+        serde_json::json!({"op_code":0,"study_name":"B","directions":[1]}),
+    ];
+    for number in 0..9 {
+        for study in 0..2 {
+            // Failed and pruned trials are excluded from COMPLETE rows, not numbering.
+            let state = match number {
+                1 => 3,
+                3 => 2,
+                _ => 1,
+            };
+            lines.push(
+                serde_json::json!({"op_code":4,"study_id":study,"state":state,
+                "values":[number as f64],"distributions":{}}),
+            );
+        }
+    }
+    let data = lines
+        .iter()
+        .map(|line| format!("{line}\n"))
+        .collect::<String>();
+    for study in [0, 1, 0] {
+        let (_, df, _) =
+            tunny_core::journal_parser::parse_single_study(data.as_bytes(), study).unwrap();
+        let view = StudyView::new(Arc::new(df), vec![]);
+        assert_eq!(
+            view.trial_ids,
+            vec![
+                study,
+                4 + study,
+                8 + study,
+                10 + study,
+                12 + study,
+                14 + study,
+                16 + study
+            ]
+        );
+        assert_rank_chart_labels(&view, &[0, 2, 4, 5, 6, 7, 8]);
+    }
+}
+
+#[test]
+fn rank_chart_all_paths_missing_number_falls_back_to_original_row() {
+    let mut view = make_simple_view(7);
+    view.trial_ids = vec![10, 20, 30, 40, 50, 60, 70];
+    // Simulate unavailable numbers without changing the storage API.
+    view.df = Arc::new(DataFrame::empty());
+    assert_rank_chart_labels(&view, &[0, 1, 2, 3, 4, 5, 6]);
+}
+
+#[test]
+fn rank_chart_all_paths_ordinary_single_study_is_unchanged() {
+    assert_rank_chart_labels(&make_simple_view(7), &[0, 1, 2, 3, 4, 5, 6]);
+}
+
 #[test]
 fn mcdm_top_n_values() {
     assert_eq!(McdmTopN::Top5.value(), 5);

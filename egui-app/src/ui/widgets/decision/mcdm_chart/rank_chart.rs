@@ -1,4 +1,5 @@
 use crate::state::results::McdmResult;
+use crate::state::types::StudyView;
 use crate::theme::chart_colors::{
     COLOR_BAR_ACCENT, COLOR_BAR_NEGATIVE, COLOR_BAR_PRIMARY, COLOR_EMPTY_STATE,
 };
@@ -18,7 +19,13 @@ impl McdmRankChart {
         self.controls.adopt_compute_state(&src.controls);
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, obj_names: &[String], result: Option<&McdmResult>) {
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        view: &StudyView,
+        obj_names: &[String],
+        result: Option<&McdmResult>,
+    ) {
         if !self.controls.show_controls(ui, obj_names, "mcdm_rank") {
             return;
         }
@@ -61,6 +68,7 @@ impl McdmRankChart {
                 let bar_max_width = (available_width / 2.0).max(25.0);
                 for rank in 0..top_n {
                     let idx = r.ranked_indices_i[rank] as usize;
+                    let trial_number = view.df.get_trial_number(idx).unwrap_or(idx as u32);
                     // Access defensively via index, same as the neighboring incomparable_counts.
                     let phi_plus = r.phi_plus.get(idx).copied().unwrap_or(0.0);
                     let phi_minus = r.phi_minus.get(idx).copied().unwrap_or(0.0);
@@ -68,7 +76,7 @@ impl McdmRankChart {
                         ui.add_sized(
                             [label_width, bar_height],
                             egui::Label::new(
-                                egui::RichText::new(format!("Trial {idx}"))
+                                egui::RichText::new(format!("Trial {trial_number}"))
                                     .text_style(egui::TextStyle::Body),
                             )
                             .truncate(),
@@ -147,6 +155,7 @@ impl McdmRankChart {
                 let bar_max_width = available_width.max(50.0);
                 for rank in 0..top_n {
                     let idx = r.ranked_indices_ii[rank] as usize;
+                    let trial_number = view.df.get_trial_number(idx).unwrap_or(idx as u32);
                     let phi_net = r.phi_net.get(idx).copied().unwrap_or(0.0);
                     let bar_w = if max_abs > 0.0 {
                         (phi_net.abs() / max_abs * bar_max_width as f64) as f32
@@ -162,7 +171,7 @@ impl McdmRankChart {
                         ui.add_sized(
                             [label_width, bar_height],
                             egui::Label::new(
-                                egui::RichText::new(format!("Trial {idx}"))
+                                egui::RichText::new(format!("Trial {trial_number}"))
                                     .text_style(egui::TextStyle::Body),
                             )
                             .truncate(),
@@ -202,11 +211,15 @@ impl McdmRankChart {
             let bar_max_width = available_width.max(50.0);
 
             for entry in &entries {
+                let trial_number = view
+                    .df
+                    .get_trial_number(entry.trial_idx)
+                    .unwrap_or(entry.trial_idx as u32);
                 ui.horizontal(|ui| {
                     ui.add_sized(
                         [label_width, bar_height],
                         egui::Label::new(
-                            egui::RichText::new(format!("Trial {}", entry.trial_idx))
+                            egui::RichText::new(format!("Trial {trial_number}"))
                                 .text_style(egui::TextStyle::Body),
                         )
                         .truncate(),

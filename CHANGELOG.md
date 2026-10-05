@@ -65,6 +65,11 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- MCDM Ranking bar labels now show Study-local trial numbers for TOPSIS, VIKOR,
+  PROMETHEE I, and PROMETHEE II, matching tables and trial details while preserving
+  failed/pruned trial gaps. Ranking order and Top N do not renumber trials; an
+  unavailable trial number falls back to the original Study-view row index.
+
 - Artifact Gallery cards and Trial Table Cluster mode display Study-local trial
   numbers consistently, preserving gaps from failed or pruned trials. Trial Table
   headers use **Trial Number**, and related trial labels fall back to the row index
