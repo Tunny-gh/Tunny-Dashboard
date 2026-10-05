@@ -311,6 +311,7 @@ pub(crate) fn render_chart(
             let key = widgets.mcdm_chart.controls.cache_key();
             widgets.mcdm_chart.show(
                 ui,
+                &ctx.view,
                 obj_names,
                 key.ok().and_then(|key| app_state.mcdm_cache.get(&key)),
             );
