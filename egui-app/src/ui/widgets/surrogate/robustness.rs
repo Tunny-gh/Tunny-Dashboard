@@ -217,7 +217,7 @@ pub fn show(
                     let Some(row) = view.trial_ids.iter().position(|&t| t == trial_id) else {
                         continue;
                     };
-                    let number = view.df.get_trial_number(row).unwrap_or(trial_id);
+                    let number = view.df.get_trial_number(row).unwrap_or(row as u32);
                     ui.selectable_value(
                         &mut state.center,
                         CenterChoice::Pinned(trial_id),

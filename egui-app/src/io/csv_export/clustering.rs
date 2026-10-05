@@ -163,8 +163,8 @@ pub(super) fn build_radar_comparison_csv(
 
     let column_labels: Vec<String> = pinned_rows
         .iter()
-        .map(|&(trial_id, row)| {
-            let number = study.view.df.get_trial_number(row).unwrap_or(trial_id);
+        .map(|&(_, row)| {
+            let number = study.view.df.get_trial_number(row).unwrap_or(row as u32);
             format!("Trial #{number}")
         })
         .collect();
@@ -217,8 +217,8 @@ pub(super) fn build_comparison_table_csv(
 
     let column_labels: Vec<String> = pinned_rows
         .iter()
-        .map(|&(trial_id, row)| {
-            let number = study.view.df.get_trial_number(row).unwrap_or(trial_id);
+        .map(|&(_, row)| {
+            let number = study.view.df.get_trial_number(row).unwrap_or(row as u32);
             format!("Trial #{number}")
         })
         .collect();

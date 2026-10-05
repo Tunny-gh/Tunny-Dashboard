@@ -65,6 +65,12 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- Artifact Gallery cards and Trial Table Cluster mode display Study-local trial
+  numbers consistently, preserving gaps from failed or pruned trials. Trial Table
+  headers use **Trial Number**, and related trial labels fall back to the row index
+  when a trial number is unavailable. Artifact associations and trial interactions
+  continue to use internal global IDs.
+
 - Scatter Matrix histograms now place extreme finite observations in the correct
   bins even when the difference between their endpoints overflows.
 

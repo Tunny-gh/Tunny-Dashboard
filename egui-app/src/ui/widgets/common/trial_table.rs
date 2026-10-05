@@ -202,7 +202,7 @@ impl TrialTable {
                 .striped(true)
                 .resizable(true)
                 .column(Column::exact(30.0)) // Pin column
-                .column(Column::initial(70.0).at_least(50.0)) // Trial ID
+                .column(Column::initial(110.0).at_least(50.0)) // Trial Number
                 .columns(Column::initial(90.0).at_least(50.0), param_names.len()) // per variable
                 .columns(Column::initial(90.0).at_least(50.0), obj_names.len()) // per objective
                 .columns(Column::initial(110.0).at_least(60.0), attr_cols.len()) // user attrs
@@ -212,7 +212,7 @@ impl TrialTable {
                         ui.strong("📌");
                     });
                     header.col(|ui| {
-                        ui.strong("Trial ID");
+                        ui.strong("Trial Number");
                     });
                     for name in &param_names {
                         header.col(|ui| {

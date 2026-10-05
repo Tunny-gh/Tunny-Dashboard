@@ -44,22 +44,39 @@ pub(super) fn render_card_grid(
     cards: &[(u32, String, &ArtifactEntry)],
     obj_by_trial: &HashMap<u32, String>,
 ) -> (Option<u32>, Option<TrialDetailTarget>) {
+    let Some(study) = app_state.current_study.as_ref() else {
+        return (None, None);
+    };
     let columns = card_columns(content_w, thumb);
     let mut highlight: Option<u32> = None;
     let mut detail: Option<TrialDetailTarget> = None;
     for row in cards.chunks(columns) {
         ui.horizontal_top(|ui| {
             for (trial_id, badge, entry) in row {
+                let Some(target) = detail_target_for(app_state, *trial_id, badge) else {
+                    continue;
+                };
+                let trial_number = study
+                    .view
+                    .df
+                    .get_trial_number(target.row_index)
+                    .unwrap_or(target.row_index as u32);
                 let obj_text = obj_by_trial.get(trial_id).map(String::as_str).unwrap_or("");
-                let click =
-                    show_artifact_card(ui, app_state, *trial_id, entry, badge, obj_text, thumb);
+                let click = show_artifact_card(
+                    ui,
+                    app_state,
+                    *trial_id,
+                    trial_number,
+                    entry,
+                    badge,
+                    obj_text,
+                    thumb,
+                );
                 if click.highlight {
                     highlight = Some(*trial_id);
                 }
                 if click.detail {
-                    if let Some(target) = detail_target_for(app_state, *trial_id, badge) {
-                        detail = Some(target);
-                    }
+                    detail = Some(target);
                 }
             }
         });
@@ -108,6 +125,7 @@ fn show_artifact_card(
     ui: &mut egui::Ui,
     app_state: &AppState,
     trial_id: u32,
+    trial_number: u32,
     entry: &ArtifactEntry,
     badge: &str,
     obj_text: &str,
@@ -170,9 +188,9 @@ fn show_artifact_card(
                 }
                 let fname = entry.filename.clone();
                 let header = if badge.is_empty() {
-                    format!("Trial {trial_id}")
+                    format!("Trial {trial_number}")
                 } else {
-                    format!("Trial {trial_id} · {badge}")
+                    format!("Trial {trial_number} · {badge}")
                 };
                 let label_resp = ui.add(
                     egui::Label::new(egui::RichText::new(header).small().strong())
@@ -197,7 +215,11 @@ fn show_artifact_card(
 }
 
 #[cfg(test)]
-mod tests {
+#[path = "card_tests.rs"]
+mod tests;
+
+#[cfg(test)]
+mod layout_tests {
     use super::*;
 
     #[test]

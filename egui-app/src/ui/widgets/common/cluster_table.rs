@@ -169,7 +169,7 @@ impl ClusterTable {
                 .resizable(true)
                 .column(Column::exact(30.0)) // Pin column
                 .column(Column::initial(70.0).at_least(50.0)) // Cluster
-                .column(Column::initial(70.0).at_least(50.0)) // Trial ID
+                .column(Column::initial(110.0).at_least(50.0)) // Trial Number
                 .columns(Column::initial(90.0).at_least(50.0), param_names.len()) // per variable
                 .columns(Column::initial(90.0).at_least(50.0), obj_names.len()) // per objective
                 .column(Column::initial(90.0).at_least(50.0)) // Pareto Rank
@@ -181,7 +181,7 @@ impl ClusterTable {
                         ui.strong("Cluster");
                     });
                     header.col(|ui| {
-                        ui.strong("Trial ID");
+                        ui.strong("Trial Number");
                     });
                     for name in &param_names {
                         header.col(|ui| {
@@ -201,6 +201,7 @@ impl ClusterTable {
                     body.rows(18.0, visible.len(), |mut row| {
                         let idx = visible[row.index()];
                         let trial_id = trial_ids.get(idx).copied().unwrap_or(idx as u32);
+                        let trial_number = view.df.get_trial_number(idx).unwrap_or(idx as u32);
                         let label = cr.labels.get(idx).copied().unwrap_or(-1);
                         let rank = pareto_rank.get(idx).copied().unwrap_or(0);
                         let is_highlighted = highlighted == Some(trial_id);
@@ -229,7 +230,7 @@ impl ClusterTable {
                             });
                         });
                         row.col(|ui| {
-                            let res = ui.selectable_label(is_highlighted, trial_id.to_string());
+                            let res = ui.selectable_label(is_highlighted, trial_number.to_string());
                             if res.clicked() {
                                 clicked_trial = Some(trial_id);
                             }

@@ -190,8 +190,8 @@ impl ComparisonTableChart {
                     header.col(|ui| {
                         ui.strong("");
                     });
-                    for &(trial_id, row) in &pinned_rows {
-                        let number = view.df.get_trial_number(row).unwrap_or(trial_id);
+                    for &(_, row) in &pinned_rows {
+                        let number = view.df.get_trial_number(row).unwrap_or(row as u32);
                         header.col(|ui| {
                             ui.strong(format!("Trial #{number}"));
                         });
