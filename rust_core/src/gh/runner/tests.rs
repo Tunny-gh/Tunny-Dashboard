@@ -567,3 +567,134 @@ fn cma_journal_finish_error_aborts_after_in_flight_evaluation() {
     assert_eq!(meta.total_trials, 1);
     assert_eq!(meta.completed_trials, 0);
 }
+
+#[test]
+fn bo_bootstrap_journal_begin_error_preserves_existing_records() {
+    bo_bootstrap_journal_error(false);
+}
+
+#[test]
+fn bo_bootstrap_journal_finish_error_preserves_successful_and_started_trials() {
+    bo_bootstrap_journal_error(true);
+}
+
+fn bo_bootstrap_journal_error(fail_finish: bool) {
+    use crate::data::extras::TrialState;
+    use std::io::Write as _;
+
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .unwrap();
+    for sampler in [GhSampler::BoGpFitc, GhSampler::BoGpVfe] {
+        pool.install(|| {
+            let mut problem = single_problem();
+            problem.constraints.clear();
+            problem.attributes.clear();
+            let mut cfg = test_cfg(sampler);
+            cfg.directions.truncate(1);
+            cfg.adaptive_iterations = 1;
+            let dir = tempfile::tempdir().unwrap();
+            let journal = dir.path().join("run.log");
+            let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
+            let successful = FnEvaluator(|v: &[f64]| {
+                Ok(GhEvaluation {
+                    objectives: vec![v[0]],
+                    constraints: vec![],
+                    attributes: vec![],
+                })
+            });
+            let seed_cfg = GhRunConfig {
+                sampler: GhSampler::Random,
+                n_trials: 2,
+                ..cfg.clone()
+            };
+            run_prepared(&prep, &problem, &successful, &seed_cfg, &FitProgress::new())
+                .unwrap();
+            // A previously started trial must survive either failure too.
+            prep.writer.lock().unwrap().create_trial(0).unwrap();
+            let before = std::fs::read(&journal).unwrap();
+            let mut read_only = std::fs::File::open(&journal).unwrap();
+            let underlying = read_only.write_all(b"probe").unwrap_err().to_string();
+            if !fail_finish {
+                prep.writer.lock().unwrap().replace_file_for_test(read_only);
+            }
+            let calls = AtomicUsize::new(0);
+            let eval = FnEvaluator(|v: &[f64]| {
+                calls.fetch_add(1, Ordering::Relaxed);
+                prep.writer
+                    .lock()
+                    .unwrap()
+                    .replace_file_for_test(std::fs::File::open(&journal).unwrap());
+                successful.evaluate(v)
+            });
+            let progress = FitProgress::new();
+            let error = run_prepared(&prep, &problem, &eval, &cfg, &progress).unwrap_err();
+            assert_eq!(
+                error,
+                format!(
+                    "Aborted because writing to the journal failed: failed to write journal record to {}: {underlying}",
+                    journal.display()
+                )
+            );
+            assert!(!error.contains("successful evaluations"), "{error}");
+            assert_eq!(calls.load(Ordering::Relaxed), usize::from(fail_finish));
+            assert_eq!(progress.snapshot().done, 0);
+            let after = std::fs::read(&journal).unwrap();
+            assert!(after.starts_with(&before));
+            if !fail_finish {
+                assert_eq!(after, before);
+            }
+            let (meta, df, extras) = parse_single_study(&after, 0).unwrap();
+            assert_eq!(meta.total_trials, 3 + u32::from(fail_finish));
+            assert_eq!(meta.completed_trials, 2);
+            assert_eq!(df.row_count(), 2);
+            assert_eq!(extras.trials.len(), 3 + usize::from(fail_finish));
+            assert!(extras.trials[..2].iter().all(|t| t.state == TrialState::Complete));
+            assert!(extras.trials[2..].iter().all(|t| t.state == TrialState::Running));
+        });
+    }
+}
+
+#[test]
+fn bo_bootstrap_evaluation_failure_still_returns_insufficient_data() {
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .unwrap();
+    for sampler in [GhSampler::BoGpFitc, GhSampler::BoGpVfe] {
+        pool.install(|| {
+            let problem = single_problem();
+            let mut cfg = test_cfg(sampler);
+            cfg.directions.truncate(1);
+            cfg.adaptive_iterations = 1;
+            let dir = tempfile::tempdir().unwrap();
+            let journal = dir.path().join("run.log");
+            let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
+            let calls = AtomicUsize::new(0);
+            let eval = FnEvaluator(|_: &[f64]| {
+                calls.fetch_add(1, Ordering::Relaxed);
+                Err("mock evaluation failure".to_string())
+            });
+            let progress = FitProgress::new();
+            let error = run_prepared(&prep, &problem, &eval, &cfg, &progress).unwrap_err();
+            let initial = cfg
+                .adaptive_initial
+                .max(crate::surrogate_opt::MIN_TRIALS_FOR_SURROGATE_OPT);
+            assert!(
+                error.contains("successful evaluations to fit a surrogate (0 succeeded so far)"),
+                "{error}"
+            );
+            assert!(!error.contains("journal"), "{error}");
+            assert_eq!(calls.load(Ordering::Relaxed), initial);
+            assert_eq!(progress.snapshot().done, initial);
+            let (meta, _, extras) =
+                parse_single_study(&std::fs::read(journal).unwrap(), 0).unwrap();
+            assert_eq!(meta.total_trials as usize, initial);
+            assert!(extras
+                .trials
+                .iter()
+                .all(|t| t.state == crate::data::extras::TrialState::Fail));
+        });
+    }
+}
