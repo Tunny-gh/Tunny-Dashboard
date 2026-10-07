@@ -12,7 +12,10 @@ pub enum GhSampler {
     /// Adaptive surrogate loop: random bootstrap, then repeat
     /// fit surrogate → suggest candidates (EI single-objective / EHVI
     /// multi-objective) → evaluate → refit (`crate::gh::adaptive`).
-    Adaptive,
+    BoGpFitc,
+    BoGpVfe,
+    /// Single-objective CMA-ES.
+    CmaEs,
 }
 
 /// Configuration for an optimization run.
@@ -28,6 +31,8 @@ pub struct GhRunConfig {
     pub population_size: usize,
     /// Number of generations for NSGA-II
     pub generations: usize,
+    /// CMA-ES generations (must be positive).
+    pub cma_generations: usize,
     pub seed: u64,
     /// Adaptive sampler: number of random bootstrap trials before the first fit.
     pub adaptive_initial: usize,
@@ -55,6 +60,7 @@ impl Default for GhRunConfig {
             n_trials: 50,
             population_size: 16,
             generations: 10,
+            cma_generations: 10,
             seed: 42,
             adaptive_initial: 10,
             adaptive_batch: 4,

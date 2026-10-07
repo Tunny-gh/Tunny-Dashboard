@@ -36,7 +36,6 @@ pub use validation::SurrogateValidationReport;
 pub use model_selection::{select_best_model, ModelSelectionReport};
 
 // ── fit.rs ───────────────────────────────────────────────────────────────
-pub(crate) use fit::fit_adaptive_surrogate_tracked;
 pub use fit::{fit_surrogate_with_validation, fit_surrogate_with_validation_tracked};
 pub(crate) use fit::{fit_validated_inner, subsample_indices, take_rows, validate_inputs};
 

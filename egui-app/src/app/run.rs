@@ -45,6 +45,7 @@ impl TunnyApp {
             n_trials: dialog.n_trials,
             population_size: dialog.population_size,
             generations: dialog.generations,
+            cma_generations: dialog.cma_generations,
             adaptive_initial: dialog.adaptive_initial,
             adaptive_batch: dialog.adaptive_batch,
             adaptive_iterations: dialog.adaptive_iterations,

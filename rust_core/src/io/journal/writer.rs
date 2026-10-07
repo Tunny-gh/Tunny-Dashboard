@@ -45,6 +45,12 @@ pub struct JournalWriter {
 }
 
 impl JournalWriter {
+    /// Injects a file handle for runner I/O failure tests.
+    #[cfg(test)]
+    pub(crate) fn replace_file_for_test(&mut self, file: File) {
+        self.file = file;
+    }
+
     /// Opens the file in append mode (creating it if absent). Scans existing content
     /// to assign the next study_id / trial_id. Uses the default worker_id
     /// (`"tunny-dashboard"`).

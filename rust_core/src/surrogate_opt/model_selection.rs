@@ -13,8 +13,9 @@ pub struct ModelSelectionReport {
     /// in the evaluated set.
     pub chosen: SurrogateModelKind,
     /// Per-candidate (model kind, score = cv_r2_mean), in the same order as
-    /// the evaluated candidate set. General Auto uses `AUTO_CANDIDATES`; adaptive
-    /// EI/EHVI uses only GP-FITC and GP-VFE. A failed fit/validation is recorded as
+    /// the evaluated candidate set. General Auto uses `AUTO_CANDIDATES`.
+    /// Explicit Grasshopper BO methods do not produce a selection report.
+    /// A failed fit/validation is recorded as
     /// f64::NEG_INFINITY. All non-finite scores are excluded from selection.
     pub scores: Vec<(SurrogateModelKind, f64)>,
 }

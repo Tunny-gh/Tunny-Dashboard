@@ -6,7 +6,7 @@ Tunny-side work would unlock next. Audience: the Tunny (Grasshopper plugin)
 maintainers.
 
 Status: reflects the Phase 2B/2C implementation as of 2026-07 (items 15 and 16;
-.ghx D&D execution via Rhino.Compute, constraints/attributes, and the adaptive
+.ghx D&D execution via Rhino.Compute, constraints/attributes, and the Bayesian optimization
 sampler).
 
 ## 1. Current integration model — no Tunny changes required
@@ -62,19 +62,19 @@ Semantics the dashboard implements, matching Tunny's published behavior:
 ### Samplers available from the dashboard
 
 - NSGA-II (with constrained domination) and Random.
-- **Adaptive (surrogate)**: random bootstrap → fit surrogate (automatic model
-  selection) → suggest candidates (Expected Improvement single-objective /
+- **CMA-ES**: single-objective only, starting from saved slider values with
+  normalized sigma 0.3. Generations defaults to 10; population size is
+  `lambda = 4 + floor(3 ln d)` and the upper budget is `1 + lambda * generations`.
+  Constraints use the same penalty fitness as NSGA-II; journals retain actual
+  objective and constraint values. Bounds, precision, seed and parallelism are shared.
+- **BO-GP-FITC / BO-GP-VFE** (BO = Bayesian optimization): random bootstrap → fit
+  the explicitly chosen GP → suggest candidates (Expected Improvement single-objective /
   EHVI multi-objective, feasibility-aware for single-objective) → evaluate via
   Rhino.Compute → refit. This is the dashboard-side realization of the
   "analyze → suggest → run → re-analyze" loop, so no Tunny-side execution or
   enqueue support is required for it.
-  As an interim exception to general Auto, adaptive selection evaluates only
-  GP-FITC then GP-VFE: EI/EHVI require predictive variance. Before final fitting,
-  choose the first GP within an inclusive absolute mean CV R² gap of 0.01 from
-  the best finite eligible GP score. Failed/non-finite GPs are excluded; no finite
-  eligible GP is an error, not a fallback strategy. Selection reports contain
-  only evaluated GPs. Unrestricted adaptive Auto is tracked in
-  [#211](https://github.com/Tunny-gh/Tunny-Dashboard/issues/211).
+  EI/EHVI require GP predictive variance. No model Auto selection is used in this
+  runner; general Surrogate Optimizer Auto is unchanged.
 
 ## 2. Compatibility requests — please keep these stable
 
@@ -152,7 +152,7 @@ convention when the artifact store lands.
 ### d. Explicitly NOT needed
 
 - **Consuming enqueued trials**: dropped in 2026-07. The dashboard executes
-  suggested candidates itself (item 15 runner + item 16 adaptive sampler), so
+  suggested candidates itself (item 15 runner + item 16 Bayesian optimization), so
   Tunny does not need to poll shared storage for dashboard-enqueued trials.
 - Any Tunny-side execution API for the dashboard: rhino.compute is the
   execution interface.

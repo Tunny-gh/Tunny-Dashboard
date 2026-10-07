@@ -86,3 +86,4 @@ order:
 | 0012 | [Scope artifacts to storage](0012-scope-artifacts-to-storage.md) | Accepted | 2026-10-03 |
 | 0013 | [Preserve parameter distributions for grouping](0013-preserve-parameter-distributions-for-grouping.md) | Accepted | 2026-10-04 |
 | 0014 | [Preserve category identity and presence](0014-preserve-category-identity-and-presence.md) | Accepted | 2026-10-04 |
+| 0015 | [Explicit Grasshopper optimization methods](0015-explicit-grasshopper-optimization-methods.md) | Accepted | 2026-10-07 |

@@ -18,6 +18,15 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Changed
 
+- Grasshopper/Rhino.Compute offers NSGA-II, CMA-ES, BO-GP-FITC, BO-GP-VFE, and
+  Random. BO (Bayesian optimization) fits the explicitly chosen GP, with EI for
+  one objective and EHVI for multiple objectives; GP Auto selection is removed
+  from this workflow. Surrogate Optimizer Auto is unchanged. CMA-ES is
+  single-objective only, starts from saved slider values, and exposes generations
+  (default 10) with an upper evaluation budget of `1 + lambda * generations`.
+  It reuses bound/precision handling, seed, parallelism, constraint penalties,
+  actual-value journal recording, and cancellation.
+
 - Box Plot and Violin Plot share a single Value, optional Group by, and global
   Normalize selection. Grouping supports categorical and explicitly declared
   Optuna integer/stepped parameters, not continuous parameters or CSV numeric

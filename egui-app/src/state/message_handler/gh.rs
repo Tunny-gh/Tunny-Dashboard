@@ -28,7 +28,7 @@ impl MessageHandler {
                 "new".to_string()
             };
             msg.push_str(&format!(
-                "\nAdaptive: {} iterations, final metric {:.4} (last {improvement})",
+                "\nBayesian optimization: {} iterations, final metric {:.4} (last {improvement})",
                 last.iteration, last.metric
             ));
         }

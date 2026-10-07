@@ -1479,31 +1479,26 @@ fn eligible_gp_choice_uses_only_eligible_best_score() {
 }
 
 #[test]
-fn adaptive_fit_fails_clearly_when_both_eligible_gps_fail_validation() {
+fn explicit_gp_fit_rejects_overflow() {
     let req = SurrogateFitRequest {
         x_matrix: (0..10).map(|i| vec![i as f64]).collect(),
         // Finite inputs whose normalization overflows: neither GP can validate.
         y: vec![f64::MAX; 10],
         param_names: vec!["x".to_string()],
         objective_name: "overflow".to_string(),
-        model: SurrogateModelKind::Ridge,
-        auto_select: true,
+        model: SurrogateModelKind::GpFitc,
+        auto_select: false,
         constraints: vec![],
         priority_rows: vec![],
         param_bounds: None,
     };
-    assert_eq!(
-        fit_adaptive_surrogate_tracked(&req, &FitProgress::new())
-            .err()
-            .unwrap(),
-        "No eligible GP-FITC or GP-VFE model has a finite validation score"
-    );
+    assert!(fit_surrogate_with_validation_tracked(&req, &FitProgress::new()).is_err());
 }
 
 #[test]
-fn adaptive_single_fit_selects_gp_before_final_fit_and_supports_ei() {
+fn explicit_single_gp_fits_support_ei_without_auto() {
     let (x_matrix, y) = linear_samples(80);
-    let req = SurrogateFitRequest {
+    let mut req = SurrogateFitRequest {
         constraints: vec![ConstraintData {
             name: "limit".to_string(),
             values: x_matrix.iter().map(|row| row[0] - 0.75).collect(),
@@ -1519,56 +1514,39 @@ fn adaptive_single_fit_selects_gp_before_final_fit_and_supports_ei() {
     };
     let general = fit_surrogate_with_validation(&req).unwrap();
     assert_eq!(general.model_kind, SurrogateModelKind::Ridge);
-    let parent = FitProgress::new();
-    parent.set_total(100);
-    let progress = parent.subtask();
-    let trained = fit_adaptive_surrogate_tracked(&req, &progress).unwrap();
-    let report = trained.model_selection.as_ref().unwrap();
-    assert_eq!(
-        report
-            .scores
-            .iter()
-            .map(|&(kind, _)| kind)
-            .collect::<Vec<_>>(),
-        vec![SurrogateModelKind::GpFitc, SurrogateModelKind::GpVfe]
-    );
-    assert_eq!(report.chosen, trained.model_kind);
-    assert_eq!(
-        report.chosen,
-        super::model_selection::choose_model(&report.scores).unwrap()
-    );
-    for &(kind, score) in &report.scores {
+    for kind in [SurrogateModelKind::GpFitc, SurrogateModelKind::GpVfe] {
+        req.model = kind;
+        req.auto_select = false;
+        let parent = FitProgress::new();
+        parent.set_total(100);
+        let progress = parent.subtask();
+        let trained = fit_surrogate_with_validation_tracked(&req, &progress).unwrap();
+        assert!(trained.model_selection.is_none());
+        assert_eq!(trained.model_kind, kind);
+        assert!(matches!(
+            trained.surrogate.model,
+            super::models::FittedModel::Gp(_)
+        ));
+        assert_eq!(trained.x_matrix, req.x_matrix);
+        assert_eq!(trained.y, req.y);
+        assert_eq!(trained.constraint_names, vec!["limit"]);
+        assert_eq!(trained.constraint_models.len(), 1);
+        assert_eq!(progress.snapshot().total, 8);
+        assert_eq!(progress.snapshot().done, 8);
+        assert_eq!(parent.snapshot().total, 100);
+        let candidates =
+            suggest_candidates(&trained, 1, AcquisitionKind::ExpectedImprovement, true)
+                .expect("eligible GP supports EI with constraints");
+        assert_eq!(candidates.len(), 1);
+        assert!(candidates[0].feasibility_probability.is_some());
+        parent.request_cancel();
         assert_eq!(
-            score,
-            score_of(general.model_selection.as_ref().unwrap(), kind)
+            fit_surrogate_with_validation_tracked(&req, &parent.subtask())
+                .err()
+                .unwrap(),
+            super::progress::FIT_CANCELLED
         );
     }
-    assert_eq!(
-        trained.validation.cv_r2_mean,
-        score_of(report, report.chosen)
-    );
-    assert!(matches!(
-        trained.surrogate.model,
-        super::models::FittedModel::Gp(_)
-    ));
-    assert_eq!(trained.x_matrix, req.x_matrix);
-    assert_eq!(trained.y, req.y);
-    assert_eq!(trained.constraint_names, vec!["limit"]);
-    assert_eq!(trained.constraint_models.len(), 1);
-    assert_eq!(progress.snapshot().total, 20);
-    assert_eq!(progress.snapshot().done, 20);
-    assert_eq!(parent.snapshot().total, 100);
-    let candidates = suggest_candidates(&trained, 1, AcquisitionKind::ExpectedImprovement, true)
-        .expect("eligible GP supports EI with constraints");
-    assert_eq!(candidates.len(), 1);
-    assert!(candidates[0].feasibility_probability.is_some());
-    parent.request_cancel();
-    assert_eq!(
-        fit_adaptive_surrogate_tracked(&req, &parent.subtask())
-            .err()
-            .unwrap(),
-        super::progress::FIT_CANCELLED
-    );
 }
 
 #[test]

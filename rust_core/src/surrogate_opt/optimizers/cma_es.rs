@@ -32,8 +32,23 @@ pub(crate) fn cma_es_minimize<F>(eval: F, start: &[f64], cfg: &CmaEsConfig) -> V
 where
     F: Fn(&[f64]) -> f64 + Sync,
 {
+    cma_es_minimize_until(eval, start, cfg, || false)
+}
+
+/// Same optimizer, with a stop check at evaluation/generation boundaries.
+/// Existing surrogate callers retain their original, uninterrupted trajectory.
+pub(crate) fn cma_es_minimize_until<F, S>(
+    eval: F,
+    start: &[f64],
+    cfg: &CmaEsConfig,
+    should_stop: S,
+) -> Vec<f64>
+where
+    F: Fn(&[f64]) -> f64 + Sync,
+    S: Fn() -> bool + Sync,
+{
     let n = start.len();
-    if n == 0 {
+    if n == 0 || should_stop() {
         return Vec::new();
     }
     let nf = n as f64;
@@ -77,6 +92,9 @@ where
     let mut best_cost = eval(start);
 
     for gen in 0..max_gens {
+        if should_stop() {
+            break;
+        }
         // C = B diag(d²) Bᵀ (eigenvalues are clamped since numerical error can make them negative).
         // If the eigenvalue decomposition fails, don't panic — return the best-ever found so far and stop.
         let (eigvals, b) = match symmetric_eigen(&cov) {
@@ -103,12 +121,24 @@ where
             ys.push(y);
             xs.push(x);
         }
-        let costs: Vec<f64> = xs.par_iter().map(|x| eval(x)).collect();
+        let costs: Vec<f64> = xs
+            .par_iter()
+            .map(|x| {
+                if should_stop() {
+                    f64::INFINITY
+                } else {
+                    eval(x)
+                }
+            })
+            .collect();
         for (x, &cost) in xs.iter().zip(costs.iter()) {
             if cost < best_cost {
                 best_cost = cost;
                 best = x.clone();
             }
+        }
+        if should_stop() {
+            break;
         }
         let mut order: Vec<usize> = (0..lambda).collect();
         order.sort_by(|&a, &b| {
@@ -245,6 +275,19 @@ fn symmetric_eigen(a: &[Vec<f64>]) -> Option<(Vec<f64>, Vec<Vec<f64>>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stop_hook_preserves_uninterrupted_surrogate_trajectory() {
+        let cfg = CmaEsConfig {
+            max_generations: 10,
+            ..CmaEsConfig::default()
+        };
+        let eval = |x: &[f64]| (x[0] - 0.25).powi(2) + (x[1] - 0.75).powi(2);
+        assert_eq!(
+            cma_es_minimize(eval, &[0.5, 0.5], &cfg),
+            cma_es_minimize_until(eval, &[0.5, 0.5], &cfg, || false)
+        );
+    }
 
     #[test]
     fn symmetric_eigen_known_2x2() {

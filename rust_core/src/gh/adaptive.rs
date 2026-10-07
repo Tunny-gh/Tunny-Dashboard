@@ -10,10 +10,8 @@
 //! sampling" workflow driven entirely by the dashboard.
 //!
 //! Design notes:
-//! - EI/EHVI require predictive variance, so interim adaptive Auto evaluates only
-//!   GP-FITC then GP-VFE. It prefers the first within 0.01 of the best finite
-//!   eligible GP score, before final fitting. General widget Auto is unrestricted;
-//!   unrestricted adaptive proposals are tracked in Issue #211. Real-unit
+//! - EI/EHVI require predictive variance. The method explicitly selects GP-FITC
+//!   or GP-VFE; no Auto model selection is performed. Real-unit
 //!   parameters are normalized internally via the sliders' declared ranges.
 //! - Constraint models are attached for single-objective runs, so EI accounts
 //!   for the feasibility probability. EHVI does not use constraint models
@@ -31,9 +29,9 @@ use crate::io::journal::parser::OptimizationDirection;
 use crate::math::rng::SeededRng;
 use crate::multi_objective::pareto::hypervolume_nd;
 use crate::surrogate_opt::{
-    fit_adaptive_surrogate_tracked, suggest_candidates, suggest_candidates_multi, AcquisitionKind,
-    ConstraintData, FitProgress, SurrogateFitRequest, SurrogateModelKind, TrainedSurrogate,
-    MIN_TRIALS_FOR_SURROGATE_OPT,
+    fit_surrogate_with_validation_tracked, suggest_candidates, suggest_candidates_multi,
+    AcquisitionKind, ConstraintData, FitProgress, SurrogateFitRequest, SurrogateModelKind,
+    TrainedSurrogate, MIN_TRIALS_FOR_SURROGATE_OPT,
 };
 
 use super::problem::GhProblem;
@@ -125,7 +123,9 @@ pub(super) fn run_loop(
 
     // ── Bootstrap: random sampling (same per-trial seed derivation as the
     //    Random sampler, offset so the two samplers don't reuse points) ──────
-    progress.set_stage(format!("Adaptive: random bootstrap ({initial} trials)"));
+    progress.set_stage(format!(
+        "Bayesian optimization: random bootstrap ({initial} trials)"
+    ));
     let mut data = Dataset::default();
     let bootstrap: Vec<Option<EvaluatedPoint>> = (0..initial)
         .into_par_iter()
@@ -174,14 +174,14 @@ pub(super) fn run_loop(
         }
         if data.xs.len() < MIN_TRIALS_FOR_SURROGATE_OPT {
             return Err(format!(
-                "Adaptive loop needs at least {MIN_TRIALS_FOR_SURROGATE_OPT} successful \
+                "Bayesian optimization needs at least {MIN_TRIALS_FOR_SURROGATE_OPT} successful \
                  evaluations to fit a surrogate ({} succeeded so far)",
                 data.xs.len()
             ));
         }
 
         progress.set_stage(format!(
-            "Adaptive: fitting surrogate (iteration {iteration}/{iterations}, {} trials)",
+            "Bayesian optimization: fitting surrogate (iteration {iteration}/{iterations}, {} trials)",
             data.xs.len()
         ));
         let trained = match fit_objective_surrogates(
@@ -230,7 +230,7 @@ pub(super) fn run_loop(
         }
         if batch_points.is_empty() {
             progress.set_stage(format!(
-                "Adaptive: stopped after iteration {iteration}/{iterations} \
+                "Bayesian optimization: stopped after iteration {iteration}/{iterations} \
                  (no new candidates at slider resolution)"
             ));
             stop_reason = GhStopReason::NoNewCandidates;
@@ -238,7 +238,7 @@ pub(super) fn run_loop(
         }
 
         progress.set_stage(format!(
-            "Adaptive: evaluating {} candidates (iteration {iteration}/{iterations})",
+            "Bayesian optimization: evaluating {} candidates (iteration {iteration}/{iterations})",
             batch_points.len()
         ));
         let results: Vec<Option<EvaluatedPoint>> = batch_points
@@ -264,7 +264,7 @@ pub(super) fn run_loop(
             relative_improvement,
         });
         progress.set_stage(format!(
-            "Adaptive: iteration {iteration}/{iterations} done \
+            "Bayesian optimization: iteration {iteration}/{iterations} done \
              (metric {metric:.4}, +{:.2}%)",
             relative_improvement * 100.0
         ));
@@ -278,7 +278,7 @@ pub(super) fn run_loop(
                 if low_improvement_streak >= cfg.adaptive_patience {
                     stop_reason = GhStopReason::Converged;
                     progress.set_stage(format!(
-                        "Adaptive: converged after iteration {iteration}/{iterations} \
+                        "Bayesian optimization: converged after iteration {iteration}/{iterations} \
                          ({low_improvement_streak} iterations below \
                          {:.1}% improvement)",
                         cfg.adaptive_min_improvement * 100.0
@@ -390,7 +390,7 @@ fn relative_improvement(prev: f64, current: f64) -> f64 {
     }
 }
 
-/// Fits one surrogate per objective with GP-only adaptive selection. Constraint
+/// Fits the explicitly selected GP for each objective. Constraint
 /// models are attached only for single-objective runs (EI uses them; EHVI does
 /// not).
 fn fit_objective_surrogates(
@@ -426,17 +426,19 @@ fn fit_objective_surrogates(
             y: data.ys.iter().map(|row| row[k]).collect(),
             param_names: param_names.to_vec(),
             objective_name: objective.name.clone(),
-            // Ignored when auto_select is true; any Auto candidate works as
-            // the placeholder.
-            model: SurrogateModelKind::GpFitc,
-            auto_select: true,
+            model: match cfg.sampler {
+                super::runner::GhSampler::BoGpFitc => SurrogateModelKind::GpFitc,
+                super::runner::GhSampler::BoGpVfe => SurrogateModelKind::GpVfe,
+                _ => return Err("Bayesian optimization requires an explicit GP method".to_string()),
+            },
+            auto_select: false,
             constraints: build_constraints(),
             priority_rows: vec![],
             param_bounds: Some(param_bounds.to_vec()),
         };
         // Keep trial totals intact, but propagate cancellation during each fit.
         trained.push(
-            fit_adaptive_surrogate_tracked(&req, &progress.subtask())
+            fit_surrogate_with_validation_tracked(&req, &progress.subtask())
                 .map_err(|e| format!("Surrogate fit failed for \"{}\": {e}", objective.name))?,
         );
     }
@@ -465,12 +467,51 @@ mod tests {
         GhRunConfig {
             study_name: "adaptive-test".to_string(),
             directions,
-            sampler: GhSampler::Adaptive,
+            sampler: GhSampler::BoGpFitc,
             adaptive_initial: 12,
             adaptive_batch: 2,
             adaptive_iterations: 2,
             seed: 11,
             ..GhRunConfig::default()
+        }
+    }
+
+    #[test]
+    fn both_bo_methods_run_single_and_multi_real_evaluator_loops() {
+        for method in [GhSampler::BoGpFitc, GhSampler::BoGpVfe] {
+            for n_obj in [1, 2] {
+                let mut problem = extract_problem(&sample_ghx()).unwrap();
+                problem.objectives.truncate(n_obj);
+                let mut cfg = adaptive_cfg(vec![OptimizationDirection::Minimize; n_obj]);
+                cfg.sampler = method;
+                cfg.adaptive_iterations = 1;
+                let dir = tempfile::tempdir().unwrap();
+                let journal = dir.path().join("run.log");
+                let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
+                let eval = FnEvaluator(|v: &[f64]| {
+                    let mut objectives = vec![(v[0] - 7.0).powi(2) + v[1], v[0] + v[1]];
+                    objectives.truncate(n_obj);
+                    Ok(GhEvaluation {
+                        objectives,
+                        constraints: vec![-1.0],
+                        attributes: vec![None],
+                    })
+                });
+                let progress = FitProgress::new();
+                let summary = run_prepared(&prep, &problem, &eval, &cfg, &progress).unwrap();
+                assert_eq!(summary.failed, 0);
+                assert!(
+                    summary.completed > cfg.adaptive_initial,
+                    "{method:?}, {n_obj}"
+                );
+                assert!(summary.completed <= cfg.adaptive_initial + cfg.adaptive_batch);
+                assert_eq!(summary.adaptive_diagnostics.len(), 2);
+                assert!(!progress.snapshot().stage.contains("Adaptive"));
+                let (meta, df, _) =
+                    parse_single_study(&std::fs::read(journal).unwrap(), 0).unwrap();
+                assert_eq!(meta.completed_trials as usize, summary.completed);
+                assert_eq!(df.row_count(), summary.completed);
+            }
         }
     }
 
@@ -518,7 +559,7 @@ mod tests {
                 if watcher_progress
                     .snapshot()
                     .stage
-                    .starts_with("Adaptive: fitting surrogate")
+                    .starts_with("Bayesian optimization: fitting surrogate")
                 {
                     watcher_progress.request_cancel();
                     return true;
@@ -548,11 +589,11 @@ mod tests {
     }
 
     #[test]
-    fn adaptive_mixed_objectives_choose_eligible_gps_with_honest_reports() {
+    fn bo_multi_deploys_explicit_gp_without_auto_reports() {
         use crate::surrogate_opt::select_best_model;
 
         let problem = extract_problem(&sample_ghx()).unwrap();
-        let cfg = adaptive_cfg(vec![
+        let mut cfg = adaptive_cfg(vec![
             OptimizationDirection::Minimize,
             OptimizationDirection::Minimize,
         ]);
@@ -582,28 +623,27 @@ mod tests {
 
         let progress = FitProgress::new();
         progress.set_total(100);
-        let trained =
-            fit_objective_surrogates(&problem, &cfg, &data, &names, &bounds, &progress).unwrap();
-        for model in &trained {
-            let report = model.model_selection.as_ref().unwrap();
+        for (method, kind) in [
+            (GhSampler::BoGpFitc, SurrogateModelKind::GpFitc),
+            (GhSampler::BoGpVfe, SurrogateModelKind::GpVfe),
+        ] {
+            cfg.sampler = method;
+            let trained =
+                fit_objective_surrogates(&problem, &cfg, &data, &names, &bounds, &progress)
+                    .unwrap();
+            for model in &trained {
+                assert!(model.model_selection.is_none());
+                assert_eq!(model.model_kind, kind);
+                assert!(model.constraint_models.is_empty());
+            }
+            assert_eq!(progress.snapshot().total, 100);
             assert_eq!(
-                report
-                    .scores
-                    .iter()
-                    .map(|&(kind, _)| kind)
-                    .collect::<Vec<_>>(),
-                vec![SurrogateModelKind::GpFitc, SurrogateModelKind::GpVfe]
+                suggest_candidates_multi(&trained, &[true, true], 1)
+                    .unwrap()
+                    .len(),
+                1
             );
-            assert_eq!(model.model_kind, report.chosen);
-            assert!(model.constraint_models.is_empty());
         }
-        assert_eq!(progress.snapshot().total, 100);
-        assert_eq!(
-            suggest_candidates_multi(&trained, &[true, true], 1)
-                .unwrap()
-                .len(),
-            1
-        );
         progress.request_cancel();
         assert!(
             fit_objective_surrogates(&problem, &cfg, &data, &names, &bounds, &progress)
