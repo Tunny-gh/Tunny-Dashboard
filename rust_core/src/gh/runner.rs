@@ -23,6 +23,7 @@ use rayon::prelude::*;
 
 use crate::io::journal::writer::JournalWriter;
 use crate::math::rng::SeededRng;
+use crate::surrogate_opt::optimizers::cma_es::{cma_es_minimize_until, CmaEsConfig};
 use crate::surrogate_opt::optimizers::nsga2::{nsga2_minimize, Nsga2Config};
 use crate::surrogate_opt::FitProgress;
 
@@ -78,6 +79,7 @@ pub fn prepare_gh_run(
     if problem.variables.is_empty() {
         return Err("No variables".to_string());
     }
+    validate_method(problem, cfg)?;
     let mut writer = JournalWriter::open(journal_path)?;
     let objective_names: Vec<String> = problem.objectives.iter().map(|o| o.name.clone()).collect();
     let study_id = writer.create_study(&cfg.study_name, &cfg.directions, &objective_names)?;
@@ -102,6 +104,7 @@ pub fn run_prepared(
     cfg: &GhRunConfig,
     progress: &FitProgress,
 ) -> Result<GhRunSummary, String> {
+    validate_method(problem, cfg)?;
     let recorder = TrialRecorder {
         writer: &prep.writer,
         study_id: prep.study_id,
@@ -149,7 +152,22 @@ pub fn run_prepared(
             let initial = vec![normalize_current(problem)];
             nsga2_minimize(|x| recorder.eval_signed(x), n_dims, &initial, &nsga_cfg);
         }
-        GhSampler::Adaptive => {
+        GhSampler::CmaEs => {
+            let lambda = 4 + (3.0 * (n_dims as f64).ln()).floor() as usize;
+            progress.set_total(1 + lambda * cfg.cma_generations);
+            progress.set_stage("CMA-ES: evaluating with Rhino.Compute");
+            cma_es_minimize_until(
+                |x| recorder.eval_signed(x)[0],
+                &normalize_current(problem),
+                &CmaEsConfig {
+                    max_generations: cfg.cma_generations,
+                    seed: cfg.seed,
+                    ..CmaEsConfig::default()
+                },
+                || progress.is_cancelled() || recorder.has_io_error(),
+            );
+        }
+        GhSampler::BoGpFitc | GhSampler::BoGpVfe => {
             let outcome = super::adaptive::run_loop(&recorder, problem, cfg, progress)?;
             adaptive_diagnostics = outcome.diagnostics;
             stop_reason = outcome.stop_reason;
@@ -178,4 +196,16 @@ pub fn run_prepared(
         adaptive_diagnostics,
         stop_reason,
     })
+}
+
+fn validate_method(problem: &GhProblem, cfg: &GhRunConfig) -> Result<(), String> {
+    if cfg.sampler == GhSampler::CmaEs {
+        if problem.objectives.len() != 1 || cfg.directions.len() != 1 {
+            return Err("CMA-ES supports exactly one objective; use NSGA-II, BO-GP-FITC, BO-GP-VFE, or Random for multiple objectives.".to_string());
+        }
+        if cfg.cma_generations == 0 {
+            return Err("CMA-ES generations must be at least 1".to_string());
+        }
+    }
+    Ok(())
 }

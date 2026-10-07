@@ -3,7 +3,7 @@
 //! Implemented as minimization within the normalized space [0,1]^d (maximize flips the sign).
 //! Add new methods here as additional variants.
 
-mod cma_es;
+pub(crate) mod cma_es;
 // Exposed within the crate because the gh runner (crate::gh::runner) repurposes it for real objective function evaluation
 pub(crate) mod nsga2;
 

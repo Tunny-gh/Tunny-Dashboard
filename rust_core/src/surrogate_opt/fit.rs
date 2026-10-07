@@ -190,27 +190,6 @@ pub fn fit_surrogate_with_validation_tracked(
     fit_with_candidates_tracked(req, progress, &AUTO_CANDIDATES)
 }
 
-/// Interim adaptive EI/EHVI eligibility: both acquisitions require predictive
-/// variance. Compare only finite eligible GP scores; never coerce an Auto winner.
-/// Unrestricted adaptive Auto needs a separate proposal policy (Issue #211).
-pub(crate) fn fit_adaptive_surrogate_tracked(
-    req: &SurrogateFitRequest,
-    progress: &FitProgress,
-) -> Result<TrainedSurrogate, String> {
-    fit_with_candidates_tracked(
-        req,
-        progress,
-        &[SurrogateModelKind::GpFitc, SurrogateModelKind::GpVfe],
-    )
-    .map_err(|error| {
-        if error == "All candidate models failed validation" {
-            "No eligible GP-FITC or GP-VFE model has a finite validation score".to_string()
-        } else {
-            error
-        }
-    })
-}
-
 fn fit_with_candidates_tracked(
     req: &SurrogateFitRequest,
     progress: &FitProgress,

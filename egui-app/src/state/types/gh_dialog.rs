@@ -46,6 +46,8 @@ pub struct GhOptDialogState {
     pub population_size: usize,
     /// Number of NSGA-II generations (default 10).
     pub generations: usize,
+    /// Number of CMA-ES generations (default 10).
+    pub cma_generations: usize,
     /// Adaptive sampler: random bootstrap trials before the first fit (default 10,
     /// floored to the surrogate minimum on the core side).
     pub adaptive_initial: usize,
@@ -75,15 +77,31 @@ pub enum GhSamplerChoice {
     Random,
     /// Adaptive surrogate loop (random bootstrap → fit → EI/EHVI suggest →
     /// evaluate → refit).
-    Adaptive,
+    BoGpFitc,
+    BoGpVfe,
+    CmaEs,
 }
 
 impl GhSamplerChoice {
+    pub const ALL: [Self; 5] = [
+        Self::Nsga2,
+        Self::CmaEs,
+        Self::BoGpFitc,
+        Self::BoGpVfe,
+        Self::Random,
+    ];
+
+    pub fn supports_objectives(self, count: usize) -> bool {
+        self != Self::CmaEs || count == 1
+    }
+
     pub fn label(&self) -> &'static str {
         match self {
             GhSamplerChoice::Nsga2 => "NSGA-II",
             GhSamplerChoice::Random => "Random",
-            GhSamplerChoice::Adaptive => "Adaptive (surrogate)",
+            GhSamplerChoice::BoGpFitc => "BO-GP-FITC",
+            GhSamplerChoice::BoGpVfe => "BO-GP-VFE",
+            GhSamplerChoice::CmaEs => "CMA-ES",
         }
     }
 
@@ -91,7 +109,9 @@ impl GhSamplerChoice {
         match self {
             GhSamplerChoice::Nsga2 => tunny_core::gh::GhSampler::Nsga2,
             GhSamplerChoice::Random => tunny_core::gh::GhSampler::Random,
-            GhSamplerChoice::Adaptive => tunny_core::gh::GhSampler::Adaptive,
+            GhSamplerChoice::BoGpFitc => tunny_core::gh::GhSampler::BoGpFitc,
+            GhSamplerChoice::BoGpVfe => tunny_core::gh::GhSampler::BoGpVfe,
+            GhSamplerChoice::CmaEs => tunny_core::gh::GhSampler::CmaEs,
         }
     }
 }
@@ -117,6 +137,7 @@ pub struct GhComputePrefs {
     pub n_trials: usize,
     pub population_size: usize,
     pub generations: usize,
+    pub cma_generations: usize,
     pub adaptive_initial: usize,
     pub adaptive_batch: usize,
     pub adaptive_iterations: usize,
@@ -140,6 +161,7 @@ impl Default for GhComputePrefs {
             n_trials: 50,
             population_size: 16,
             generations: 10,
+            cma_generations: 10,
             adaptive_initial: 10,
             adaptive_batch: 4,
             adaptive_iterations: 10,
@@ -165,6 +187,7 @@ impl GhComputePrefs {
         dialog.n_trials = self.n_trials.max(1);
         dialog.population_size = self.population_size.max(1);
         dialog.generations = self.generations.max(1);
+        dialog.cma_generations = self.cma_generations.max(1);
         dialog.adaptive_initial = self.adaptive_initial.max(1);
         dialog.adaptive_batch = self.adaptive_batch.max(1);
         dialog.adaptive_iterations = self.adaptive_iterations.max(1);
@@ -187,6 +210,7 @@ impl GhComputePrefs {
             n_trials: dialog.n_trials,
             population_size: dialog.population_size,
             generations: dialog.generations,
+            cma_generations: dialog.cma_generations,
             adaptive_initial: dialog.adaptive_initial,
             adaptive_batch: dialog.adaptive_batch,
             adaptive_iterations: dialog.adaptive_iterations,
@@ -241,6 +265,7 @@ impl GhOptDialogState {
             n_trials: 50,
             population_size: 16,
             generations: 10,
+            cma_generations: 10,
             seed: 42,
             error: None,
         }

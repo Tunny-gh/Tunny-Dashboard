@@ -185,7 +185,7 @@ impl TrialRecorder<'_> {
             .set_stage(format!("Evaluation errors: {short}"));
     }
 
-    fn has_io_error(&self) -> bool {
+    pub(super) fn has_io_error(&self) -> bool {
         self.io_error
             .lock()
             .unwrap_or_else(|e| e.into_inner())

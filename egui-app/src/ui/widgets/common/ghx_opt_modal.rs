@@ -54,8 +54,12 @@ pub fn show(ctx: &egui::Context, state: &mut GhOptDialogState) -> Option<GhxOptA
     } else {
         !state.compute_url.trim().is_empty()
     };
-    let can_run =
-        !state.study_name.trim().is_empty() && !state.journal_path.trim().is_empty() && compute_ok;
+    let can_run = !state.study_name.trim().is_empty()
+        && !state.journal_path.trim().is_empty()
+        && compute_ok
+        && state
+            .sampler
+            .supports_objectives(state.problem.objectives.len());
 
     let outcome = ModalScaffold::new("ghx_opt_modal", 520.0)
         .heading("Grasshopper Optimization")
@@ -141,7 +145,7 @@ pub fn show(ctx: &egui::Context, state: &mut GhOptDialogState) -> Option<GhxOptA
                 }
                 ui.label(
                     RichText::new(
-                        "Feasible when ≤ 0. Recorded per trial and used to steer NSGA-II.",
+                        "Feasible when ≤ 0. Recorded per trial; penalty fitness steers NSGA-II and CMA-ES. Single-objective BO uses feasibility probability.",
                     )
                     .color(crate::theme::TEXT_SECONDARY()),
                 );
@@ -224,12 +228,11 @@ pub fn show(ctx: &egui::Context, state: &mut GhOptDialogState) -> Option<GhxOptA
                 egui::ComboBox::from_id_salt("ghx_opt_sampler")
                     .selected_text(state.sampler.label())
                     .show_ui(ui, |ui| {
-                        for choice in [
-                            GhSamplerChoice::Nsga2,
-                            GhSamplerChoice::Random,
-                            GhSamplerChoice::Adaptive,
-                        ] {
-                            ui.selectable_value(&mut state.sampler, choice, choice.label());
+                        for choice in GhSamplerChoice::ALL {
+                            ui.add_enabled_ui(
+                                choice.supports_objectives(state.problem.objectives.len()),
+                                |ui| { ui.selectable_value(&mut state.sampler, choice, choice.label()); },
+                            ).response.on_disabled_hover_text("CMA-ES supports exactly one objective.");
                         }
                     });
             });
@@ -255,7 +258,20 @@ pub fn show(ctx: &egui::Context, state: &mut GhOptDialogState) -> Option<GhxOptA
                             .color(crate::theme::TEXT_SECONDARY()),
                     );
                 }
-                GhSamplerChoice::Adaptive => {
+                GhSamplerChoice::CmaEs => {
+                    // Persisted preferences may select CMA-ES for multiple
+                    // objectives; keep Run disabled rather than scalarizing.
+                    ui.horizontal(|ui| {
+                        ui.label("Generations:");
+                        ui.add(egui::DragValue::new(&mut state.cma_generations).range(1..=100_000));
+                    });
+                    let d = state.problem.variables.len().max(1);
+                    let lambda = 4 + (3.0 * (d as f64).ln()).floor() as usize;
+                    let total = 1 + lambda * state.cma_generations;
+                    ui.label(format!("Up to {total} evaluations (1 + {lambda} × generations). Starts from saved sliders; normalized sigma = 0.3."));
+                }
+                GhSamplerChoice::BoGpFitc | GhSamplerChoice::BoGpVfe => {
+                    ui.label("BO = Bayesian optimization. Fits the selected GP, then evaluates and refits. EI (Expected Improvement) for one objective; EHVI (Expected Hypervolume Improvement) for multiple objectives.");
                     ui.horizontal(|ui| {
                         ui.label("Initial random trials:");
                         ui.add(
@@ -300,18 +316,21 @@ pub fn show(ctx: &egui::Context, state: &mut GhOptDialogState) -> Option<GhxOptA
                         format!(
                             "Up to {total} evaluations (stops early once the hypervolume / best \
                              value improves by less than {:.1}% for {} iterations). Each iteration \
-                             fits a surrogate (Auto model) and evaluates the best candidates \
+                              fits the selected GP and evaluates the best candidates \
                              (EI / EHVI).",
                             state.adaptive_min_improvement_pct, state.adaptive_patience
                         )
                     } else {
                         format!(
-                            "Up to {total} evaluations. Each iteration fits a surrogate (Auto \
-                             model) and evaluates the most promising candidates (EI / EHVI)."
+                            "Up to {total} evaluations. Each iteration fits the selected GP \
+                             and evaluates the most promising candidates (EI / EHVI)."
                         )
                     };
                     ui.label(RichText::new(hint).color(crate::theme::TEXT_SECONDARY()));
                 }
+            }
+            if state.problem.objectives.len() != 1 {
+                ui.label("CMA-ES is unavailable: it supports exactly one objective.");
             }
             ui.horizontal(|ui| {
                 ui.label("Seed:");
@@ -413,5 +432,68 @@ mod tests {
     fn default_state_has_no_maximize_flags_set() {
         let state = make_state();
         assert_eq!(state.maximize, vec![false, false]);
+    }
+
+    #[test]
+    fn rendered_method_labels_and_hints_are_explicit_and_safe() {
+        use crate::state::app_state::GhSamplerChoice;
+        for method in GhSamplerChoice::ALL {
+            let ctx = egui::Context::default();
+            let mut state = make_state();
+            state.sampler = method;
+            for _ in 0..2 {
+                let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    show(ui.ctx(), &mut state);
+                });
+            }
+            let output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1200.0, 1600.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    show(ui.ctx(), &mut state);
+                },
+            );
+            let text = output
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::Shape::Text(t) => Some(t.galley.text()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(text.contains(method.label()), "{text}");
+            assert!(
+                !text.contains("Adaptive") && !text.contains("Auto model"),
+                "{text}"
+            );
+            match method {
+                GhSamplerChoice::CmaEs => {
+                    assert!(text.contains("exactly one objective"), "{text}");
+                    assert!(text.contains("Up to 41 evaluations"), "{text}");
+                    assert!(text.contains("normalized sigma = 0.3"), "{text}");
+                }
+                GhSamplerChoice::BoGpFitc | GhSamplerChoice::BoGpVfe => {
+                    assert!(text.contains("BO = Bayesian optimization"), "{text}");
+                    assert!(
+                        text.contains("EI (Expected Improvement) for one objective"),
+                        "{text}"
+                    );
+                    assert!(
+                        text.contains(
+                            "EHVI (Expected Hypervolume Improvement) for multiple objectives"
+                        ),
+                        "{text}"
+                    );
+                    assert!(text.contains("selected GP"), "{text}");
+                }
+                _ => {}
+            }
+        }
     }
 }

@@ -108,13 +108,14 @@ fn gh_compute_prefs_capture_and_apply_roundtrip() {
     first.compute_port = 9900;
     first.api_key = "secret".to_string();
     first.max_parallel = 8;
-    first.sampler = GhSamplerChoice::Adaptive;
+    first.sampler = GhSamplerChoice::BoGpVfe;
     first.adaptive_initial = 20;
     first.adaptive_batch = 6;
     first.adaptive_iterations = 3;
     first.n_trials = 123;
     first.population_size = 32;
     first.generations = 5;
+    first.cma_generations = 17;
     first.seed = 7;
 
     let prefs = GhComputePrefs::capture(&first);
@@ -128,13 +129,14 @@ fn gh_compute_prefs_capture_and_apply_roundtrip() {
     assert_eq!(second.compute_port, 9900);
     assert_eq!(second.api_key, "secret");
     assert_eq!(second.max_parallel, 8);
-    assert_eq!(second.sampler, GhSamplerChoice::Adaptive);
+    assert_eq!(second.sampler, GhSamplerChoice::BoGpVfe);
     assert_eq!(second.adaptive_initial, 20);
     assert_eq!(second.adaptive_batch, 6);
     assert_eq!(second.adaptive_iterations, 3);
     assert_eq!(second.n_trials, 123);
     assert_eq!(second.population_size, 32);
     assert_eq!(second.generations, 5);
+    assert_eq!(second.cma_generations, 17);
     assert_eq!(second.seed, 7);
     // Per-file values stay derived from the new path.
     assert!(second.study_name.starts_with("other-"));
@@ -150,6 +152,7 @@ fn gh_compute_prefs_apply_clamps_invalid_values() {
         n_trials: 0,
         population_size: 0,
         generations: 0,
+        cma_generations: 0,
         ..GhComputePrefs::default()
     };
     let mut dialog = GhOptDialogState::new(
@@ -162,6 +165,62 @@ fn gh_compute_prefs_apply_clamps_invalid_values() {
     assert_eq!(dialog.n_trials, 1);
     assert_eq!(dialog.population_size, 1);
     assert_eq!(dialog.generations, 1);
+    assert_eq!(dialog.cma_generations, 1);
+}
+
+#[test]
+fn gh_methods_labels_restrictions_and_persisted_settings() {
+    assert_eq!(
+        GhSamplerChoice::ALL.map(|method| method.label()),
+        ["NSGA-II", "CMA-ES", "BO-GP-FITC", "BO-GP-VFE", "Random"]
+    );
+    use tunny_core::gh::GhSampler;
+    assert_eq!(
+        GhSamplerChoice::ALL.map(|method| method.to_core()),
+        [
+            GhSampler::Nsga2,
+            GhSampler::CmaEs,
+            GhSampler::BoGpFitc,
+            GhSampler::BoGpVfe,
+            GhSampler::Random
+        ]
+    );
+    for method in GhSamplerChoice::ALL {
+        assert!(method.supports_objectives(1));
+        assert_eq!(
+            method.supports_objectives(2),
+            method != GhSamplerChoice::CmaEs
+        );
+        let mut dialog = GhOptDialogState::new(
+            PathBuf::from("model.ghx"),
+            String::new(),
+            make_gh_problem(1),
+        );
+        dialog.sampler = method;
+        dialog.cma_generations = 17;
+        dialog.adaptive_initial = 23;
+        dialog.adaptive_batch = 7;
+        dialog.adaptive_iterations = 9;
+        dialog.adaptive_early_stop = true;
+        dialog.adaptive_patience = 5;
+        dialog.adaptive_min_improvement_pct = 2.5;
+        let json = serde_json::to_string(&GhComputePrefs::capture(&dialog)).unwrap();
+        let prefs: GhComputePrefs = serde_json::from_str(&json).unwrap();
+        prefs.apply_to(&mut dialog);
+        assert_eq!(dialog.sampler, method);
+        assert_eq!(dialog.cma_generations, 17);
+        assert_eq!(
+            (
+                dialog.adaptive_initial,
+                dialog.adaptive_batch,
+                dialog.adaptive_iterations
+            ),
+            (23, 7, 9)
+        );
+        assert!(dialog.adaptive_early_stop);
+        assert_eq!(dialog.adaptive_patience, 5);
+        assert_eq!(dialog.adaptive_min_improvement_pct, 2.5);
+    }
 }
 
 /// Serde round-trip with `#[serde(default)]`: an older stored blob with

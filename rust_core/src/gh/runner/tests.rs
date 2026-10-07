@@ -286,3 +286,284 @@ fn direction_mismatch_is_rejected() {
     cfg.directions.pop();
     assert!(prepare_gh_run(&journal, &problem, &cfg).is_err());
 }
+
+fn single_problem() -> GhProblem {
+    let mut problem = extract_problem(&sample_ghx()).unwrap();
+    problem.objectives.truncate(1);
+    problem
+}
+
+#[test]
+fn cma_rejects_multi_and_zero_generations_before_creating_journal() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = dir.path().join("run.log");
+    let mut cfg = test_cfg(GhSampler::CmaEs);
+    let problem = extract_problem(&sample_ghx()).unwrap();
+    assert!(prepare_gh_run(&journal, &problem, &cfg)
+        .err()
+        .unwrap()
+        .contains("exactly one objective"));
+    assert!(!journal.exists());
+    cfg.directions.truncate(1);
+    cfg.cma_generations = 0;
+    assert!(prepare_gh_run(&journal, &single_problem(), &cfg)
+        .err()
+        .unwrap()
+        .contains("generations"));
+    assert!(!journal.exists());
+}
+
+#[test]
+fn cma_budget_seed_bounds_precision_start_and_constraint_journal() {
+    let problem = single_problem();
+    let mut cfg = test_cfg(GhSampler::CmaEs);
+    cfg.directions.truncate(1);
+    cfg.cma_generations = 3;
+    let run = || {
+        let dir = tempfile::tempdir().unwrap();
+        let journal = dir.path().join("run.log");
+        let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
+        let progress = FitProgress::new();
+        let seen = Mutex::new(Vec::new());
+        let eval = FnEvaluator(|v: &[f64]| {
+            seen.lock().unwrap().push(v.to_vec());
+            Ok(GhEvaluation {
+                objectives: vec![v[0] + v[1]],
+                constraints: vec![v[0] - 8.0],
+                attributes: vec![Some(GhAttrValue::Number(v[0] * v[1]))],
+            })
+        });
+        let summary = run_prepared(&prep, &problem, &eval, &cfg, &progress).unwrap();
+        assert_eq!(summary.completed, 1 + 6 * 3);
+        assert_eq!(summary.failed, 0);
+        assert_eq!(progress.snapshot().total, 19);
+        assert_eq!(progress.snapshot().done, 19);
+        let seen = seen.into_inner().unwrap();
+        assert_eq!(seen[0], denormalize(&problem, &normalize_current(&problem)));
+        let (_, df, _) = parse_single_study(&std::fs::read(&journal).unwrap(), 0).unwrap();
+        let span = df.get_numeric_column("span").unwrap().to_vec();
+        let count = df.get_numeric_column("count").unwrap().to_vec();
+        let objectives = df.get_numeric_column("weight").unwrap().to_vec();
+        let constraints = df.get_numeric_column("c1").unwrap().to_vec();
+        let area = df.get_numeric_column("area").unwrap().to_vec();
+        for i in 0..df.row_count() {
+            assert!((3.0..=12.0).contains(&span[i]));
+            assert!((1.0..=10.0).contains(&count[i]));
+            assert_eq!(count[i], count[i].round());
+            assert_eq!(span[i], round_variable(&problem.variables[0], span[i]));
+            assert!((objectives[i] - span[i] - count[i]).abs() < 1e-9);
+            assert!((constraints[i] - (span[i] - 8.0)).abs() < 1e-9);
+            assert!((area[i] - span[i] * count[i]).abs() < 1e-9);
+        }
+        assert!(constraints.iter().any(|c| *c > 0.0));
+        let mut points = seen;
+        points.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        points
+    };
+    assert_eq!(run(), run());
+}
+
+#[test]
+fn cma_minimizes_and_maximizes_real_objective() {
+    let mut problem = single_problem();
+    problem.constraints.clear();
+    problem.attributes.clear();
+    for direction in [
+        OptimizationDirection::Minimize,
+        OptimizationDirection::Maximize,
+    ] {
+        let cfg = GhRunConfig {
+            sampler: GhSampler::CmaEs,
+            directions: vec![direction.clone()],
+            cma_generations: 10,
+            ..GhRunConfig::default()
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let journal = dir.path().join("run.log");
+        let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
+        let eval = FnEvaluator(|v: &[f64]| {
+            Ok(GhEvaluation {
+                objectives: vec![v[0]],
+                constraints: vec![],
+                attributes: vec![],
+            })
+        });
+        run_prepared(&prep, &problem, &eval, &cfg, &FitProgress::new()).unwrap();
+        let (_, df, _) = parse_single_study(&std::fs::read(journal).unwrap(), 0).unwrap();
+        let ys = df.get_numeric_column("weight").unwrap().to_vec();
+        match direction {
+            OptimizationDirection::Minimize => assert!(ys.iter().any(|y| *y <= 3.1)),
+            OptimizationDirection::Maximize => assert!(ys.iter().any(|y| *y >= 11.9)),
+        }
+    }
+}
+
+#[test]
+fn cma_cancellation_records_only_in_flight_trial() {
+    let problem = single_problem();
+    let mut cfg = test_cfg(GhSampler::CmaEs);
+    cfg.directions.truncate(1);
+    for cancel_before in [true, false] {
+        let dir = tempfile::tempdir().unwrap();
+        let journal = dir.path().join("run.log");
+        let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
+        let progress = FitProgress::new();
+        if cancel_before {
+            progress.request_cancel();
+        }
+        let eval = FnEvaluator(|v: &[f64]| {
+            progress.request_cancel();
+            Ok(GhEvaluation {
+                objectives: vec![v[0]],
+                constraints: vec![-1.0],
+                attributes: vec![None],
+            })
+        });
+        let summary = run_prepared(&prep, &problem, &eval, &cfg, &progress).unwrap();
+        assert_eq!(summary.stop_reason, GhStopReason::Cancelled);
+        assert_eq!(summary.completed, usize::from(!cancel_before));
+        let (meta, _, _) = parse_single_study(&std::fs::read(journal).unwrap(), 0).unwrap();
+        assert_eq!(meta.total_trials, u32::from(!cancel_before));
+    }
+}
+
+#[test]
+fn cma_evaluator_and_invalid_results_record_failures() {
+    let problem = single_problem();
+    let mut cfg = test_cfg(GhSampler::CmaEs);
+    cfg.directions.truncate(1);
+    cfg.cma_generations = 1;
+    for mode in 0..5 {
+        let dir = tempfile::tempdir().unwrap();
+        let journal = dir.path().join("run.log");
+        let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
+        let eval = FnEvaluator(|_: &[f64]| {
+            if mode == 0 {
+                return Err("mock evaluator failure".to_string());
+            }
+            Ok(GhEvaluation {
+                objectives: if mode == 1 {
+                    vec![]
+                } else if mode == 2 {
+                    vec![f64::NAN]
+                } else {
+                    vec![1.0]
+                },
+                constraints: if mode == 3 { vec![] } else { vec![0.0] },
+                attributes: if mode == 4 { vec![] } else { vec![None] },
+            })
+        });
+        let summary = run_prepared(&prep, &problem, &eval, &cfg, &FitProgress::new()).unwrap();
+        assert_eq!(summary.completed, 0);
+        assert_eq!(summary.failed, 7);
+        let (_, _, extras) = parse_single_study(&std::fs::read(journal).unwrap(), 0).unwrap();
+        assert_eq!(extras.trials.len(), 7);
+        assert!(extras
+            .trials
+            .iter()
+            .all(|t| t.state == crate::data::extras::TrialState::Fail));
+    }
+}
+
+#[test]
+fn cma_journal_open_error_is_returned() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = test_cfg(GhSampler::CmaEs);
+    cfg.directions.truncate(1);
+    assert!(prepare_gh_run(dir.path(), &single_problem(), &cfg).is_err());
+}
+
+#[test]
+fn cma_journal_write_error_aborts_without_evaluating() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = dir.path().join("run.log");
+    let mut cfg = test_cfg(GhSampler::CmaEs);
+    cfg.directions.truncate(1);
+    let problem = single_problem();
+    let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
+    prep.writer
+        .lock()
+        .unwrap()
+        .replace_file_for_test(std::fs::File::open(&journal).unwrap());
+    let calls = AtomicUsize::new(0);
+    let eval = FnEvaluator(|_: &[f64]| {
+        calls.fetch_add(1, Ordering::Relaxed);
+        Err("must not evaluate".to_string())
+    });
+    let error = run_prepared(&prep, &problem, &eval, &cfg, &FitProgress::new())
+        .err()
+        .unwrap();
+    assert!(error.contains("writing to the journal failed"), "{error}");
+    assert_eq!(calls.load(Ordering::Relaxed), 0);
+    let (meta, _, _) = parse_single_study(&std::fs::read(journal).unwrap(), 0).unwrap();
+    assert_eq!(meta.total_trials, 0);
+}
+
+#[test]
+fn cma_cancel_during_generation_stops_new_trials_and_preserves_journal() {
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .unwrap();
+    pool.install(|| {
+        let problem = single_problem();
+        let mut cfg = test_cfg(GhSampler::CmaEs);
+        cfg.directions.truncate(1);
+        let dir = tempfile::tempdir().unwrap();
+        let journal = dir.path().join("run.log");
+        let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
+        let progress = FitProgress::new();
+        let calls = AtomicUsize::new(0);
+        let eval = FnEvaluator(|v: &[f64]| {
+            if calls.fetch_add(1, Ordering::Relaxed) == 4 {
+                progress.request_cancel();
+            }
+            Ok(GhEvaluation {
+                objectives: vec![v[0]],
+                constraints: vec![-1.0],
+                attributes: vec![None],
+            })
+        });
+        let summary = run_prepared(&prep, &problem, &eval, &cfg, &progress).unwrap();
+        assert_eq!(summary.stop_reason, GhStopReason::Cancelled);
+        assert_eq!(summary.completed, 5);
+        assert_eq!(calls.load(Ordering::Relaxed), 5);
+        let (meta, _, extras) = parse_single_study(&std::fs::read(journal).unwrap(), 0).unwrap();
+        assert_eq!(meta.total_trials, 5);
+        assert!(extras
+            .trials
+            .iter()
+            .all(|t| t.state == crate::data::extras::TrialState::Complete));
+    });
+}
+
+#[test]
+fn cma_journal_finish_error_aborts_after_in_flight_evaluation() {
+    let problem = single_problem();
+    let mut cfg = test_cfg(GhSampler::CmaEs);
+    cfg.directions.truncate(1);
+    let dir = tempfile::tempdir().unwrap();
+    let journal = dir.path().join("run.log");
+    let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
+    let calls = AtomicUsize::new(0);
+    let eval = FnEvaluator(|v: &[f64]| {
+        calls.fetch_add(1, Ordering::Relaxed);
+        prep.writer
+            .lock()
+            .unwrap()
+            .replace_file_for_test(std::fs::File::open(&journal).unwrap());
+        Ok(GhEvaluation {
+            objectives: vec![v[0]],
+            constraints: vec![-1.0],
+            attributes: vec![None],
+        })
+    });
+    let error = run_prepared(&prep, &problem, &eval, &cfg, &FitProgress::new())
+        .err()
+        .unwrap();
+    assert!(error.contains("writing to the journal failed"), "{error}");
+    assert_eq!(calls.load(Ordering::Relaxed), 1);
+    let (meta, _, _) = parse_single_study(&std::fs::read(journal).unwrap(), 0).unwrap();
+    assert_eq!(meta.total_trials, 1);
+    assert_eq!(meta.completed_trials, 0);
+}
