@@ -13,6 +13,10 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- Grasshopper BO-GP-FITC and BO-GP-VFE now report the original journal write
+  failure instead of an insufficient-successful-evaluations or surrogate-fit
+  error, preserving already written successful and started trial records.
+
 - Rank Plot 3D now fills the remaining chart area and resizes with the widget,
   with its vertical Best/Worst legend overlaid inside the canvas's right edge.
 

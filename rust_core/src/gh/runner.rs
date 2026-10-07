@@ -121,6 +121,7 @@ pub fn run_prepared(
 
     let mut adaptive_diagnostics = Vec::new();
     let mut stop_reason = GhStopReason::Completed;
+    let mut adaptive_outcome = None;
 
     match cfg.sampler {
         GhSampler::Random => {
@@ -168,9 +169,8 @@ pub fn run_prepared(
             );
         }
         GhSampler::BoGpFitc | GhSampler::BoGpVfe => {
-            let outcome = super::adaptive::run_loop(&recorder, problem, cfg, progress)?;
-            adaptive_diagnostics = outcome.diagnostics;
-            stop_reason = outcome.stop_reason;
+            // Check the recorder's original journal error before propagating a fit error.
+            adaptive_outcome = Some(super::adaptive::run_loop(&recorder, problem, cfg, progress));
         }
     }
 
@@ -183,6 +183,11 @@ pub fn run_prepared(
         return Err(format!(
             "Aborted because writing to the journal failed: {e}"
         ));
+    }
+    if let Some(outcome) = adaptive_outcome {
+        let outcome = outcome?;
+        adaptive_diagnostics = outcome.diagnostics;
+        stop_reason = outcome.stop_reason;
     }
     // Cancellation overrides the sampler's own stop reason.
     if progress.is_cancelled() {

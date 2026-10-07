@@ -168,6 +168,10 @@ pub(super) fn run_loop(
 
     // ── Iterate: fit → suggest → evaluate → measure ─────────────────────────
     for iteration in 1..=iterations {
+        // The runner reports the stored journal error; do not fit after a failed write.
+        if recorder.has_io_error() {
+            break;
+        }
         if progress.is_cancelled() {
             stop_reason = GhStopReason::Cancelled;
             break;
