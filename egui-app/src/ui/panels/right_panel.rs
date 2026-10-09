@@ -94,6 +94,9 @@ fn chart_icon(id: &ChartId) -> egui::ImageSource<'static> {
         ChartId::ArtifactGallery => {
             egui::include_image!("../../../assets/widget_icons/artifact_gallery.svg")
         }
+        ChartId::ArtifactAnimation => {
+            egui::include_image!("../../../assets/widget_icons/artifact_animation.svg")
+        }
         ChartId::RadarComparison => {
             egui::include_image!("../../../assets/widget_icons/radar_comparison.svg")
         }
@@ -285,6 +288,7 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
                 crate::theme::GROUP_ARTIFACTS,
                 &[
                     PanelItem::Chart(ChartId::ArtifactGallery),
+                    PanelItem::Chart(ChartId::ArtifactAnimation),
                     PanelItem::TrialTable,
                 ],
             ),

@@ -34,7 +34,7 @@ enum CanvasAction {
     Resize(u64, f32, f32),
     Remove(u64),
     /// Maximizes the widget's display via a double-click on the bar
-    Maximize(PanelItem),
+    Maximize(PanelItem, u64),
 }
 
 /// Draws the freely-placed canvas.
@@ -302,7 +302,7 @@ pub fn show_canvas_view(
                     actions.push(CanvasAction::Remove(item.id));
                 }
                 if let CellToolbarAction::Maximize(target) = &tb_action {
-                    actions.push(CanvasAction::Maximize(target.clone()));
+                    actions.push(CanvasAction::Maximize(target.clone(), item.id));
                 }
             });
 
@@ -357,7 +357,14 @@ pub fn show_canvas_view(
                 }
             }
             CanvasAction::Remove(id) => layout.canvas.remove(id),
-            CanvasAction::Maximize(target) => widgets.maximized_item = Some(target),
+            CanvasAction::Maximize(target, owner) => {
+                widgets.maximized_animation_owner = matches!(
+                    target,
+                    PanelItem::Chart(crate::state::layout_state::ChartId::ArtifactAnimation)
+                )
+                .then_some(owner);
+                widgets.maximized_item = Some(target);
+            }
         }
     }
     if let Some((it, wp)) = pending_add {

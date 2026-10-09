@@ -97,7 +97,7 @@ pub fn build_chart_csv(
         ChartId::BoxPlot => build_box_plot_csv(app_state, widgets),
         ChartId::ViolinPlot => build_violin_plot_csv(app_state, widgets),
         ChartId::CorrelationMatrix => build_correlation_matrix_csv(app_state, widgets),
-        ChartId::ArtifactGallery => None,
+        ChartId::ArtifactGallery | ChartId::ArtifactAnimation => None,
         ChartId::RadarComparison => build_radar_comparison_csv(app_state, widgets),
         ChartId::ComparisonTable => build_comparison_table_csv(app_state, widgets),
         ChartId::PcaBiplot => build_pca_biplot_csv(widgets),
@@ -265,7 +265,7 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
                 && (widgets.correlation_matrix.include_params
                     || widgets.correlation_matrix.include_objectives)
         }
-        ChartId::ArtifactGallery => false,
+        ChartId::ArtifactGallery | ChartId::ArtifactAnimation => false,
         ChartId::RadarComparison => app_state.current_study.as_ref().is_some_and(|s| {
             !app_state.pinned_trials.is_empty()
                 && !crate::ui::widgets::radar_comparison::build_axes(
@@ -382,6 +382,7 @@ pub fn csv_export_filename(chart_id: &ChartId) -> String {
         ChartId::ViolinPlot => "violin_plot",
         ChartId::CorrelationMatrix => "correlation_matrix",
         ChartId::ArtifactGallery => "artifact_gallery",
+        ChartId::ArtifactAnimation => "artifact_animation",
         ChartId::RadarComparison => "radar_comparison",
         ChartId::ComparisonTable => "comparison_table",
         ChartId::PcaBiplot => "pca_biplot",

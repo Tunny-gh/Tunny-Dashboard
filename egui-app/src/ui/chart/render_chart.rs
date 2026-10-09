@@ -9,6 +9,10 @@ pub(crate) fn render_chart(
     widgets: &mut WidgetStates,
     chart_id: &ChartId,
 ) {
+    if matches!(chart_id, ChartId::ArtifactAnimation) {
+        widgets.artifact_animation.show(ui, app_state);
+        return;
+    }
     if app_state.current_study.is_none() {
         return;
     }
@@ -48,7 +52,8 @@ pub(crate) fn render_chart(
         ChartId::ParetoScatter2D
         | ChartId::ParetoScatter3D
         | ChartId::ClusterScatter3D
-        | ChartId::ArtifactGallery => {
+        | ChartId::ArtifactGallery
+        | ChartId::ArtifactAnimation => {
             unreachable!()
         }
         ChartId::OptimizationHistory => {

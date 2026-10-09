@@ -254,6 +254,7 @@ impl MessageHandler {
                 ..
             } => {
                 app_state.artifact_map = trial_artifacts;
+                app_state.artifact_revision = app_state.artifact_revision.wrapping_add(1);
                 app_state.artifacts_dir = Some(artifacts_dir);
             }
             AppMessage::CsvArtifacts {
@@ -273,6 +274,7 @@ impl MessageHandler {
                         .to_path_buf()
                 });
                 app_state.artifact_map = crate::io::flat_csv::build_artifact_map(&root, &images);
+                app_state.artifact_revision = app_state.artifact_revision.wrapping_add(1);
                 app_state.artifacts_dir = Some(root);
                 app_state.csv_images = Some(images);
             }
