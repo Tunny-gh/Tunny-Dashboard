@@ -196,6 +196,23 @@ yet (including clean environments and CI). Pass the undocumented
 cargo run -p tunny-desktop -- --no-beta-notice -i path/to/study.db
 ```
 
+Artifact Animation also has an opt-in native wgpu screenshot/GIF check. It opens
+a test window and validates frame order, dimensions, timing, and content-only
+cropping through the production capture path. Run it on an interactive desktop
+(PowerShell example):
+
+```powershell
+$env:TUNNY_NATIVE_CAPTURE_CHECK = "1"
+cargo test -p tunny-desktop --locked --profile ci-test --test artifact_animation_native
+Remove-Item Env:\TUNNY_NATIVE_CAPTURE_CHECK
+```
+
+Optional `TUNNY_NATIVE_CAPTURE_FRAMES` (default 3) and
+`TUNNY_NATIVE_CAPTURE_SCALE` (default 1) exercise longer sequences and canvas
+scaling. `TUNNY_NATIVE_CAPTURE_OUTPUT` keeps the generated GIF at a chosen path;
+otherwise the test uses a temporary directory. Without the opt-in variable, the
+native check is skipped so the normal workspace test command works headlessly.
+
 ## Documentation
 
 `docs/` is organized by purpose, not by feature:

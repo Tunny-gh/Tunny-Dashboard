@@ -478,6 +478,9 @@ pub struct WidgetStates {
     /// The table widget that unifies the trial list / cluster assignment / MCDM ranking.
     pub trial_table: TrialTable,
     pub artifact_gallery: ArtifactGallery,
+    pub artifact_animation: crate::ui::widgets::artifact_animation::ArtifactAnimation,
+    #[serde(skip)]
+    pub animation_export: crate::ui::widgets::artifact_animation::export::ExportController,
     pub slice_chart: SliceChart,
     // TASK-1504: MCDM scatter plot widget
     pub scatter_chart: McdmScatterChart,
@@ -528,6 +531,9 @@ pub struct WidgetStates {
     /// The widget currently maximized via double-click (None = normal display)
     #[serde(skip)]
     pub maximized_item: Option<crate::state::layout_state::PanelItem>,
+    /// Artifact Animation keeps its initiating instance when maximized.
+    #[serde(skip)]
+    pub maximized_animation_owner: Option<u64>,
     /// State of the open-source license display modal
     #[serde(skip)]
     pub license_modal: LicenseModalState,

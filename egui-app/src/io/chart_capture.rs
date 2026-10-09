@@ -1,6 +1,118 @@
 use egui::ColorImage;
 use image::RgbaImage;
 
+/// Encode a bounded stream; never collect the GIF or all RGBA frames in memory.
+/// Disconnect, cancellation, size mismatch, and encoding errors do not publish.
+pub(crate) fn encode_gif_stream(
+    path: &std::path::Path,
+    frames: std::sync::mpsc::Receiver<RgbaImage>,
+    count: usize,
+    fps: u32,
+    looping: bool,
+    cancel: &std::sync::atomic::AtomicBool,
+    mut acknowledge: impl FnMut(usize),
+) -> Result<bool, String> {
+    use std::sync::atomic::Ordering;
+    if count == 0 || fps == 0 {
+        return Err("No GIF frames or invalid FPS".into());
+    }
+    let mut output = crate::io::file::AtomicOutput::create(path)
+        .map_err(|e| format!("Cannot create GIF: {e}"))?;
+    let file = output.file.try_clone().map_err(|e| e.to_string())?;
+    let write_error = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let writer = GifWriter {
+        file,
+        error: write_error.clone(),
+    };
+    let mut encoder = image::codecs::gif::GifEncoder::new(writer);
+    if looping {
+        encoder
+            .set_repeat(image::codecs::gif::Repeat::Infinite)
+            .map_err(|e| e.to_string())?;
+    }
+    let mut dimensions = None;
+    for index in 0..count {
+        let frame = loop {
+            if cancel.load(Ordering::Acquire) {
+                return Ok(false);
+            }
+            match frames.recv_timeout(std::time::Duration::from_millis(50)) {
+                Ok(frame) => break frame,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err("GIF capture interrupted".into())
+                }
+            }
+        };
+        let size = frame.dimensions();
+        if size.0 == 0
+            || size.1 == 0
+            || size.0 > u16::MAX as u32
+            || size.1 > u16::MAX as u32
+            || dimensions.is_some_and(|d| d != size)
+        {
+            return Err(
+                "GIF frames must have the same nonzero dimensions (at most 65535 pixels)".into(),
+            );
+        }
+        dimensions = Some(size);
+        encoder
+            .encode_frame(image::Frame::from_parts(
+                frame,
+                0,
+                0,
+                image::Delay::from_numer_denom_ms(1000, fps),
+            ))
+            .map_err(|e| format!("GIF encode error: {e}"))?;
+        if index + 1 < count {
+            acknowledge(index);
+        }
+    }
+    // The image encoder finalizes in Drop; record even trailer-write failures.
+    drop(encoder);
+    if let Some(error) = write_error.lock().unwrap().take() {
+        return Err(format!("GIF write error: {error}"));
+    }
+    if cancel.load(Ordering::Acquire) {
+        return Ok(false);
+    }
+    // Keep cancellation available during all encoding, trailer writes, and sync
+    // I/O. The final acknowledgment authorizes only the atomic rename.
+    output.sync().map_err(|e| format!("GIF sync error: {e}"))?;
+    if cancel.load(Ordering::Acquire) {
+        return Ok(false);
+    }
+    acknowledge(count - 1);
+    if cancel.load(Ordering::Acquire) {
+        return Ok(false);
+    }
+    output
+        .publish()
+        .map_err(|e| format!("Cannot publish GIF: {e}"))?;
+    Ok(true)
+}
+
+struct GifWriter {
+    file: std::fs::File,
+    error: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+}
+impl std::io::Write for GifWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        let result = self.file.write(bytes);
+        if let Err(error) = &result {
+            *self.error.lock().unwrap() = Some(error.to_string());
+        }
+        result
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        let result = self.file.flush();
+        if let Err(error) = &result {
+            *self.error.lock().unwrap() = Some(error.to_string());
+        }
+        result
+    }
+}
+
 /// Crop a viewport `ColorImage` to `crop_rect` (logical coords) using `scale`
 /// (pixels-per-point) to convert to physical pixels.
 /// Returns `None` if the rect falls entirely outside the image.
@@ -156,5 +268,84 @@ mod tests {
         let img = RgbaImage::new(1, 1);
         let bytes = encode_png(img).unwrap();
         assert!(!bytes.is_empty(), "PNG output must not be silent empty");
+    }
+
+    #[test]
+    fn gif_stream_roundtrip_has_order_dimensions_timing_and_atomic_publication() {
+        use image::AnimationDecoder;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("animation.gif");
+        std::fs::write(&path, b"previous output").unwrap();
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let colors = [[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255]];
+        std::thread::spawn(move || {
+            for color in colors {
+                tx.send(RgbaImage::from_pixel(7, 5, image::Rgba(color)))
+                    .unwrap();
+            }
+        });
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let mut acknowledged = Vec::new();
+        assert!(encode_gif_stream(&path, rx, 3, 5, true, &cancel, |i| {
+            assert_eq!(std::fs::read(&path).unwrap(), b"previous output");
+            acknowledged.push(i);
+        })
+        .unwrap());
+        assert_eq!(acknowledged, vec![0, 1, 2]);
+        let decoder = image::codecs::gif::GifDecoder::new(std::io::BufReader::new(
+            std::fs::File::open(&path).unwrap(),
+        ))
+        .unwrap();
+        let frames = decoder.into_frames().collect_frames().unwrap();
+        assert_eq!(frames.len(), 3);
+        for (frame, color) in frames.iter().zip(colors) {
+            assert_eq!(frame.buffer().dimensions(), (7, 5));
+            assert_eq!(frame.buffer().get_pixel(3, 2).0, color);
+            assert_eq!(frame.delay().numer_denom_ms(), (200, 1));
+        }
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn gif_cancel_interruption_bad_dimensions_and_write_error_do_not_publish() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        for mode in ["cancel", "disconnect", "dimensions", "write"] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("out.gif");
+            if mode == "write" {
+                std::fs::create_dir(&path).unwrap();
+            } else {
+                std::fs::write(&path, b"original").unwrap();
+            }
+            let (tx, rx) = std::sync::mpsc::sync_channel(2);
+            tx.send(RgbaImage::new(2, 3)).unwrap();
+            if mode == "dimensions" {
+                tx.send(RgbaImage::new(3, 2)).unwrap();
+            }
+            drop(tx);
+            let cancel = AtomicBool::new(false);
+            let result = encode_gif_stream(
+                &path,
+                rx,
+                if mode == "write" { 1 } else { 2 },
+                3,
+                false,
+                &cancel,
+                |_| {
+                    if mode == "cancel" {
+                        cancel.store(true, Ordering::Release);
+                    }
+                },
+            );
+            if mode == "cancel" {
+                assert!(!result.unwrap());
+            } else {
+                assert!(result.is_err(), "{mode} must fail");
+            }
+            if mode != "write" {
+                assert_eq!(std::fs::read(&path).unwrap(), b"original");
+            }
+            assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+        }
     }
 }

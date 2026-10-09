@@ -180,6 +180,7 @@ pub(crate) fn show_maximized_modal(
     ctx: &egui::Context,
     app_state: &mut AppState,
     widgets: &mut WidgetStates,
+    canvas_widgets: &mut std::collections::HashMap<u64, WidgetStates>,
     tx: &mpsc::SyncSender<AppMessage>,
 ) {
     let Some(item) = widgets.maximized_item.clone() else {
@@ -187,7 +188,8 @@ pub(crate) fn show_maximized_modal(
     };
 
     let screen = ctx.content_rect();
-    let mut close = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    let mut close =
+        !widgets.animation_export.active() && ctx.input(|i| i.key_pressed(egui::Key::Escape));
 
     // Dim the background (click to close). Created before the window so it sits behind it.
     egui::Area::new(egui::Id::new("maximized_modal_dim"))
@@ -219,11 +221,30 @@ pub(crate) fn show_maximized_modal(
         .open(&mut open)
         .fixed_rect(win_rect)
         .show(ctx, |ui| {
-            render_panel_item_body(ui, app_state, widgets, &item, "maximized_modal", tx);
+            if matches!(
+                item,
+                PanelItem::Chart(crate::state::layout_state::ChartId::ArtifactAnimation)
+            ) {
+                if let Some(owner) = widgets.maximized_animation_owner {
+                    if let Some(instance) = canvas_widgets.get_mut(&owner) {
+                        render_panel_item_body(
+                            ui,
+                            app_state,
+                            instance,
+                            &item,
+                            ("maximized_animation", owner),
+                            tx,
+                        );
+                    }
+                }
+            } else {
+                render_panel_item_body(ui, app_state, widgets, &item, "maximized_modal", tx);
+            }
         });
 
     if close || !open {
         widgets.maximized_item = None;
+        widgets.maximized_animation_owner = None;
     }
 }
 

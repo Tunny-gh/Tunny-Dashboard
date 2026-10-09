@@ -64,6 +64,7 @@ pub use stats::violin_plot;
 mod common;
 pub use common::about_modal;
 pub use common::artifact_gallery;
+pub mod artifact_animation;
 pub use common::beta_notice_modal;
 pub use common::cluster_table;
 pub use common::convergence_card;

@@ -11,6 +11,14 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ## [Unreleased]
 
+### Added
+
+- Artifact Animation is an independently configurable canvas widget for PNG/JPEG
+  trial artifacts, with Study-local playback, optional trial values and cached
+  trial-prefix Pareto/history plots on fixed axes. Export GIF captures the same
+  content presentation through a protected snapshot, with responsive cancellation
+  and background encoding; controls and surrounding panels are excluded.
+
 ### Fixed
 
 - Grasshopper BO-GP-FITC and BO-GP-VFE now report the original journal write

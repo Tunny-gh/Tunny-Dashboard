@@ -311,6 +311,7 @@ impl TunnyApp {
 
     fn request_artifact_scan(&mut self, base_dir: std::path::PathBuf) {
         self.latest_artifact_scan_id += 1;
+        self.app_state.artifact_revision = self.app_state.artifact_revision.wrapping_add(1);
         // Record the effective folder immediately, before the scan completes.
         // Only a GUI selection sets explicit_artifact_root; discovery stays storage-scoped.
         self.app_state.artifacts_dir = Some(base_dir.clone());
@@ -643,6 +644,12 @@ impl eframe::App for TunnyApp {
         self.poll_messages(ctx);
         self.sync_window_title(ctx);
         self.handle_dropped_files(ctx);
+        self.widget_states.animation_export.logic(ctx);
+        if let Some((owner, result)) = self.widget_states.animation_export.take_completed() {
+            if let Some(widget) = self.canvas_widgets.get_mut(&owner) {
+                widget.artifact_animation.finish_export(result);
+            }
+        }
 
         // PNG capture flow: request screenshot on next frame, consume event when it arrives
         let cap = &mut self.widget_states.capture;
@@ -656,7 +663,13 @@ impl eframe::App for TunnyApp {
             let crop_rect = cap.pending_capture_rect;
             let event = ctx.input(|i| {
                 i.events.iter().find_map(|e| {
-                    if let egui::Event::Screenshot { image, .. } = e {
+                    if let egui::Event::Screenshot {
+                        image, user_data, ..
+                    } = e
+                    {
+                        if user_data.data.is_some() {
+                            return None;
+                        }
                         Some(image.clone())
                     } else {
                         None
@@ -720,6 +733,19 @@ impl eframe::App for TunnyApp {
                 self.beta_notice_ack = Some(APP_VERSION.to_owned());
             }
         }
+        for (&owner, widgets) in &mut self.canvas_widgets {
+            if let Some(request) = widgets.artifact_animation.take_export() {
+                let scale = if self.widget_states.maximized_animation_owner == Some(owner) {
+                    1.0
+                } else {
+                    self.layout.canvas.zoom
+                };
+                self.widget_states
+                    .animation_export
+                    .start(&ctx, owner, request, scale);
+            }
+        }
+        self.widget_states.animation_export.show(&ctx);
     }
 }
 

@@ -120,7 +120,7 @@ mod tests {
     #[test]
     fn chart_id_all_returns_all_variants() {
         let all = ChartId::all();
-        assert_eq!(all.len(), 36);
+        assert_eq!(all.len(), 37);
         assert!(all.contains(&ChartId::ParetoScatter2D));
         assert!(all.contains(&ChartId::ClusterScatter));
         assert!(all.contains(&ChartId::McdmRankChart));
@@ -129,6 +129,7 @@ mod tests {
         assert!(all.contains(&ChartId::SurrogateOpt));
         assert!(all.contains(&ChartId::Robustness));
         assert!(all.contains(&ChartId::ArtifactGallery));
+        assert!(all.contains(&ChartId::ArtifactAnimation));
         assert!(all.contains(&ChartId::RadarComparison));
         assert!(all.contains(&ChartId::ComparisonTable));
         assert!(all.contains(&ChartId::PcaBiplot));

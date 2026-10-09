@@ -87,3 +87,5 @@ order:
 | 0013 | [Preserve parameter distributions for grouping](0013-preserve-parameter-distributions-for-grouping.md) | Accepted | 2026-10-04 |
 | 0014 | [Preserve category identity and presence](0014-preserve-category-identity-and-presence.md) | Accepted | 2026-10-04 |
 | 0015 | [Explicit Grasshopper optimization methods](0015-explicit-grasshopper-optimization-methods.md) | Accepted | 2026-10-07 |
+| 0016 | [Artifact Animation export interaction](0016-artifact-animation-export-interaction.md) | Accepted | 2026-10-08 |
+| 0017 | [Artifact Animation frame resource ownership](0017-artifact-animation-frame-resource-ownership.md) | Accepted | 2026-10-08 |
