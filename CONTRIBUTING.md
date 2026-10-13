@@ -213,6 +213,19 @@ scaling. `TUNNY_NATIVE_CAPTURE_OUTPUT` keeps the generated GIF at a chosen path;
 otherwise the test uses a temporary directory. Without the opt-in variable, the
 native check is skipped so the normal workspace test command works headlessly.
 
+`TUNNY_NATIVE_CAPTURE_SKIP` (default 0) checks export sampling, including an
+appended final frame. Capture verifies the exact 330 ms default GIF delay.
+The same harness supports an opt-in Animation workload probe; see the
+[performance evaluation](docs/reports/2026-10-09_artifact-animation-followup-performance.md)
+for synthetic reproduction and the distinction between headless readiness and
+native playback measurements.
+
+Native workload measurements use event-driven repaint scheduling by default:
+only widget deadlines, worker completions, and normal framework events drive
+playback after the initial Play handoff. `TUNNY_ANIMATION_PERF_CONTINUOUS=1`
+explicitly enables the older continuous-redraw diagnostic; its timing does not
+verify idle deadline-driven preparation.
+
 ## Documentation
 
 `docs/` is organized by purpose, not by feature:

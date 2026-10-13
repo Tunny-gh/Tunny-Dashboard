@@ -1,9 +1,29 @@
 //! Standalone trial-artifact playback. Analysis never depends on image availability.
+mod cache;
 mod data;
 pub mod export;
+#[cfg(test)]
+#[allow(dead_code, reason = "Opt-in main-thread workload harness")]
+mod performance;
 mod presentation;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[allow(dead_code, reason = "Opt-in main-thread workload harness")]
+pub fn performance_check() {
+    performance::run();
+}
+#[cfg(test)]
+#[allow(dead_code, reason = "Opt-in main-thread workload harness")]
+fn configure_probe(w: &mut ArtifactAnimation) {
+    w.display_duration_ms = 100;
+}
+#[cfg(test)]
+#[allow(dead_code, reason = "Opt-in main-thread workload harness")]
+fn probe_stats(ctx: &egui::Context) -> String {
+    format!("cache={:?}", cache::shared(ctx).lock().unwrap().stats)
+}
 
 #[cfg(test)]
 #[allow(
@@ -55,6 +75,14 @@ impl<T: Send + 'static> Job<T> {
             }
         }
     }
+    fn cancelled(self) -> Option<Self> {
+        self.cancel.store(true, Ordering::Relaxed);
+        if self.poll().is_some() {
+            None
+        } else {
+            Some(self)
+        }
+    }
 }
 impl<T> Drop for Job<T> {
     fn drop(&mut self) {
@@ -64,51 +92,27 @@ impl<T> Drop for Job<T> {
 
 struct ReadyFrame {
     pub index: usize,
-    pub texture: egui::TextureHandle,
+    pub texture: Arc<egui::TextureHandle>,
     pub prefix: Arc<Prefix>,
 }
 
-/// Use the same image dependency and native egui Image/texture path as the gallery,
-/// but decode off-thread. Polling egui's globally locked URI loaders from a worker
-/// can deadlock against Context::has_pending_images on the UI thread.
+/// Prefix analysis is independent of image caching and runs off the UI thread.
 fn prepare(
     ctx: &egui::Context,
     data: Arc<Data>,
     index: usize,
     cached: Option<Arc<Prefix>>,
-) -> Job<ReadyFrame> {
-    let context = ctx.clone();
+) -> Job<Arc<Prefix>> {
     Job::spawn(ctx, move |cancel| {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("Cancelled".into());
+        }
         let frame = &data.frames[index];
-        let image = data::read_image(&frame.entry)?;
-        let side = context
-            .input(|i| i.max_texture_side)
-            .max(1)
-            .min(u32::MAX as usize) as u32;
-        let image = if image.width() > side || image.height() > side {
-            image.thumbnail(side, side)
-        } else {
-            image
-        };
-        let image = image.into_rgba8();
-        let size = [image.width() as usize, image.height() as usize];
-        let image = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
         let prefix = cached.unwrap_or_else(|| Arc::new(Prefix::new(&data, frame.number)));
         if cancel.load(Ordering::Relaxed) {
             return Err("Cancelled".into());
         }
-        let texture = context.load_texture(
-            "artifact-animation-frame",
-            image,
-            egui::TextureOptions::LINEAR,
-        );
-        // Owned TextureHandle drops free old-frame textures without evicting the
-        // gallery's independently cached URI or retaining every animation frame.
-        Ok(ReadyFrame {
-            index,
-            texture,
-            prefix,
-        })
+        Ok(prefix)
     })
 }
 
@@ -116,8 +120,13 @@ fn prepare(
 struct Runtime {
     key: Option<(usize, u64, u64, usize, Vec<bool>)>,
     mapping: Option<Job<Arc<Data>>>,
+    mapping_needed: bool,
     data: Option<Arc<Data>>,
-    loading: Option<Job<ReadyFrame>>,
+    loading: Option<Job<Arc<Prefix>>>,
+    prefix: Option<Arc<Prefix>>,
+    images: Option<cache::Client>,
+    image_size: [u32; 2],
+    sequence: Vec<usize>,
     loading_index: usize,
     ready: Option<ReadyFrame>,
     cache: PrefixCache,
@@ -131,22 +140,39 @@ struct Runtime {
     #[cfg(test)]
     content_size: Option<egui::Vec2>,
 }
+impl Runtime {
+    fn cancelled_prefix(&mut self) -> Option<Job<Arc<Prefix>>> {
+        // A sorter already running cannot be interrupted internally. Retain its
+        // slot across source resets until completion instead of spawning more.
+        self.loading.take().and_then(Job::cancelled)
+    }
+}
 
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ArtifactAnimation {
     pub artifact_index: usize,
-    pub fps: u32,
+    #[serde(deserialize_with = "deserialize_duration")]
+    pub display_duration_ms: u32,
+    pub export_skip: usize,
     pub looping: bool,
     pub presentation: Presentation,
     #[serde(skip)]
     runtime: Runtime,
 }
+fn normalize_duration(value: u32) -> u32 {
+    ((value.clamp(20, 10000) + 5) / 10) * 10
+}
+fn deserialize_duration<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u32, D::Error> {
+    use serde::Deserialize;
+    Ok(normalize_duration(u32::deserialize(d)?))
+}
 impl Default for ArtifactAnimation {
     fn default() -> Self {
         Self {
             artifact_index: 0,
-            fps: 3,
+            display_duration_ms: 330,
+            export_skip: 0,
             looping: true,
             presentation: Presentation::default(),
             runtime: Runtime::default(),
@@ -157,20 +183,48 @@ impl Default for ArtifactAnimation {
 impl ArtifactAnimation {
     pub fn show(&mut self, ui: &mut egui::Ui, app: &AppState) {
         if self.runtime.exporting {
+            if let Some(images) = &mut self.runtime.images {
+                images.suspend();
+            }
+            if let Some(job) = &self.runtime.loading {
+                job.cancel.store(true, Ordering::Relaxed);
+            }
             ui.label("GIF export in progress. Playback and settings are paused.");
             return;
         }
         let Some(study) = app.current_study.as_ref() else {
-            self.runtime = Runtime::default();
+            let had_source = self.runtime.key.is_some();
+            self.runtime = Runtime {
+                loading: self.runtime.cancelled_prefix(),
+                mapping: self.runtime.mapping.take().and_then(Job::cancelled),
+                ..Default::default()
+            };
+            if had_source {
+                cache::shared(ui.ctx()).lock().unwrap().invalidate((
+                    0,
+                    app.source_generation,
+                    app.artifact_revision,
+                ));
+            }
             ui.label("Select a Study to animate its PNG/JPEG artifacts.");
             return;
         };
         if app.study_streaming {
+            let had_source = self.runtime.key.is_some();
             self.runtime = Runtime {
+                loading: self.runtime.cancelled_prefix(),
+                mapping: self.runtime.mapping.take().and_then(Job::cancelled),
                 error: self.runtime.error.take(),
                 status: self.runtime.status.take(),
                 ..Default::default()
             };
+            if had_source {
+                cache::shared(ui.ctx()).lock().unwrap().invalidate((
+                    0,
+                    app.source_generation,
+                    app.artifact_revision,
+                ));
+            }
             ui.label("Loading Study… Animation becomes available after loading completes.");
             return;
         }
@@ -184,24 +238,34 @@ impl ArtifactAnimation {
             .unwrap_or(0)
             .saturating_sub(1);
         self.artifact_index = self.artifact_index.min(max_index);
-        self.fps = self.fps.clamp(1, 10);
-        let previous_fps = self.fps;
+        self.display_duration_ms = normalize_duration(self.display_duration_ms);
+        let previous_duration = self.display_duration_ms;
         ui.horizontal_wrapped(|ui| {
             ui.label("Artifact #:");
             ui.add(egui::DragValue::new(&mut self.artifact_index).range(0..=max_index));
-            ui.label("FPS:");
-            egui::ComboBox::from_id_salt("animation_fps")
-                .selected_text(self.fps.to_string())
-                .show_ui(ui, |ui| {
-                    for fps in [1, 3, 5, 10] {
-                        ui.selectable_value(&mut self.fps, fps, fps.to_string());
-                    }
-                });
+            ui.add(
+                egui::Slider::new(&mut self.display_duration_ms, 20..=10000)
+                    .logarithmic(true)
+                    .step_by(10.0)
+                    .show_value(false)
+                    .text("Display duration"),
+            );
+            ui.add(
+                egui::DragValue::new(&mut self.display_duration_ms)
+                    .range(20..=10000)
+                    .speed(10.0)
+                    .suffix(" ms"),
+            );
+            self.display_duration_ms = normalize_duration(self.display_duration_ms);
+            ui.label(format!(
+                "{:.2} FPS",
+                1000.0 / self.display_duration_ms as f64
+            ));
             ui.checkbox(&mut self.looping, "Loop");
         });
         self.presentation
             .controls(ui, &study.meta.objective_names, &study.meta.param_names);
-        if self.fps != previous_fps {
+        if self.display_duration_ms != previous_duration {
             self.runtime.next_tick = None;
         }
         let directions = study
@@ -224,6 +288,21 @@ impl ArtifactAnimation {
             directions,
         );
         if self.runtime.key.as_ref() != Some(&key) {
+            cache::shared(ui.ctx())
+                .lock()
+                .unwrap()
+                .invalidate((key.0, key.1, key.2));
+            self.runtime = Runtime {
+                loading: self.runtime.cancelled_prefix(),
+                mapping: self.runtime.mapping.take().and_then(Job::cancelled),
+                mapping_needed: true,
+                key: Some(key),
+                error: self.runtime.error.take(),
+                status: self.runtime.status.take(),
+                ..Default::default()
+            };
+        }
+        if self.runtime.mapping_needed && self.runtime.mapping.is_none() {
             let snapshot = study.clone();
             let artifacts = study
                 .view
@@ -236,27 +315,39 @@ impl ArtifactAnimation {
                 })
                 .collect();
             let index = self.artifact_index;
-            self.runtime = Runtime {
-                key: Some(key),
-                error: self.runtime.error.take(),
-                status: self.runtime.status.take(),
-                mapping: Some(Job::spawn(ui.ctx(), move |cancel| {
-                    let frames = data::frame_list(&snapshot, &artifacts, index, cancel);
-                    Ok(Arc::new(Data::new(snapshot, frames)))
-                })),
-                ..Default::default()
-            };
+            self.runtime.mapping = Some(Job::spawn(ui.ctx(), move |cancel| {
+                let frames = data::frame_list(&snapshot, &artifacts, index, cancel);
+                if cancel.load(Ordering::Relaxed) {
+                    return Err("Cancelled".into());
+                }
+                Ok(Arc::new(Data::new(snapshot, frames)))
+            }));
+            self.runtime.mapping_needed = false;
         }
         if let Some(result) = self.runtime.mapping.as_ref().and_then(Job::poll) {
+            let cancelled = self
+                .runtime
+                .mapping
+                .as_ref()
+                .unwrap()
+                .cancel
+                .load(Ordering::Relaxed);
             self.runtime.mapping = None;
             match result {
+                _ if cancelled => {}
                 Ok(data) => self.runtime.data = Some(data),
                 Err(e) => self.runtime.error = Some(e),
             }
         }
         let Some(data) = self.runtime.data.clone() else {
+            if let Some(error) = &self.runtime.error {
+                ui.colored_label(crate::theme::ERROR_COLOR(), error);
+            }
             ui.spinner();
             ui.label("Checking PNG/JPEG artifacts…");
+            if self.runtime.mapping_needed {
+                ui.ctx().request_repaint();
+            }
             return;
         };
         if data.frames.is_empty() {
@@ -265,6 +356,9 @@ impl ArtifactAnimation {
             }
             ui.label("No readable PNG/JPEG artifacts at this Artifact # in the current Study.");
             return;
+        }
+        if self.runtime.sequence.len() != data.frames.len() {
+            self.runtime.sequence = (0..data.frames.len()).collect();
         }
         let mut changed = false;
         ui.horizontal_wrapped(|ui| {
@@ -311,32 +405,128 @@ impl ArtifactAnimation {
             self.runtime.next_tick = None;
             self.runtime.error = None;
         }
+        let was_playing = self.runtime.playing;
         self.advance(Instant::now(), data.frames.len());
-        if self.runtime.ready.as_ref().map(|r| r.index) != Some(self.runtime.cursor)
-            && self.runtime.loading.is_none()
-        {
+        if was_playing && !self.runtime.playing {
+            ui.ctx().request_repaint(); // Refresh the transport label after stopping at the end.
+        }
+        let scope = (
+            self.runtime.key.as_ref().unwrap().0,
+            app.source_generation,
+            app.artifact_revision,
+        );
+        let layer_scale = ui
+            .ctx()
+            .layer_transform_to_global(ui.layer_id())
+            .map_or(1.0, |t| t.scaling);
+        let image_size = cache::display_size(
+            presentation::image_box(ui.available_size(), &self.presentation, data.bounds.len()),
+            ui.ctx().pixels_per_point() * layer_scale,
+            ui.input(|i| i.max_texture_side)
+                .min(cache::shared(ui.ctx()).lock().unwrap().maximum_side()),
+        );
+        if self.runtime.image_size != image_size {
+            self.runtime.image_size = image_size;
             self.runtime.ready = None;
-            let cached = self
-                .runtime
-                .cache
-                .get(data.frames[self.runtime.cursor].number);
-            self.runtime.loading =
-                Some(prepare(ui.ctx(), data.clone(), self.runtime.cursor, cached));
-            self.runtime.loading_index = self.runtime.cursor;
+        }
+        let images = self
+            .runtime
+            .images
+            .get_or_insert_with(|| cache::Client::new(ui.ctx()));
+        images.update(
+            ui.ctx(),
+            data.clone(),
+            scope,
+            &self.runtime.sequence,
+            self.runtime.cursor,
+            self.runtime.playing,
+            self.looping,
+            image_size,
+        );
+        let next_index = if self.runtime.cursor + 1 < data.frames.len() {
+            Some(self.runtime.cursor + 1)
+        } else if self.looping {
+            Some(0)
+        } else {
+            None
+        };
+        let wanted_prefix = if self
+            .runtime
+            .ready
+            .as_ref()
+            .is_some_and(|r| r.index == self.runtime.cursor)
+        {
+            if self.runtime.playing {
+                next_index
+            } else {
+                None
+            }
+        } else {
+            Some(self.runtime.cursor)
+        };
+        if Some(self.runtime.loading_index) != wanted_prefix {
+            if let Some(job) = &self.runtime.loading {
+                job.cancel.store(true, Ordering::Relaxed);
+            }
+        }
+        if self.runtime.ready.as_ref().map(|r| r.index) != Some(self.runtime.cursor) {
+            self.runtime.ready = None;
+            if self.runtime.prefix.as_ref().map(|p| p.number)
+                != Some(data.frames[self.runtime.cursor].number)
+            {
+                self.runtime.prefix = None;
+                self.runtime.prefix = self
+                    .runtime
+                    .cache
+                    .get(data.frames[self.runtime.cursor].number);
+            }
         }
         if let Some(result) = self.runtime.loading.as_ref().and_then(Job::poll) {
+            let cancelled = self
+                .runtime
+                .loading
+                .as_ref()
+                .unwrap()
+                .cancel
+                .load(Ordering::Relaxed);
             self.runtime.loading = None;
             match result {
-                Ok(ready) if ready.index == self.runtime.cursor => {
-                    self.runtime.cache.insert(ready.prefix.clone());
-                    self.runtime.ready = Some(ready);
-                    self.runtime.next_tick = None;
+                _ if cancelled => {}
+                Ok(prefix) => {
+                    self.runtime.cache.insert(prefix.clone());
+                    if self.runtime.loading_index == self.runtime.cursor {
+                        self.runtime.prefix = Some(prefix);
+                    }
                 }
-                Ok(_) => {}
                 Err(_) if self.runtime.loading_index != self.runtime.cursor => {}
                 Err(e) => {
                     self.runtime.error = Some(e);
-                    // Remove only the unavailable frame, not its analysis result.
+                    self.runtime.playing = false;
+                }
+            }
+        }
+        if self.runtime.ready.is_none() {
+            let result = self
+                .runtime
+                .images
+                .as_ref()
+                .unwrap()
+                .cache
+                .lock()
+                .unwrap()
+                .get(&data, scope, self.runtime.cursor, image_size);
+            match result {
+                Ok(Some(texture)) => {
+                    if let Some(prefix) = &self.runtime.prefix {
+                        self.runtime.ready = Some(ReadyFrame {
+                            index: self.runtime.cursor,
+                            texture,
+                            prefix: prefix.clone(),
+                        });
+                    }
+                }
+                Err(error) => {
+                    self.runtime.error = Some(error);
                     let mut updated = (*data).clone();
                     updated.frames.remove(self.runtime.cursor);
                     self.runtime.cursor = self
@@ -344,9 +534,38 @@ impl ArtifactAnimation {
                         .cursor
                         .min(updated.frames.len().saturating_sub(1));
                     self.runtime.data = Some(Arc::new(updated));
+                    if let Some(job) = &self.runtime.loading {
+                        job.cancel.store(true, Ordering::Relaxed);
+                    }
+                    self.runtime.images = None;
+                    self.runtime.prefix = None;
                     self.runtime.next_tick = None;
                     ui.ctx().request_repaint();
                     return;
+                }
+                Ok(None) => {}
+            }
+            if self.runtime.ready.is_none() {
+                // A real preparation miss freezes the playback clock. Cached,
+                // prefetched frames keep the existing cadence; a late frame gets
+                // its dwell after it is actually presented, never skipped.
+                self.runtime.next_tick = None;
+            }
+        }
+        // A resident image and cached prefix can establish readiness in this
+        // pass. Start lookahead now, before sleeping until the playback deadline.
+        let target = if self.runtime.ready.is_some() && self.runtime.playing {
+            next_index
+        } else if self.runtime.prefix.is_none() {
+            Some(self.runtime.cursor)
+        } else {
+            None
+        };
+        if self.runtime.loading.is_none() {
+            if let Some(index) = target {
+                if self.runtime.cache.get(data.frames[index].number).is_none() {
+                    self.runtime.loading = Some(prepare(ui.ctx(), data.clone(), index, None));
+                    self.runtime.loading_index = index;
                 }
             }
         }
@@ -369,6 +588,20 @@ impl ArtifactAnimation {
                 )
                 .clicked();
         });
+        self.export_skip = self.export_skip.min(data.frames.len().saturating_sub(1));
+        ui.horizontal(|ui| {
+            ui.label("Export skip:");
+            ui.add(
+                egui::DragValue::new(&mut self.export_skip)
+                    .range(0..=data.frames.len().saturating_sub(1)),
+            );
+            let count = export::selected_count(data.frames.len(), self.export_skip);
+            ui.label(format!(
+                "{} frames · {:.2} s",
+                count,
+                count as f64 * self.display_duration_ms as f64 / 1000.0
+            ));
+        });
         if let Some(error) = &self.runtime.error {
             ui.colored_label(crate::theme::ERROR_COLOR(), error);
         }
@@ -384,6 +617,10 @@ impl ArtifactAnimation {
         let mut content_ready = false;
         if let Some(ready) = &self.runtime.ready {
             content_ready = presentation::content(ui, rect, &data, ready, &self.presentation);
+            if self.runtime.playing && self.runtime.next_tick.is_none() {
+                self.runtime.next_tick =
+                    Some(Instant::now() + Duration::from_millis(self.display_duration_ms as u64));
+            }
         } else {
             ui.put(
                 rect,
@@ -401,10 +638,12 @@ impl ArtifactAnimation {
                 .save_file()
             {
                 self.runtime.export_request = Some(export::Request {
+                    selected: export::selected_frames(data.frames.len(), self.export_skip),
                     data,
                     presentation: self.presentation.snapshot(),
                     size,
-                    fps: self.fps,
+                    display_duration_ms: self.display_duration_ms,
+                    scope,
                     looping: self.looping,
                     path,
                     visuals: ui.visuals().clone(),
@@ -414,9 +653,13 @@ impl ArtifactAnimation {
                 self.runtime.status = None;
             }
         }
-        if self.runtime.playing || self.runtime.loading.is_some() || self.runtime.mapping.is_some()
-        {
-            ui.ctx().request_repaint_after(Duration::from_millis(20));
+        if self.runtime.playing {
+            if let Some(deadline) = self.runtime.next_tick {
+                // Workers wake the UI on completion. Ready playback only needs
+                // its next deadline, not 50 idle repaints per second at slow rates.
+                ui.ctx()
+                    .request_repaint_after(deadline.saturating_duration_since(Instant::now()));
+            }
         }
     }
 
@@ -429,7 +672,7 @@ impl ArtifactAnimation {
         let next = self
             .runtime
             .next_tick
-            .get_or_insert(now + Duration::from_secs_f64(1.0 / self.fps as f64));
+            .get_or_insert(now + Duration::from_millis(self.display_duration_ms as u64));
         if now >= *next {
             if self.runtime.cursor + 1 < len {
                 self.runtime.cursor += 1;
@@ -438,7 +681,11 @@ impl ArtifactAnimation {
             } else {
                 self.runtime.playing = false;
             }
-            self.runtime.next_tick = None;
+            // Advance the deadline rather than adding preparation time on every
+            // frame. If preparation missed an entire dwell, wait safely and rearm
+            // after presenting the frame instead of skipping it.
+            let deadline = *next + Duration::from_millis(self.display_duration_ms as u64);
+            self.runtime.next_tick = (deadline > now).then_some(deadline);
         }
     }
     pub(crate) fn take_export(&mut self) -> Option<export::Request> {

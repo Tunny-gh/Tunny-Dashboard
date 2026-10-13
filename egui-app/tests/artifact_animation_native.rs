@@ -7,7 +7,9 @@ mod desktop;
 pub use desktop::*;
 
 fn main() {
-    if std::env::var_os("TUNNY_NATIVE_CAPTURE_CHECK").is_some() {
+    if std::env::var_os("TUNNY_ANIMATION_PERF").is_some() {
+        ui::widgets::artifact_animation::performance_check();
+    } else if std::env::var_os("TUNNY_NATIVE_CAPTURE_CHECK").is_some() {
         ui::widgets::artifact_animation::native_capture_check();
     } else {
         println!("Native Artifact Animation capture check skipped (set TUNNY_NATIVE_CAPTURE_CHECK=1 on an interactive desktop).");

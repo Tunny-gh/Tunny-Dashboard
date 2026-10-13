@@ -150,6 +150,25 @@ fn axis(ui: &mut egui::Ui, label: &str, index: &mut usize, names: &[String]) {
 }
 
 /// The only content-rendering path, used by both live playback and snapshot capture.
+pub(super) fn image_box(size: egui::Vec2, p: &Presentation, objectives: usize) -> egui::Vec2 {
+    let size = (size - egui::vec2(12.0, 12.0)).max(egui::Vec2::splat(1.0));
+    let charts = (p.pareto && objectives >= 2) || (p.history && objectives > 0);
+    let group = if charts {
+        if size.x < 560.0 {
+            egui::vec2(size.x, size.y * 0.52)
+        } else {
+            egui::vec2(size.x * 0.55, size.y)
+        }
+    } else {
+        size
+    };
+    if p.objectives || p.parameters {
+        egui::vec2(group.x * 0.68, group.y)
+    } else {
+        group
+    }
+}
+
 pub(super) fn content(
     ui: &mut egui::Ui,
     rect: egui::Rect,
@@ -191,7 +210,7 @@ pub(super) fn content(
         ui.set_clip_rect(ui.clip_rect().intersect(image_rect));
         ui.put(
             image_rect,
-            egui::Image::new(&ready.texture)
+            egui::Image::new(ready.texture.as_ref())
                 .fit_to_exact_size(image_rect.size())
                 .maintain_aspect_ratio(true),
         );

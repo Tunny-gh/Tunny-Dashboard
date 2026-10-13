@@ -21,6 +21,9 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- Artifact Animation starts the next trial-prefix preparation as soon as a cached
+  frame becomes ready, avoiding an extra loading wait during deadline-driven playback.
+
 - Grasshopper BO-GP-FITC and BO-GP-VFE now report the original journal write
   failure instead of an insufficient-successful-evaluations or surrogate-fit
   error, preserving already written successful and started trial records.
@@ -29,6 +32,13 @@ and `Security` as needed — omit headings that have nothing under them.
   with its vertical Best/Worst legend overlaid inside the canvas's right edge.
 
 ### Changed
+
+- Artifact Animation uses one live/GIF display duration (20–10000 ms in 10 ms
+  steps, default 330 ms), with a logarithmic slider, numeric input, and reference
+  FPS. Export-only frame skipping preserves both endpoints and all trial-prefix
+  observations, and shows frame count and duration. Display/DPI-aware images are
+  reused across Animation widgets within a shared 256 MiB estimated retained
+  resource budget, with chronological prefetch and safe seek/invalidation.
 
 - Grasshopper/Rhino.Compute offers NSGA-II, CMA-ES, BO-GP-FITC, BO-GP-VFE, and
   Random. BO (Bayesian optimization) fits the explicitly chosen GP, with EI for

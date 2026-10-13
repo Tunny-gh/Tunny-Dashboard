@@ -1,9 +1,15 @@
 # ADR-0017: Artifact Animation frame resource ownership
 
-Status: Accepted
+Status: Superseded by ADR-0018
 Date: 2026-10-08
 
 ## Context
+
+[ADR-0018](0018-artifact-animation-timing-export-and-cache-policy.md) replaces
+the one-prepared-image retention policy and cache-freshness implication below.
+It explicitly carries forward the independent Gallery ownership, deadlock
+avoidance, prefix caching, and encoder acknowledgment decisions. This record
+preserves the original decision and rationale.
 
 [Issue #245](https://github.com/Tunny-gh/Tunny-Dashboard/issues/245) requires
 bounded asynchronous preparation and export without stale images or a second

@@ -15,10 +15,29 @@ pub(crate) struct Request {
     pub(super) data: Arc<Data>,
     pub(super) presentation: Presentation,
     pub(super) size: egui::Vec2,
-    pub(super) fps: u32,
+    pub(super) display_duration_ms: u32,
+    pub(super) selected: Vec<usize>,
+    pub(super) scope: (usize, u64, u64),
     pub(super) looping: bool,
     pub(super) path: std::path::PathBuf,
     pub(super) visuals: egui::Visuals,
+}
+pub(super) fn selected_frames(count: usize, skip: usize) -> Vec<usize> {
+    if count == 0 {
+        return vec![];
+    }
+    let mut result: Vec<_> = (0..count).step_by(skip.min(count - 1) + 1).collect();
+    if result.last() != Some(&(count - 1)) {
+        result.push(count - 1);
+    }
+    result
+}
+pub(super) fn selected_count(count: usize, skip: usize) -> usize {
+    if count == 0 {
+        return 0;
+    }
+    let stride = skip.min(count - 1) + 1;
+    1 + (count - 1) / stride + usize::from(!(count - 1).is_multiple_of(stride))
 }
 
 #[cfg(test)]
@@ -58,7 +77,9 @@ mod tests {
             data: data.clone(),
             presentation: Presentation::default(),
             size: egui::vec2(400.0, 300.0),
-            fps: 5,
+            display_duration_ms: 330,
+            selected: vec![0],
+            scope: (0, 0, 0),
             looping: true,
             path,
             visuals: egui::Visuals::light(),
@@ -70,11 +91,11 @@ mod tests {
         });
         controller.session.as_mut().unwrap().ready = Some(ReadyFrame {
             index: 0,
-            texture: ctx.load_texture(
+            texture: Arc::new(ctx.load_texture(
                 "fixture",
                 egui::ColorImage::filled([2, 2], egui::Color32::BLUE),
                 egui::TextureOptions::LINEAR,
-            ),
+            )),
             prefix: Arc::new(Prefix::new(&data, 0)),
         });
         for _ in 0..4 {
@@ -190,7 +211,9 @@ struct Session {
     rect: Option<egui::Rect>,
     index: usize,
     ready: Option<ReadyFrame>,
-    job: Option<Job<ReadyFrame>>,
+    job: Option<Job<Arc<super::data::Prefix>>>,
+    prefix: Option<Arc<super::data::Prefix>>,
+    images: super::cache::Client,
     crop: Option<Job<image::RgbaImage>>,
     cache: PrefixCache,
     rendered: usize,
@@ -251,8 +274,8 @@ impl ExportController {
         let cancel = Arc::new(AtomicBool::new(false));
         let flag = cancel.clone();
         let path = request.path.clone();
-        let count = request.data.frames.len();
-        let fps = request.fps;
+        let count = request.selected.len();
+        let display_duration_ms = request.display_duration_ms;
         let looping = request.looping;
         let context = ctx.clone();
         std::thread::spawn(move || {
@@ -261,7 +284,7 @@ impl ExportController {
                     &path,
                     frames,
                     count,
-                    fps,
+                    display_duration_ms,
                     looping,
                     &flag,
                     |index| {
@@ -299,6 +322,8 @@ impl ExportController {
             index: 0,
             ready: None,
             job: None,
+            prefix: None,
+            images: super::cache::Client::new(ctx),
             crop: None,
             cache: PrefixCache::default(),
             rendered: 0,
@@ -344,8 +369,9 @@ impl ExportController {
                     session.encoding = false;
                     session.index += 1;
                     session.ready = None;
+                    session.prefix = None;
                     session.rendered = 0;
-                    if session.index == session.request.data.frames.len()
+                    if session.index == session.request.selected.len()
                         && session.error.is_none()
                         && !session.cancel.load(Ordering::Acquire)
                     {
@@ -437,7 +463,7 @@ impl ExportController {
             }
             return;
         };
-        if s.index < s.request.data.frames.len()
+        if s.index < s.request.selected.len()
             && (ctx.content_rect() != s.screen || ctx.pixels_per_point() != s.pixels_per_point)
         {
             s.error = Some(
@@ -446,25 +472,74 @@ impl ExportController {
             );
             s.cancel.store(true, Ordering::Release);
         }
-        if s.index < s.request.data.frames.len()
+        if s.index < s.request.selected.len()
             && s.ready.is_none()
             && s.job.is_none()
             && !s.cancel.load(Ordering::Acquire)
         {
             let data = s.request.data.clone();
-            let cached = s.cache.get(data.frames[s.index].number);
-            s.job = Some(prepare(ctx, data, s.index, cached));
+            if s.prefix.is_none() {
+                let index = s.request.selected[s.index];
+                let cached = s.cache.get(data.frames[index].number);
+                s.job = Some(prepare(ctx, data, index, cached));
+            }
         }
         if let Some(result) = s.job.as_ref().and_then(Job::poll) {
             s.job = None;
             match result {
-                Ok(frame) => {
-                    s.cache.insert(frame.prefix.clone());
-                    s.ready = Some(frame);
+                Ok(prefix) => {
+                    s.cache.insert(prefix.clone());
+                    s.prefix = Some(prefix);
                 }
                 Err(e) => {
                     s.error = Some(e);
                     s.cancel.store(true, Ordering::Release);
+                }
+            }
+        }
+        if s.index < s.request.selected.len() && !s.cancel.load(Ordering::Acquire) {
+            let size = super::cache::display_size(
+                presentation::image_box(
+                    s.request.size,
+                    &s.request.presentation,
+                    s.request.data.bounds.len(),
+                ),
+                s.scale * s.pixels_per_point,
+                ctx.input(|i| i.max_texture_side)
+                    .min(s.images.cache.lock().unwrap().maximum_side()),
+            );
+            s.images.update(
+                ctx,
+                s.request.data.clone(),
+                s.request.scope,
+                &s.request.selected,
+                s.index,
+                true,
+                false,
+                size,
+            );
+            if s.ready.is_none() {
+                let image = s.images.cache.lock().unwrap().get(
+                    &s.request.data,
+                    s.request.scope,
+                    s.request.selected[s.index],
+                    size,
+                );
+                match image {
+                    Ok(Some(texture)) => {
+                        if let Some(prefix) = &s.prefix {
+                            s.ready = Some(ReadyFrame {
+                                index: s.request.selected[s.index],
+                                texture,
+                                prefix: prefix.clone(),
+                            });
+                        }
+                    }
+                    Err(error) => {
+                        s.error = Some(error);
+                        s.cancel.store(true, Ordering::Release);
+                    }
+                    Ok(None) => {}
                 }
             }
         }
@@ -483,10 +558,10 @@ impl ExportController {
                 ui.horizontal(|ui| {
                     ui.label(format!(
                         "Exporting GIF: {} / {}",
-                        s.index.min(s.request.data.frames.len()),
-                        s.request.data.frames.len()
+                        s.index.min(s.request.selected.len()),
+                        s.request.selected.len()
                     ));
-                    let can_cancel = s.index < s.request.data.frames.len();
+                    let can_cancel = s.index < s.request.selected.len();
                     let cancel_clicked = ui
                         .add_enabled(can_cancel, egui::Button::new("Cancel"))
                         .clicked();
@@ -524,7 +599,7 @@ impl ExportController {
                 } else {
                     ui.put(
                         capture,
-                        egui::Label::new(if s.index == s.request.data.frames.len() {
+                        egui::Label::new(if s.index == s.request.selected.len() {
                             "Finalizing GIF…"
                         } else {
                             "Preparing image and prefix…"
@@ -532,7 +607,7 @@ impl ExportController {
                     );
                 }
             });
-        if s.index < s.request.data.frames.len()
+        if s.index < s.request.selected.len()
             && s.rect.is_some()
             && s.rect != rect
             && s.error.is_none()

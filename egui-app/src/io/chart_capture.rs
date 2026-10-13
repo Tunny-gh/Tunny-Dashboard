@@ -7,14 +7,17 @@ pub(crate) fn encode_gif_stream(
     path: &std::path::Path,
     frames: std::sync::mpsc::Receiver<RgbaImage>,
     count: usize,
-    fps: u32,
+    display_duration_ms: u32,
     looping: bool,
     cancel: &std::sync::atomic::AtomicBool,
     mut acknowledge: impl FnMut(usize),
 ) -> Result<bool, String> {
     use std::sync::atomic::Ordering;
-    if count == 0 || fps == 0 {
-        return Err("No GIF frames or invalid FPS".into());
+    if count == 0
+        || !(20..=10000).contains(&display_duration_ms)
+        || !display_duration_ms.is_multiple_of(10)
+    {
+        return Err("No GIF frames or invalid display duration".into());
     }
     let mut output = crate::io::file::AtomicOutput::create(path)
         .map_err(|e| format!("Cannot create GIF: {e}"))?;
@@ -61,7 +64,7 @@ pub(crate) fn encode_gif_stream(
                 frame,
                 0,
                 0,
-                image::Delay::from_numer_denom_ms(1000, fps),
+                image::Delay::from_numer_denom_ms(display_duration_ms, 1),
             ))
             .map_err(|e| format!("GIF encode error: {e}"))?;
         if index + 1 < count {
@@ -204,6 +207,46 @@ pub fn save_png_to_file(data: &[u8]) -> Result<Option<()>, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn gif_duration_is_exact_milliseconds_at_both_limits_and_default() {
+        use image::AnimationDecoder;
+        for duration in [20, 330, 10000] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("duration.gif");
+            let (tx, rx) = std::sync::mpsc::sync_channel(1);
+            tx.send(image::RgbaImage::new(2, 2)).unwrap();
+            drop(tx);
+            assert!(super::encode_gif_stream(
+                &path,
+                rx,
+                1,
+                duration,
+                false,
+                &std::sync::atomic::AtomicBool::new(false),
+                |_| {}
+            )
+            .unwrap());
+            let decoder = image::codecs::gif::GifDecoder::new(std::io::BufReader::new(
+                std::fs::File::open(path).unwrap(),
+            ))
+            .unwrap();
+            let frames = decoder.into_frames().collect_frames().unwrap();
+            assert_eq!(frames[0].delay().numer_denom_ms(), (duration, 1));
+        }
+        for duration in [0, 10, 333, 10010] {
+            let (_, rx) = std::sync::mpsc::sync_channel(1);
+            assert!(super::encode_gif_stream(
+                std::path::Path::new("unused.gif"),
+                rx,
+                1,
+                duration,
+                false,
+                &std::sync::atomic::AtomicBool::new(false),
+                |_| {}
+            )
+            .is_err());
+        }
+    }
     use super::*;
     use egui::Color32;
 
@@ -286,7 +329,7 @@ mod tests {
         });
         let cancel = std::sync::atomic::AtomicBool::new(false);
         let mut acknowledged = Vec::new();
-        assert!(encode_gif_stream(&path, rx, 3, 5, true, &cancel, |i| {
+        assert!(encode_gif_stream(&path, rx, 3, 330, true, &cancel, |i| {
             assert_eq!(std::fs::read(&path).unwrap(), b"previous output");
             acknowledged.push(i);
         })
@@ -301,7 +344,7 @@ mod tests {
         for (frame, color) in frames.iter().zip(colors) {
             assert_eq!(frame.buffer().dimensions(), (7, 5));
             assert_eq!(frame.buffer().get_pixel(3, 2).0, color);
-            assert_eq!(frame.delay().numer_denom_ms(), (200, 1));
+            assert_eq!(frame.delay().numer_denom_ms(), (330, 1));
         }
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     }
@@ -328,7 +371,7 @@ mod tests {
                 &path,
                 rx,
                 if mode == "write" { 1 } else { 2 },
-                3,
+                330,
                 false,
                 &cancel,
                 |_| {
