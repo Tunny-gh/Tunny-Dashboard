@@ -127,6 +127,7 @@ struct Runtime {
     images: Option<cache::Client>,
     image_size: [u32; 2],
     sequence: Vec<usize>,
+    selection_key: Option<(usize, usize)>,
     loading_index: usize,
     ready: Option<ReadyFrame>,
     cache: PrefixCache,
@@ -141,6 +142,29 @@ struct Runtime {
     content_size: Option<egui::Vec2>,
 }
 impl Runtime {
+    fn seek(&mut self, position: usize) {
+        if let Some(&index) = self
+            .sequence
+            .get(position.min(self.sequence.len().saturating_sub(1)))
+        {
+            if index != self.cursor {
+                self.ready = None;
+                self.prefix = None;
+            }
+            self.cursor = index;
+            self.next_tick = None;
+        }
+    }
+    fn next_frame(&self, looping: bool) -> Option<usize> {
+        let position = self.sequence.binary_search(&self.cursor).ok()?;
+        self.sequence.get(position + 1).copied().or_else(|| {
+            if looping {
+                self.sequence.first().copied()
+            } else {
+                None
+            }
+        })
+    }
     fn cancelled_prefix(&mut self) -> Option<Job<Arc<Prefix>>> {
         // A sorter already running cannot be interrupted internally. Retain its
         // slot across source resets until completion instead of spawning more.
@@ -154,7 +178,7 @@ pub struct ArtifactAnimation {
     pub artifact_index: usize,
     #[serde(deserialize_with = "deserialize_duration")]
     pub display_duration_ms: u32,
-    pub export_skip: usize,
+    pub skip: usize,
     pub looping: bool,
     pub presentation: Presentation,
     #[serde(skip)]
@@ -172,7 +196,7 @@ impl Default for ArtifactAnimation {
         Self {
             artifact_index: 0,
             display_duration_ms: 330,
-            export_skip: 0,
+            skip: 0,
             looping: true,
             presentation: Presentation::default(),
             runtime: Runtime::default(),
@@ -181,6 +205,33 @@ impl Default for ArtifactAnimation {
 }
 
 impl ArtifactAnimation {
+    fn sync_sampling(&mut self, count: usize) {
+        self.skip = self.skip.min(count.saturating_sub(1));
+        let key = (count, self.skip);
+        if self.runtime.selection_key == Some(key) {
+            return;
+        }
+        let sequence = export::selected_frames(count, self.skip);
+        let position = sequence
+            .binary_search(&self.runtime.cursor)
+            .unwrap_or_else(|insertion| insertion.saturating_sub(1));
+        let cursor = sequence.get(position).copied().unwrap_or(0);
+        if cursor != self.runtime.cursor {
+            self.runtime.ready = None;
+            self.runtime.prefix = None;
+        }
+        if let Some(job) = &self.runtime.loading {
+            job.cancel.store(true, Ordering::Relaxed);
+        }
+        if let Some(images) = &mut self.runtime.images {
+            images.suspend();
+        }
+        self.runtime.cursor = cursor;
+        self.runtime.sequence = sequence;
+        self.runtime.selection_key = Some(key);
+        self.runtime.next_tick = None;
+    }
+
     pub fn show(&mut self, ui: &mut egui::Ui, app: &AppState) {
         if self.runtime.exporting {
             if let Some(images) = &mut self.runtime.images {
@@ -357,9 +408,28 @@ impl ArtifactAnimation {
             ui.label("No readable PNG/JPEG artifacts at this Artifact # in the current Study.");
             return;
         }
-        if self.runtime.sequence.len() != data.frames.len() {
-            self.runtime.sequence = (0..data.frames.len()).collect();
-        }
+        self.skip = self.skip.min(data.frames.len().saturating_sub(1));
+        ui.horizontal(|ui| {
+            ui.label("Frame skip:");
+            ui.add(
+                egui::DragValue::new(&mut self.skip).range(0..=data.frames.len().saturating_sub(1)),
+            )
+            .on_hover_text(
+                "Skip this many eligible images between frames in both playback and GIF export.",
+            );
+            let count = export::selected_count(data.frames.len(), self.skip);
+            ui.label(format!(
+                "{} selected frames · {:.2} s per pass",
+                count,
+                count as f64 * self.display_duration_ms as f64 / 1000.0
+            ));
+        });
+        self.sync_sampling(data.frames.len());
+        let mut position = self
+            .runtime
+            .sequence
+            .binary_search(&self.runtime.cursor)
+            .unwrap();
         let mut changed = false;
         ui.horizontal_wrapped(|ui| {
             if ui
@@ -375,38 +445,41 @@ impl ArtifactAnimation {
                 self.runtime.error = None;
             }
             if ui
-                .add_enabled(self.runtime.cursor > 0, egui::Button::new("Previous"))
+                .add_enabled(position > 0, egui::Button::new("Previous"))
                 .clicked()
             {
-                self.runtime.cursor -= 1;
+                position -= 1;
                 changed = true;
             }
             if ui
                 .add_enabled(
-                    self.runtime.cursor + 1 < data.frames.len(),
+                    position + 1 < self.runtime.sequence.len(),
                     egui::Button::new("Next"),
                 )
                 .clicked()
             {
-                self.runtime.cursor += 1;
+                position += 1;
                 changed = true;
             }
             changed |= ui
                 .add(
-                    egui::Slider::new(&mut self.runtime.cursor, 0..=data.frames.len() - 1)
+                    egui::Slider::new(&mut position, 0..=self.runtime.sequence.len() - 1)
                         .text("Frame")
                         .custom_formatter(|v, _| {
-                            format!("Trial {}", data.frames[v as usize].number)
+                            format!(
+                                "Trial {}",
+                                data.frames[self.runtime.sequence[v as usize]].number
+                            )
                         }),
                 )
                 .changed();
         });
         if changed {
-            self.runtime.next_tick = None;
+            self.runtime.seek(position);
             self.runtime.error = None;
         }
         let was_playing = self.runtime.playing;
-        self.advance(Instant::now(), data.frames.len());
+        self.advance(Instant::now());
         if was_playing && !self.runtime.playing {
             ui.ctx().request_repaint(); // Refresh the transport label after stopping at the end.
         }
@@ -438,18 +511,15 @@ impl ArtifactAnimation {
             data.clone(),
             scope,
             &self.runtime.sequence,
-            self.runtime.cursor,
+            self.runtime
+                .sequence
+                .binary_search(&self.runtime.cursor)
+                .unwrap(),
             self.runtime.playing,
             self.looping,
             image_size,
         );
-        let next_index = if self.runtime.cursor + 1 < data.frames.len() {
-            Some(self.runtime.cursor + 1)
-        } else if self.looping {
-            Some(0)
-        } else {
-            None
-        };
+        let next_index = self.runtime.next_frame(self.looping);
         let wanted_prefix = if self
             .runtime
             .ready
@@ -534,6 +604,7 @@ impl ArtifactAnimation {
                         .cursor
                         .min(updated.frames.len().saturating_sub(1));
                     self.runtime.data = Some(Arc::new(updated));
+                    self.runtime.selection_key = None;
                     if let Some(job) = &self.runtime.loading {
                         job.cancel.store(true, Ordering::Relaxed);
                     }
@@ -578,8 +649,12 @@ impl ArtifactAnimation {
             ui.label(format!(
                 "Trial {} · Frame {} of {}",
                 data.frames[self.runtime.cursor].number,
-                self.runtime.cursor + 1,
-                data.frames.len()
+                self.runtime
+                    .sequence
+                    .binary_search(&self.runtime.cursor)
+                    .unwrap()
+                    + 1,
+                self.runtime.sequence.len()
             ));
             export = ui
                 .add_enabled(
@@ -587,20 +662,6 @@ impl ArtifactAnimation {
                     egui::Button::new("Export GIF"),
                 )
                 .clicked();
-        });
-        self.export_skip = self.export_skip.min(data.frames.len().saturating_sub(1));
-        ui.horizontal(|ui| {
-            ui.label("Export skip:");
-            ui.add(
-                egui::DragValue::new(&mut self.export_skip)
-                    .range(0..=data.frames.len().saturating_sub(1)),
-            );
-            let count = export::selected_count(data.frames.len(), self.export_skip);
-            ui.label(format!(
-                "{} frames · {:.2} s",
-                count,
-                count as f64 * self.display_duration_ms as f64 / 1000.0
-            ));
         });
         if let Some(error) = &self.runtime.error {
             ui.colored_label(crate::theme::ERROR_COLOR(), error);
@@ -638,7 +699,7 @@ impl ArtifactAnimation {
                 .save_file()
             {
                 self.runtime.export_request = Some(export::Request {
-                    selected: export::selected_frames(data.frames.len(), self.export_skip),
+                    selected: self.runtime.sequence.clone(),
                     data,
                     presentation: self.presentation.snapshot(),
                     size,
@@ -663,28 +724,26 @@ impl ArtifactAnimation {
         }
     }
 
-    fn advance(&mut self, now: Instant, len: usize) {
+    fn advance(&mut self, now: Instant) {
         if !self.runtime.playing
             || self.runtime.ready.as_ref().map(|r| r.index) != Some(self.runtime.cursor)
         {
             return;
         }
-        let next = self
+        let next = *self
             .runtime
             .next_tick
             .get_or_insert(now + Duration::from_millis(self.display_duration_ms as u64));
-        if now >= *next {
-            if self.runtime.cursor + 1 < len {
-                self.runtime.cursor += 1;
-            } else if self.looping {
-                self.runtime.cursor = 0;
+        if now >= next {
+            if let Some(index) = self.runtime.next_frame(self.looping) {
+                self.runtime.cursor = index;
             } else {
                 self.runtime.playing = false;
             }
             // Advance the deadline rather than adding preparation time on every
             // frame. If preparation missed an entire dwell, wait safely and rearm
             // after presenting the frame instead of skipping it.
-            let deadline = *next + Duration::from_millis(self.display_duration_ms as u64);
+            let deadline = next + Duration::from_millis(self.display_duration_ms as u64);
             self.runtime.next_tick = (deadline > now).then_some(deadline);
         }
     }

@@ -34,6 +34,7 @@ fn playback_deadline_does_not_add_preparation_or_skip_unready_frames() {
         ..Default::default()
     };
     widget.runtime.playing = true;
+    widget.runtime.sequence = vec![0, 1, 2];
     widget.runtime.ready = Some(ReadyFrame {
         index: 0,
         texture: Arc::new(ctx.load_texture(
@@ -48,17 +49,17 @@ fn playback_deadline_does_not_add_preparation_or_skip_unready_frames() {
         }),
     });
     let now = Instant::now();
-    widget.advance(now, 3);
-    widget.advance(now + Duration::from_millis(100), 3);
+    widget.advance(now);
+    widget.advance(now + Duration::from_millis(100));
     assert_eq!(widget.runtime.cursor, 1);
     assert_eq!(
         widget.runtime.next_tick,
         Some(now + Duration::from_millis(200))
     );
-    widget.advance(now + Duration::from_millis(250), 3);
+    widget.advance(now + Duration::from_millis(250));
     assert_eq!(widget.runtime.cursor, 1); // Cannot advance over a frame that isn't ready.
     widget.runtime.ready.as_mut().unwrap().index = 1;
-    widget.advance(now + Duration::from_millis(251), 3);
+    widget.advance(now + Duration::from_millis(251));
     assert_eq!(widget.runtime.cursor, 2); // At most one frame per advancement.
 }
 
@@ -77,15 +78,13 @@ fn resident_cache_hit_starts_next_prefix_before_sleeping_until_deadline() {
     let dir = tempfile::tempdir().unwrap();
     let mut app = AppState::new();
     app.current_study = Some(study(
-        &[
-            (0, 0, vec![3.0], vec![]),
-            (1, 1, vec![2.0], vec![]),
-            (2, 2, vec![1.0], vec![]),
-        ],
+        &(0..6)
+            .map(|i| (i, i, vec![6.0 - i as f64], vec![]))
+            .collect::<Vec<_>>(),
         vec![Direction::Minimize],
         false,
     ));
-    for i in 0..3 {
+    for i in 0..6 {
         let name = format!("{i}.png");
         image::RgbImage::from_pixel(16, 8, image::Rgb([i as u8, 0, 0]))
             .save(dir.path().join(&name))
@@ -96,10 +95,11 @@ fn resident_cache_hit_starts_next_prefix_before_sleeping_until_deadline() {
     let mut widget = ArtifactAnimation {
         looping: false,
         display_duration_ms: 1000,
+        skip: 1,
         ..Default::default()
     };
     let started = Instant::now();
-    // Setup only: warm every image while paused, so no image worker will supply
+    // Setup only: warm every selected image while paused, so no image worker will supply
     // an incidental repaint during the transition being tested.
     loop {
         let _ = ctx.run_ui(input(), |ui| widget.show(ui, &app));
@@ -108,7 +108,7 @@ fn resident_cache_hit_starts_next_prefix_before_sleeping_until_deadline() {
             let k = widget.runtime.key.as_ref().unwrap();
             let shared = cache::shared(&ctx);
             let mut images = shared.lock().unwrap();
-            if (0..3).all(|i| {
+            if widget.runtime.sequence.iter().all(|&i| {
                 images
                     .get(data, (k.0, k.1, k.2), i, widget.runtime.image_size)
                     .unwrap()
@@ -125,8 +125,8 @@ fn resident_cache_hit_starts_next_prefix_before_sleeping_until_deadline() {
     widget
         .runtime
         .cache
-        .insert(Arc::new(Prefix::new(&data, data.frames[1].number)));
-    assert!(widget.runtime.cache.get(data.frames[2].number).is_none());
+        .insert(Arc::new(Prefix::new(&data, data.frames[2].number)));
+    assert!(widget.runtime.cache.get(data.frames[4].number).is_none());
     assert!(widget.runtime.loading.is_none());
     let decodes = cache::shared(&ctx).lock().unwrap().stats.decodes;
     let (tx, rx) = mpsc::channel();
@@ -140,16 +140,17 @@ fn resident_cache_hit_starts_next_prefix_before_sleeping_until_deadline() {
     let deadline = boundary + Duration::from_millis(1000);
     widget.runtime.next_tick = Some(boundary);
     let mut output = ctx.run_ui(input(), |ui| widget.show(ui, &app));
-    assert_eq!(widget.runtime.ready.as_ref().unwrap().index, 1);
+    assert_eq!(widget.runtime.sequence, vec![0, 2, 4, 5]);
+    assert_eq!(widget.runtime.ready.as_ref().unwrap().index, 2);
     assert_eq!(widget.runtime.next_tick, Some(deadline));
     assert!(
         widget.runtime.loading.is_some(),
         "Cache-hit readiness must start lookahead in the same pass"
     );
-    assert_eq!(widget.runtime.loading_index, 2);
+    assert_eq!(widget.runtime.loading_index, 4);
     // Follow only egui's immediate passes, worker wakeups, or its actual deadline.
     // No unconditional redraw loop is allowed to hide missing lookahead.
-    while widget.runtime.cache.get(data.frames[2].number).is_none() {
+    while widget.runtime.cache.get(data.frames[4].number).is_none() {
         let delay = output.viewport_output[&egui::ViewportId::ROOT].repaint_delay;
         if delay.is_zero() {
             std::thread::yield_now();
@@ -166,16 +167,183 @@ fn resident_cache_hit_starts_next_prefix_before_sleeping_until_deadline() {
         deadline.saturating_duration_since(Instant::now()) + Duration::from_millis(1),
     );
     let _ = ctx.run_ui(input(), |ui| widget.show(ui, &app));
-    assert_eq!(widget.runtime.ready.as_ref().unwrap().index, 2);
+    assert_eq!(widget.runtime.ready.as_ref().unwrap().index, 4);
     assert_eq!(
         widget.runtime.ready.as_ref().unwrap().prefix.number,
-        data.frames[2].number
+        data.frames[4].number
     );
     assert_eq!(
         widget.runtime.next_tick,
         Some(deadline + Duration::from_millis(1000))
     );
     assert_eq!(cache::shared(&ctx).lock().unwrap().stats.decodes, decodes);
+}
+
+#[test]
+fn common_sampling_transport_endpoints_remap_and_persistence() {
+    let ctx = egui::Context::default();
+    let texture = Arc::new(ctx.load_texture(
+        "selected-transport",
+        egui::ColorImage::filled([2, 2], egui::Color32::WHITE),
+        egui::TextureOptions::LINEAR,
+    ));
+    let mut widget = ArtifactAnimation {
+        skip: 1,
+        display_duration_ms: 100,
+        looping: false,
+        ..Default::default()
+    };
+    widget.sync_sampling(6);
+    assert_eq!(widget.runtime.sequence, vec![0, 2, 4, 5]);
+    assert_eq!(
+        widget.runtime.sequence,
+        export::selected_frames(6, widget.skip)
+    );
+    let now = Instant::now();
+    for (position, index) in [0, 2, 4, 5].into_iter().enumerate() {
+        assert_eq!(widget.runtime.cursor, index);
+        widget.runtime.ready = Some(ReadyFrame {
+            index,
+            texture: texture.clone(),
+            prefix: Arc::new(Prefix {
+                number: index as u32,
+                rows: vec![],
+                ranks: HashMap::new(),
+            }),
+        });
+        widget.runtime.playing = false;
+        widget.advance(now + Duration::from_secs(100));
+        assert_eq!(widget.runtime.cursor, index); // Paused frames stay selected.
+        widget.runtime.playing = true;
+        widget.runtime.next_tick = Some(now + Duration::from_millis(position as u64 * 100));
+        widget.advance(now + Duration::from_millis(position as u64 * 100));
+    }
+    assert!(!widget.runtime.playing);
+    assert_eq!(widget.runtime.cursor, 5); // Appended endpoint, no duplicate.
+    widget.looping = true;
+    widget.runtime.playing = true;
+    widget.runtime.next_tick = Some(now);
+    widget.advance(now);
+    assert_eq!(widget.runtime.cursor, 0);
+    widget.runtime.seek(1);
+    assert_eq!(widget.runtime.cursor, 2); // Next / seek selected ordinal.
+    widget.runtime.seek(0);
+    assert_eq!(widget.runtime.cursor, 0); // Previous.
+    widget.runtime.seek(usize::MAX);
+    assert_eq!(widget.runtime.cursor, 5); // Clamp.
+    widget.runtime.cursor = 4;
+    widget.skip = 2;
+    widget.sync_sampling(6);
+    assert_eq!(widget.runtime.sequence, vec![0, 3, 5]);
+    assert_eq!(widget.runtime.cursor, 3); // Nearest selected predecessor.
+    assert!(widget.runtime.ready.is_none());
+    let saved = serde_json::to_string(&widget).unwrap();
+    let restored: ArtifactAnimation = serde_json::from_str(&saved).unwrap();
+    assert_eq!(restored.skip, 2);
+    assert!(!saved.contains("export_skip"));
+    widget.skip = usize::MAX;
+    widget.sync_sampling(6);
+    assert_eq!(widget.skip, 5);
+    assert_eq!(widget.runtime.sequence, vec![0, 5]);
+    widget.sync_sampling(1);
+    assert_eq!(widget.skip, 0);
+    assert_eq!(widget.runtime.sequence, vec![0]);
+}
+
+#[test]
+fn common_sampling_changes_retarget_workers_and_preserve_full_observations() {
+    let ctx = egui::Context::default();
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = AppState::new();
+    let specs: Vec<_> = (0..8)
+        .map(|i| (i, i * 2, vec![8.0 - i as f64], vec![]))
+        .collect();
+    app.current_study = Some(study(&specs, vec![Direction::Minimize], false));
+    for row in [0, 1, 3, 4, 6, 7] {
+        let name = format!("{row}.png");
+        image::RgbImage::from_pixel(16 + row, 8, image::Rgb([row as u8, 0, 0]))
+            .save(dir.path().join(&name))
+            .unwrap();
+        app.artifact_map
+            .insert(row, vec![entry(dir.path(), &name, &name, "image/png")]);
+    }
+    fn wait(ctx: &egui::Context, w: &mut ArtifactAnimation, app: &AppState) {
+        let started = Instant::now();
+        loop {
+            let _ = ctx.run_ui(egui::RawInput::default(), |ui| w.show(ui, app));
+            if w.runtime
+                .ready
+                .as_ref()
+                .is_some_and(|r| r.index == w.runtime.cursor)
+            {
+                break;
+            }
+            assert!(started.elapsed() < Duration::from_secs(5));
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+    let mut w = ArtifactAnimation::default();
+    wait(&ctx, &mut w, &app);
+    let data = w.runtime.data.clone().unwrap();
+    let bounds = data.bounds.clone();
+    w.skip = 1;
+    wait(&ctx, &mut w, &app);
+    assert!(Arc::ptr_eq(&data, w.runtime.data.as_ref().unwrap())); // No mapping rebuild.
+    assert_eq!(w.runtime.sequence, vec![0, 2, 4, 5]);
+    w.runtime.seek(1);
+    wait(&ctx, &mut w, &app);
+    let ready = w.runtime.ready.as_ref().unwrap();
+    assert_eq!(ready.index, 2);
+    assert_eq!(ready.prefix.number, 6);
+    assert_eq!(ready.prefix.rows, vec![0, 1, 2, 3]); // Skipped image and artifactless row.
+    assert_eq!(ready.texture.size(), [19, 8]);
+    let (tx, rx) = mpsc::sync_channel(0);
+    let obsolete = data.clone();
+    w.runtime.loading = Some(Job::spawn(&ctx, move |_| {
+        rx.recv().unwrap();
+        Ok(Arc::new(Prefix::new(&obsolete, 12)))
+    }));
+    w.runtime.loading_index = 4;
+    w.skip = 2;
+    let _ = ctx.run_ui(egui::RawInput::default(), |ui| w.show(ui, &app));
+    assert_eq!(w.runtime.sequence, vec![0, 3, 5]);
+    assert_eq!(w.runtime.cursor, 0);
+    assert!(w.runtime.ready.as_ref().is_none_or(|r| r.index == 0));
+    assert!(w
+        .runtime
+        .loading
+        .as_ref()
+        .unwrap()
+        .cancel
+        .load(Ordering::Relaxed));
+    tx.send(()).unwrap();
+    w.runtime.seek(1);
+    wait(&ctx, &mut w, &app);
+    let ready = w.runtime.ready.as_ref().unwrap();
+    assert_eq!(ready.index, 3);
+    assert_eq!(ready.prefix.number, 8);
+    assert_eq!(ready.prefix.rows, vec![0, 1, 2, 3, 4]);
+    assert_eq!(w.runtime.data.as_ref().unwrap().bounds, bounds);
+    let decoder_count = cache::shared(&ctx).lock().unwrap().stats.decodes;
+    let cancelled_before = w
+        .runtime
+        .loading
+        .as_ref()
+        .map(|j| j.cancel.load(Ordering::Relaxed));
+    w.sync_sampling(6);
+    assert_eq!(
+        cache::shared(&ctx).lock().unwrap().stats.decodes,
+        decoder_count
+    );
+    assert_eq!(
+        w.runtime
+            .loading
+            .as_ref()
+            .map(|j| j.cancel.load(Ordering::Relaxed)),
+        cancelled_before
+    );
+    let other = ArtifactAnimation::default();
+    assert_eq!(other.skip, 0);
 }
 
 #[test]
@@ -717,20 +885,21 @@ fn playback_pause_step_loop_and_persistent_instances_are_independent() {
         }),
     });
     let now = Instant::now();
-    a.advance(now, 2);
+    a.runtime.sequence = vec![0, 1];
+    a.advance(now);
     assert_eq!(a.runtime.cursor, 0);
     a.runtime.playing = true;
-    a.advance(now, 2);
-    a.advance(now + Duration::from_millis(101), 2);
+    a.advance(now);
+    a.advance(now + Duration::from_millis(101));
     assert_eq!(a.runtime.cursor, 1);
     a.runtime.ready.as_mut().unwrap().index = 1;
-    a.advance(now + Duration::from_millis(200), 2);
-    a.advance(now + Duration::from_millis(301), 2);
+    a.advance(now + Duration::from_millis(200));
+    a.advance(now + Duration::from_millis(301));
     assert!(!a.runtime.playing);
     a.looping = true;
     a.runtime.playing = true;
-    a.advance(now + Duration::from_millis(400), 2);
-    a.advance(now + Duration::from_millis(501), 2);
+    a.advance(now + Duration::from_millis(400));
+    a.advance(now + Duration::from_millis(501));
     assert_eq!(a.runtime.cursor, 0);
     a.runtime.exporting = true;
     a.finish_export(Err("write error".into()));
@@ -970,6 +1139,9 @@ pub(super) fn native_capture_check() {
         outcome: Arc<std::sync::Mutex<Option<Result<bool, String>>>>,
         ticks: Arc<std::sync::atomic::AtomicUsize>,
         capture_size: Arc<std::sync::Mutex<Option<egui::Vec2>>>,
+        preview: Arc<std::sync::Mutex<Vec<usize>>>,
+        preview_started: bool,
+        preview_done: bool,
     }
     impl eframe::App for Probe {
         fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
@@ -979,7 +1151,7 @@ pub(super) fn native_capture_check() {
                 let result = widget.runtime.error.clone().map_or(Ok(true), Err);
                 assert_eq!(
                     widget.runtime.cursor,
-                    1.min(widget.runtime.data.as_ref().unwrap().frames.len() - 1)
+                    widget.runtime.sequence[1.min(widget.runtime.sequence.len() - 1)]
                 );
                 assert!(!widget.runtime.playing);
                 assert_eq!(widget.display_duration_ms, 330);
@@ -1008,9 +1180,32 @@ pub(super) fn native_capture_check() {
                 let Some(index) = widget.runtime.ready.as_ref().map(|ready| ready.index) else {
                     return;
                 };
+                if !self.preview_done {
+                    let mut preview = self.preview.lock().unwrap();
+                    if preview.last() != Some(&index) {
+                        preview.push(index);
+                        assert_eq!(*preview, widget.runtime.sequence[..preview.len()]);
+                        assert_eq!(
+                            widget.runtime.ready.as_ref().unwrap().prefix.rows.len(),
+                            index + 1
+                        );
+                    }
+                    if !self.preview_started {
+                        self.preview_started = true;
+                        widget.runtime.playing = true;
+                        widget.looping = false;
+                        ui.ctx().request_repaint();
+                        return;
+                    }
+                    if index != *widget.runtime.sequence.last().unwrap() || widget.runtime.playing {
+                        return;
+                    }
+                    assert_eq!(*preview, widget.runtime.sequence);
+                    self.preview_done = true;
+                }
                 // Seek away from the beginning before exporting through the real
                 // per-instance request handoff. Only the OS file picker is bypassed.
-                let target = 1.min(widget.runtime.data.as_ref().unwrap().frames.len() - 1);
+                let target = widget.runtime.sequence[1.min(widget.runtime.sequence.len() - 1)];
                 if widget.runtime.cursor != target {
                     widget.runtime.cursor = target;
                     ui.ctx().request_repaint();
@@ -1027,10 +1222,7 @@ pub(super) fn native_capture_check() {
                     presentation: widget.presentation.snapshot(),
                     size,
                     display_duration_ms: widget.display_duration_ms,
-                    selected: export::selected_frames(
-                        widget.runtime.data.as_ref().unwrap().frames.len(),
-                        widget.export_skip,
-                    ),
+                    selected: widget.runtime.sequence.clone(),
                     scope: {
                         let k = widget.runtime.key.as_ref().unwrap();
                         (k.0, k.1, k.2)
@@ -1106,6 +1298,8 @@ pub(super) fn native_capture_check() {
     let ui_ticks = ticks.clone();
     let capture_size = Arc::new(std::sync::Mutex::new(None));
     let expected_size = capture_size.clone();
+    let preview = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let preview_order = preview.clone();
     eframe::run_native(
         "Artifact Animation capture check",
         eframe::NativeOptions {
@@ -1132,7 +1326,7 @@ pub(super) fn native_capture_check() {
             }
             let first = app.canvas_widgets.entry(0).or_default();
             first.artifact_animation.display_duration_ms = 330;
-            first.artifact_animation.export_skip = std::env::var("TUNNY_NATIVE_CAPTURE_SKIP")
+            first.artifact_animation.skip = std::env::var("TUNNY_NATIVE_CAPTURE_SKIP")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0);
@@ -1154,6 +1348,9 @@ pub(super) fn native_capture_check() {
                 outcome: result,
                 ticks: ui_ticks,
                 capture_size,
+                preview,
+                preview_started: false,
+                preview_done: false,
             }))
         }),
     )
@@ -1174,6 +1371,7 @@ pub(super) fn native_capture_check() {
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
     let selected = export::selected_frames(count, skip);
+    assert_eq!(*preview_order.lock().unwrap(), selected);
     assert_eq!(frames.len(), selected.len());
     let dimensions = frames[0].buffer().dimensions();
     let expected = expected_size.lock().unwrap().unwrap();
@@ -1202,5 +1400,5 @@ pub(super) fn native_capture_check() {
         );
     }
     assert!(ticks.load(Ordering::Relaxed) >= selected.len() * 2);
-    println!("Native full-app wgpu capture passed: {} selected of {count} frames, skip {skip}, {dimensions:?}, scale {scale}, {} responsive UI passes, two independent instances, original seek/pause restoration, PNG/JPEG aspect ratios 2:1 / 1:2 / 1:1, 330 ms, frame-order image colors and content-only crop. Output: {}", selected.len(), ticks.load(Ordering::Relaxed), output.display());
+    println!("Native full-app wgpu preview/GIF passed: {} selected of {count} frames, skip {skip}, identical live/GIF order, {dimensions:?}, scale {scale}, {} responsive UI passes, full prefix observations, two independent instances, original seek/pause restoration, PNG/JPEG aspect ratios 2:1 / 1:2 / 1:1, 330 ms, frame-order image colors and content-only crop. Output: {}", selected.len(), ticks.load(Ordering::Relaxed), output.display());
 }

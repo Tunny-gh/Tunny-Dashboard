@@ -11,6 +11,11 @@ resource policy in [ADR-0017](0017-artifact-animation-frame-resource-ownership.m
 The followup agreements choose explicit frame timing and export sampling, and
 trade repeated image preparation against a shared, bounded runtime cache.
 
+The original sampling decision was export-only. A subsequent explicit user
+agreement requires widget preview to show the same selected chronological
+sequence as GIF export. The shared sampling decision below replaces that earlier
+policy; timing, analysis semantics, and resource ownership remain unchanged.
+
 ## Decision
 
 ### Shared display duration
@@ -22,20 +27,28 @@ FPS is a computed reference only (`1000 / display_duration_ms`), not a second
 editable timing setting. Milliseconds express the intended display duration
 directly and the 10 ms increments align with GIF delay units.
 
-### Export-only sampling
+### Shared preview and GIF sampling
 
 Provide an integer skip count `N >= 0`, bounded by the eligible frame count.
-Starting with the first eligible image, export every `N + 1`th eligible frame.
+Starting with the first eligible image, select every `N + 1`th eligible frame.
 Append the final eligible frame if it is absent, without duplicating it.
-`N = 0` exports all eligible frames. Live UI playback always uses the full frame
-sequence, without this skip setting.
+`N = 0` selects all eligible frames. Widget playback and GIF export use this same
+sequence. Play/Pause, Previous/Next, seeking, frame labels/counts, prefix lookahead,
+image prefetch, and looping all follow the selected sequence without renumbering
+Study trials. The persisted setting is common; the UI calls it Frame skip.
 
-Sampling selects images, not analysis observations: at an exported frame's trial
+When skip changes, retain the currently displayed image if it is selected;
+otherwise move to the nearest selected predecessor and clamp to a valid frame.
+Discard obsolete preparation and do not display or capture an old frame under
+the new selection. Reuse still-valid cached resources rather than rebuild them.
+
+Sampling selects images, not analysis observations: at a displayed/exported frame's trial
 number `t`, prefix charts still include all observations with trial number
 `<= t`, including observations without images and those between sampled frames.
-Show the resulting export frame count and duration. There is no target-seconds
+Show the selected frame count and estimated duration per pass. There is no target-seconds
 setting or automatic timing/sampling adjustment. This keeps export size and
-duration under explicit user control while retaining the final eligible state.
+duration under explicit user control while retaining the final eligible state
+and making preview representative of export.
 The protected shared-renderer export interaction in
 [ADR-0016](0016-artifact-animation-export-interaction.md) remains unchanged.
 
@@ -76,7 +89,8 @@ frames rather than a fixed cache range. During playback, orient the window towar
 upcoming frames; while paused, retain neighboring frames around the current
 frame. Seeking changes the target and invalidates obsolete prefetch work. When
 playback loops, prefetch wraps to the beginning of the eligible sequence. During
-export, follow the selected output sequence rather than preparing skipped frames.
+playback and export, follow the common selected sequence rather than preparing
+skipped frames.
 These priorities remain subject to the shared 256 MiB resource budget.
 
 The intent is to spend bounded resources on frames likely to be needed next,
@@ -92,8 +106,10 @@ resources may be used if justified by evaluation; none is a mandated algorithm.
   display duration, avoiding competing timing controls and preview/export drift.
 - **Target duration with automatic timing or sampling adjustment.** Rejected
   because it hides how many images are selected and how long each is displayed.
-- **Apply export skips to playback or prefix analysis.** Rejected because export
-  reduction must not remove UI frames or observations from the analysis.
+- **Keep sampling export-only.** Replaced at the user's explicit request because
+  full-frame preview does not show the sampled GIF sequence.
+- **Sample prefix analysis along with images.** Rejected because skipped images
+  and artifactless trials must not remove observations from the analysis.
 - **Retain only the currently prepared image.** Replaced to allow bounded reuse
   and prefetch rather than repeated preparation on every revisit.
 - **Retain every image, or allocate 256 MiB per widget.** Rejected because memory
@@ -107,9 +123,9 @@ resources may be used if justified by evaluation; none is a mandated algorithm.
 
 ## Consequences
 
-UI and GIF share a directly controlled duration; export sampling reduces captured
-frames without changing prefix analysis or live playback. The appended final
-frame can add one frame beyond the regular sampling cadence, so export count and
+UI and GIF share directly controlled duration and sampling; selected images
+change in both preview and export without changing prefix analysis. The appended
+final frame can add one frame beyond the regular sampling cadence, so count and
 duration must reflect the actual selected sequence.
 
 Display-aware caching and prefetch allow reuse within a shared resource budget,

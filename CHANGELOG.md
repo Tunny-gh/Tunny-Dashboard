@@ -33,9 +33,15 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Changed
 
+- Artifact Animation's Frame skip is shared by widget preview and GIF export.
+  Playback, stepping, seeking, looping, and prefetch follow the same selected
+  chronological sequence, including both endpoints. Changing skip preserves the
+  current selected image or moves to its nearest selected predecessor. Trial
+  numbers and full trial-prefix analysis are unchanged.
+
 - Artifact Animation uses one live/GIF display duration (20–10000 ms in 10 ms
   steps, default 330 ms), with a logarithmic slider, numeric input, and reference
-  FPS. Export-only frame skipping preserves both endpoints and all trial-prefix
+  FPS. Shared frame skipping preserves both endpoints and all trial-prefix
   observations, and shows frame count and duration. Display/DPI-aware images are
   reused across Animation widgets within a shared 256 MiB estimated retained
   resource budget, with chronological prefetch and safe seek/invalidation.

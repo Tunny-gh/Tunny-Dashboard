@@ -2,6 +2,24 @@
 
 Date: 2026-10-09
 
+## Later sampling-policy amendment
+
+The measurements below are historical: sampling was export-only when they were
+collected. A subsequent explicit user requirement makes Frame skip common to
+widget playback and GIF export, with the same selected chronological sequence.
+The implementation now applies transport, lookahead, and image windows to that
+sequence while retaining every prefix observation. The original measurement
+claims are preserved, not relabeled as new benchmarks of nonzero shared skip.
+Selected-preview/GIF regression and native verification cover the amended policy.
+
+The amended full-app wgpu harness plays the selected preview before exporting
+and compares the observed image-index sequence with decoded GIF order. It passed
+2 selected of 3 frames with skip 1 (684 x 544, scale 1, 381 UI passes) and
+12 selected of 64 frames with skip 5 (513 x 408, scale 0.75, 841 UI passes).
+Both used exactly 330 ms GIF delays, retained full prefix observations, and
+restored the initiating selected seek/pause position. These synthetic checks are
+not new real-workload performance measurements.
+
 ## Conditions and method
 
 Baseline: `294ca71220823f7997d46742eba1bd038217b26d` on an isolated detached

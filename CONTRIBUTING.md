@@ -213,8 +213,10 @@ scaling. `TUNNY_NATIVE_CAPTURE_OUTPUT` keeps the generated GIF at a chosen path;
 otherwise the test uses a temporary directory. Without the opt-in variable, the
 native check is skipped so the normal workspace test command works headlessly.
 
-`TUNNY_NATIVE_CAPTURE_SKIP` (default 0) checks export sampling, including an
-appended final frame. Capture verifies the exact 330 ms default GIF delay.
+`TUNNY_NATIVE_CAPTURE_SKIP` (default 0) checks shared preview/GIF sampling,
+including an appended final frame. The harness first plays the selected live
+sequence, then verifies matching GIF order, full prefix observations, and the
+exact 330 ms default GIF delay.
 The same harness supports an opt-in Animation workload probe; see the
 [performance evaluation](docs/reports/2026-10-09_artifact-animation-followup-performance.md)
 for synthetic reproduction and the distinction between headless readiness and
