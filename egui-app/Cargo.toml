@@ -21,7 +21,7 @@ rfd = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif"] }
 open = "5"
 arboard = "3"
 
@@ -37,6 +37,12 @@ rusqlite = { version = "0.40.1", features = ["bundled"] }
 [[example]]
 name = "mem_probe"
 path = "examples/mem_probe.rs"
+
+# Opt-in native screenshot smoke test; requires an interactive desktop.
+[[test]]
+name = "artifact_animation_native"
+path = "tests/artifact_animation_native.rs"
+harness = false
 
 [build-dependencies]
 cargo_metadata = "0.18"

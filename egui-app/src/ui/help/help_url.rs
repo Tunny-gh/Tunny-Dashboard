@@ -70,6 +70,7 @@ fn chart_slug(id: &ChartId) -> &'static str {
         ChartId::RadarComparison => "radar-comparison",
         ChartId::ComparisonTable => "comparison-table",
         ChartId::ArtifactGallery => "artifact-gallery",
+        ChartId::ArtifactAnimation => "artifact-animation",
     }
 }
 

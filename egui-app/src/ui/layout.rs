@@ -338,6 +338,7 @@ pub fn show_layout(app: &mut TunnyApp, ui: &mut egui::Ui) {
         &ctx,
         &mut app.app_state,
         &mut app.widget_states,
+        &mut app.canvas_widgets,
         &tx,
     );
 }

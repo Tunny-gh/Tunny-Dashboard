@@ -5,6 +5,48 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// Sequence number to avoid collisions in `write_atomic`'s temp file names.
 static TMP_WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// A streaming output kept private until the complete file is ready to publish.
+pub(crate) struct AtomicOutput {
+    pub file: std::fs::File,
+    temporary: PathBuf,
+    destination: PathBuf,
+}
+impl AtomicOutput {
+    pub fn create(destination: &Path) -> std::io::Result<Self> {
+        let parent = destination
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let sequence = TMP_WRITE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let temporary = parent.join(format!(
+            ".tunny-export-{}-{sequence}.tmp",
+            std::process::id()
+        ));
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        Ok(Self {
+            file,
+            temporary,
+            destination: destination.to_owned(),
+        })
+    }
+    pub fn sync(&mut self) -> std::io::Result<()> {
+        self.file.flush()?;
+        self.file.sync_all()
+    }
+    pub fn publish(self) -> std::io::Result<()> {
+        // The cloned writer in the encoder has already been dropped.
+        std::fs::rename(&self.temporary, &self.destination)
+    }
+}
+impl Drop for AtomicOutput {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.temporary);
+    }
+}
+
 /// Atomically overwrites a file (writes to a temp file, then `rename`s it).
 ///
 /// `std::fs::write` performs a non-atomic "truncate -> write" operation, so a disk-full

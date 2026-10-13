@@ -196,6 +196,38 @@ yet (including clean environments and CI). Pass the undocumented
 cargo run -p tunny-desktop -- --no-beta-notice -i path/to/study.db
 ```
 
+Artifact Animation also has an opt-in native wgpu screenshot/GIF check. It opens
+a test window and validates frame order, dimensions, timing, and content-only
+cropping through the production capture path. Run it on an interactive desktop
+(PowerShell example):
+
+```powershell
+$env:TUNNY_NATIVE_CAPTURE_CHECK = "1"
+cargo test -p tunny-desktop --locked --profile ci-test --test artifact_animation_native
+Remove-Item Env:\TUNNY_NATIVE_CAPTURE_CHECK
+```
+
+Optional `TUNNY_NATIVE_CAPTURE_FRAMES` (default 3) and
+`TUNNY_NATIVE_CAPTURE_SCALE` (default 1) exercise longer sequences and canvas
+scaling. `TUNNY_NATIVE_CAPTURE_OUTPUT` keeps the generated GIF at a chosen path;
+otherwise the test uses a temporary directory. Without the opt-in variable, the
+native check is skipped so the normal workspace test command works headlessly.
+
+`TUNNY_NATIVE_CAPTURE_SKIP` (default 0) checks shared preview/GIF sampling,
+including an appended final frame. The harness first plays the selected live
+sequence, then verifies matching GIF order, full prefix observations, and the
+exact 330 ms default GIF delay.
+The same harness supports an opt-in Animation workload probe; see the
+[performance evaluation](docs/reports/2026-10-09_artifact-animation-followup-performance.md)
+for synthetic reproduction and the distinction between headless readiness and
+native playback measurements.
+
+Native workload measurements use event-driven repaint scheduling by default:
+only widget deadlines, worker completions, and normal framework events drive
+playback after the initial Play handoff. `TUNNY_ANIMATION_PERF_CONTINUOUS=1`
+explicitly enables the older continuous-redraw diagnostic; its timing does not
+verify idle deadline-driven preparation.
+
 ## Documentation
 
 `docs/` is organized by purpose, not by feature:

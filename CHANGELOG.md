@@ -11,7 +11,18 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ## [Unreleased]
 
+### Added
+
+- Artifact Animation is an independently configurable canvas widget for PNG/JPEG
+  trial artifacts, with Study-local playback, optional trial values and cached
+  trial-prefix Pareto/history plots on fixed axes. Export GIF captures the same
+  content presentation through a protected snapshot, with responsive cancellation
+  and background encoding; controls and surrounding panels are excluded.
+
 ### Fixed
+
+- Artifact Animation starts the next trial-prefix preparation as soon as a cached
+  frame becomes ready, avoiding an extra loading wait during deadline-driven playback.
 
 - Grasshopper BO-GP-FITC and BO-GP-VFE now report the original journal write
   failure instead of an insufficient-successful-evaluations or surrogate-fit
@@ -21,6 +32,19 @@ and `Security` as needed — omit headings that have nothing under them.
   with its vertical Best/Worst legend overlaid inside the canvas's right edge.
 
 ### Changed
+
+- Artifact Animation's Frame skip is shared by widget preview and GIF export.
+  Playback, stepping, seeking, looping, and prefetch follow the same selected
+  chronological sequence, including both endpoints. Changing skip preserves the
+  current selected image or moves to its nearest selected predecessor. Trial
+  numbers and full trial-prefix analysis are unchanged.
+
+- Artifact Animation uses one live/GIF display duration (20–10000 ms in 10 ms
+  steps, default 330 ms), with a logarithmic slider, numeric input, and reference
+  FPS. Shared frame skipping preserves both endpoints and all trial-prefix
+  observations, and shows frame count and duration. Display/DPI-aware images are
+  reused across Animation widgets within a shared 256 MiB estimated retained
+  resource budget, with chronological prefetch and safe seek/invalidation.
 
 - Grasshopper/Rhino.Compute offers NSGA-II, CMA-ES, BO-GP-FITC, BO-GP-VFE, and
   Random. BO (Bayesian optimization) fits the explicitly chosen GP, with EI for

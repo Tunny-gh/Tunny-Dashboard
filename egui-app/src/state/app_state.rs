@@ -77,6 +77,8 @@ pub struct AppState {
     pub source_generation: u64,
     /// Map from trial_id -> artifacts (actual path + original file name + MIME)
     pub artifact_map: HashMap<u32, Vec<crate::io::artifacts::ArtifactEntry>>,
+    /// Changes even when a rescan resolves the same paths (file contents may differ).
+    pub artifact_revision: u64,
 
     // ── REQ-008: Convergence diagnostics ──────────────────────────
     /// History of (trial_id, cumulative_best_value) (single-objective Study only)
@@ -170,6 +172,7 @@ impl AppState {
             csv_images: None,
             source_generation: 0,
             artifact_map: HashMap::new(),
+            artifact_revision: 0,
             best_trial_history: None,
             pinned_trials: Vec::new(),
             comparison_base_study: None,
