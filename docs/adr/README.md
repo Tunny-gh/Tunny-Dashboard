@@ -90,3 +90,4 @@ order:
 | 0016 | [Artifact Animation export interaction](0016-artifact-animation-export-interaction.md) | Accepted | 2026-10-08 |
 | 0017 | [Artifact Animation frame resource ownership](0017-artifact-animation-frame-resource-ownership.md) | Superseded by ADR-0018 | 2026-10-08 |
 | 0018 | [Artifact Animation timing, export sampling, and cache policy](0018-artifact-animation-timing-export-and-cache-policy.md) | Accepted | 2026-10-09 |
+| 0019 | [Responsibility refactoring goal and scope](0019-responsibility-refactoring-goal-and-scope.md) | Accepted | 2026-10-16 |
