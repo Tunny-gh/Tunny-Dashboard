@@ -50,6 +50,9 @@ when their labels look numeric.
 multi-criteria decision-making (MCDM). Objective direction specifies whether to
 minimize or maximize, not the weight's sign.
 
+**Pareto front**: The set of nondominated trials within the target population,
+evaluated using its objective directions and applicable feasibility policy.
+
 **Artifact root directory**: A directory used as the root for resolving trial
 artifacts, specified independently of the optimization result source. It is not
 an individual artifact file.
