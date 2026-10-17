@@ -17,6 +17,19 @@ A Rust egui desktop app for analyzing Optuna optimization results.
   requirements.
 - Prefer established, well-maintained libraries over custom implementations.
 
+## Reference Implementations
+
+When implementation details or expected behavior are unclear,
+consult the relevant upstream projects:
+
+- [Optuna](https://github.com/optuna/optuna)
+- [Optuna Dashboard](https://github.com/optuna/optuna-dashboard):
+- [Rustuna](https://github.com/optuna/rustuna):
+
+Use these projects as references, not requirements.
+Prioritize this project's requirements and existing decisions.
+Do not add features solely for parity with upstream projects.
+
 ## Code, Tests, Commits, and Comments
 
 - **Code — How:** Make the implementation clear from the code itself.
