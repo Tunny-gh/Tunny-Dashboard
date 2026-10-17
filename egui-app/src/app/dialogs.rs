@@ -140,7 +140,7 @@ impl TunnyApp {
                     .cloned()
                 {
                     self.is_loading = true;
-                    crate::io::study_worker::dispatch_select_study(meta, self.tx.clone());
+                    self.select_study(meta, false, false);
                 }
                 // Drop settings to close the dialog.
             }

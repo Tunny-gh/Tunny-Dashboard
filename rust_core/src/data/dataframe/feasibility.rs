@@ -4,45 +4,7 @@ use super::model::DataFrame;
 /// Derived column: 1 = feasible, 0 = confirmed violation, NaN = unverified.
 pub(crate) const IS_FEASIBLE_COL: &str = "is_feasible";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
-pub enum FeasibilityState {
-    /// Complete finite evaluation, with every value <= 0.
-    Feasible,
-    /// At least one finite positive value, regardless of incomplete peers.
-    Infeasible,
-    /// No confirmed violation, but evaluation is missing, partial, or non-finite.
-    #[serde(rename = "Feasibility unverified")]
-    Unverified,
-}
-
-impl FeasibilityState {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Feasible => "Feasible",
-            Self::Infeasible => "Infeasible",
-            Self::Unverified => "Feasibility unverified",
-        }
-    }
-
-    pub(crate) fn classify(values: &[f64], expected: usize) -> Self {
-        if values.iter().any(|v| v.is_finite() && *v > 0.0) {
-            Self::Infeasible
-        } else if expected == 0 || values.len() != expected || values.iter().any(|v| !v.is_finite())
-        {
-            Self::Unverified
-        } else {
-            Self::Feasible
-        }
-    }
-
-    pub(crate) fn numeric(self) -> f64 {
-        match self {
-            Self::Feasible => 1.0,
-            Self::Infeasible => 0.0,
-            Self::Unverified => f64::NAN,
-        }
-    }
-}
+pub use tdashboard_study::FeasibilityState;
 
 #[derive(Clone, Copy)]
 pub struct Feasibility<'a> {

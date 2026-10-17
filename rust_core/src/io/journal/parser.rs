@@ -9,6 +9,8 @@ mod builders;
 pub(crate) mod distribution;
 mod finalize;
 mod state;
+pub mod study;
+pub mod study_projection;
 mod types;
 
 use crate::io::optuna_json::parse as parse_json;

@@ -226,11 +226,15 @@ impl TunnyApp {
         cc.egui_ctx.set_fonts(fonts);
 
         let (tx, rx) = mpsc::sync_channel(32);
-        let is_loading = initial_path.is_some();
+        let mut is_loading = initial_path.is_some();
+        let mut load_error = None;
         let mut app_state = AppState::new();
         if let Some(path) = initial_path {
             app_state.journal_path = Some(path.clone());
-            dispatch_scan(path, 0, tx.clone());
+            if let Err(error) = dispatch_scan(path, 0, tx.clone(), &mut app_state, false) {
+                is_loading = false;
+                load_error = Some(error);
+            }
         }
         app_state.artifacts_dir = artifact_path.clone();
         app_state.explicit_artifact_root = artifact_path;
@@ -260,7 +264,7 @@ impl TunnyApp {
             widget_states: WidgetStates::default(),
             canvas_widgets: HashMap::new(),
             is_loading,
-            load_error: None,
+            load_error,
             tx,
             rx,
             pending_reload: None,
@@ -341,6 +345,67 @@ impl TunnyApp {
     /// Processes messages non-blockingly and updates AppState.
     pub fn poll_messages(&mut self, ctx: &egui::Context) {
         while let Ok(msg) = self.rx.try_recv() {
+            let msg = match msg {
+                AppMessage::StorageResult {
+                    source_generation,
+                    result,
+                } => {
+                    if source_generation != self.app_state.source_generation {
+                        continue;
+                    }
+                    *result
+                }
+                other => other,
+            };
+            let msg = match msg {
+                AppMessage::JournalScanned {
+                    source,
+                    scan,
+                    path,
+                    result,
+                } => {
+                    let Some(journal) = self
+                        .app_state
+                        .journal_studies
+                        .as_mut()
+                        .filter(|j| j.source == source && j.scan == scan)
+                    else {
+                        continue;
+                    };
+                    match result {
+                        Ok((bytes, studies)) => {
+                            journal.bytes = Some(std::sync::Arc::new(bytes));
+                            AppMessage::JournalParsed { studies, path }
+                        }
+                        Err(e) => AppMessage::Error(e),
+                    }
+                }
+                other => other,
+            };
+            // Ignore superseded completions before they can finish a newer
+            // reload or change its busy/error presentation.
+            if let AppMessage::JournalFinished { header, .. } = &msg {
+                if !self
+                    .app_state
+                    .journal_studies
+                    .as_ref()
+                    .filter(|j| j.source == header.ticket.study().source)
+                    .and_then(|j| j.managers.get(&header.ticket.study().stored_id))
+                    .is_some_and(|m| m.header(header.ticket).is_ok())
+                {
+                    continue;
+                }
+            }
+            if let AppMessage::JournalActivate { key, .. } = &msg {
+                if !self
+                    .app_state
+                    .journal_studies
+                    .as_ref()
+                    .is_some_and(|j| j.source == key.source)
+                {
+                    continue;
+                }
+            }
             // Open (including D&D while loading) and New replace the requested
             // source before its worker finishes. Reject old study lists before
             // they can overwrite the source or launch artifact discovery.
@@ -380,11 +445,32 @@ impl TunnyApp {
             // Limit streaming-load batches to one per frame so each batch's DataFrame
             // rebuild cost isn't concentrated into a single frame (avoids render stalls).
             // Remaining batches stay in the channel and are processed on the next frame.
-            let is_study_chunk = matches!(&msg, AppMessage::StudyChunkLoaded { .. });
+            let is_study_chunk = matches!(
+                &msg,
+                AppMessage::StudyChunkLoaded { .. } | AppMessage::JournalBatch { .. }
+            );
             // A study finished loading (streamed to its last batch, or activated
             // directly from the shared store). This is where an in-flight reload
             // gets its captured view state re-applied.
-            let is_study_activated = matches!(&msg, AppMessage::StudySelected { .. })
+            let journal_selection_completed = match &msg {
+                AppMessage::JournalFinished {
+                    header,
+                    result: Ok(()),
+                    ..
+                } => self
+                    .app_state
+                    .journal_studies
+                    .as_ref()
+                    .is_some_and(|j| j.selected == Some(header.ticket.study().stored_id)),
+                AppMessage::JournalActivate { key, .. } => self
+                    .app_state
+                    .journal_studies
+                    .as_ref()
+                    .is_some_and(|j| j.selected == Some(key.stored_id)),
+                _ => false,
+            };
+            let is_study_activated = journal_selection_completed
+                || matches!(&msg, AppMessage::StudySelected { .. })
                 || matches!(&msg, AppMessage::StudyChunkLoaded { is_final: true, .. });
             // Async compute completion/failure messages only update the global
             // widget_states. Since each canvas item holds independent WidgetStates
@@ -450,7 +536,7 @@ impl TunnyApp {
                         // If there's only one Study, automatically start Phase 2.
                         self.is_loading = true;
                         let meta = self.app_state.all_studies[0].clone();
-                        crate::io::study_worker::dispatch_select_study(meta, self.sender());
+                        self.select_study(meta, false, false);
                     }
                 }
             }
@@ -462,7 +548,14 @@ impl TunnyApp {
             // The reloaded study is now on screen, so the view state captured
             // before the reload can be re-applied (a no-op when no reload is in
             // flight).
-            if is_study_activated {
+            let managed_activation = journal_selection_completed
+                && self.app_state.journal_studies.as_ref().is_some_and(|j| {
+                    j.selected
+                        .and_then(|id| j.managers.get(&id))
+                        .and_then(|m| m.load_state())
+                        .is_some_and(|s| s.phase == tdashboard_study::LoadPhase::Complete)
+                });
+            if is_study_activated && (!journal_selection_completed || managed_activation) {
                 self.finish_reload();
             }
 
@@ -499,7 +592,7 @@ impl TunnyApp {
                 }
                 ToolbarAction::SelectStudy(meta) => {
                     self.is_loading = true;
-                    crate::io::study_worker::dispatch_select_study(meta, self.sender());
+                    self.select_study(meta, false, false);
                 }
                 ToolbarAction::Reload => self.reload_current(),
                 ToolbarAction::ScanArtifacts(base_dir) => {
@@ -554,11 +647,7 @@ impl TunnyApp {
                         self.app_state.comparison_mode = true;
                         // Not forced: adding a comparison target is a fresh
                         // read, so an existing snapshot for it is current.
-                        crate::io::study_worker::dispatch_load_comparison_study(
-                            meta,
-                            false,
-                            self.sender(),
-                        );
+                        self.select_study(meta, true, false);
                     }
                 }
                 ToolbarAction::RemoveComparisonStudy(idx) => {
@@ -756,15 +845,81 @@ fn dispatch_scan(
     path: std::path::PathBuf,
     source_generation: u64,
     tx: mpsc::SyncSender<AppMessage>,
-) {
+    app_state: &mut AppState,
+    reload: bool,
+) -> Result<(), String> {
     if let Some(url) = crate::io::rdb::path_as_rdb_url(&path) {
-        crate::io::study_worker::dispatch_scan_rdb(url, tx);
+        crate::io::study_worker::dispatch_scan_rdb(url, source_generation, tx);
     } else if crate::io::flat_csv::is_csv_path(&path) {
         crate::io::study_worker::dispatch_scan_csv(path, source_generation, tx);
     } else if crate::io::sqlite::is_sqlite_path(&path) {
-        crate::io::study_worker::dispatch_scan_sqlite(path, tx);
+        crate::io::study_worker::dispatch_scan_sqlite(path, source_generation, tx);
     } else {
-        crate::io::study_worker::dispatch_scan_journal(path, tx);
+        if !reload || app_state.journal_studies.is_none() {
+            match crate::state::journal_studies::JournalStudies::new(source_generation) {
+                Ok(journal) => app_state.journal_studies = Some(journal),
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+        let journal = app_state.journal_studies.as_mut().unwrap();
+        journal.invalidate_loaders(source_generation);
+        let source = journal.source;
+        // The legacy worker still publishes CSV/DB snapshots during acquisition.
+        // Keep scanning behind those writes until #251 removes that boundary.
+        crate::io::study_worker::dispatch_scan_journal(path, source, source_generation, tx);
+        return Ok(());
+    }
+    app_state.journal_studies = None;
+    Ok(())
+}
+
+impl TunnyApp {
+    fn select_study(
+        &mut self,
+        meta: crate::state::app_state::StudyMeta,
+        comparison: bool,
+        force: bool,
+    ) {
+        let tx = self.sender();
+        if let Some(journal) = self.app_state.journal_studies.as_mut() {
+            match journal.request(meta.study_id, comparison, force, tx) {
+                Ok(Some(activation)) => {
+                    MessageHandler::handle(
+                        activation,
+                        &mut self.app_state,
+                        &mut self.widget_states,
+                        &mut self.is_loading,
+                        &mut self.load_error,
+                    );
+                    if self
+                        .app_state
+                        .journal_studies
+                        .as_ref()
+                        .is_some_and(|j| j.selected == Some(meta.study_id))
+                    {
+                        self.finish_reload();
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    self.load_error = Some(e);
+                    self.is_loading = false;
+                }
+            }
+        } else if comparison {
+            crate::io::study_worker::dispatch_load_comparison_study(
+                meta,
+                force,
+                self.app_state.source_generation,
+                tx,
+            );
+        } else {
+            crate::io::study_worker::dispatch_select_study(
+                meta,
+                self.app_state.source_generation,
+                tx,
+            );
+        }
     }
 }
 

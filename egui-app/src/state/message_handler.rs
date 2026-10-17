@@ -17,6 +17,89 @@ impl MessageHandler {
         load_error: &mut Option<String>,
     ) {
         match msg {
+            AppMessage::StorageResult { .. } => {
+                unreachable!("Storage delivery is checked by the entry adapter")
+            }
+            AppMessage::JournalBatch {
+                header,
+                batch,
+                reply,
+            } => {
+                let result = app_state
+                    .journal_studies
+                    .as_mut()
+                    .filter(|j| j.source == header.ticket.study().source)
+                    .and_then(|j| j.managers.get_mut(&header.ticket.study().stored_id))
+                    .ok_or_else(|| "Superseded Journal source".to_string())
+                    .and_then(|m| m.apply(header, batch).map_err(|e| e.to_string()));
+                if result.is_ok() {
+                    Self::publish_journal(header.ticket.study(), app_state, widget_states);
+                }
+                let _ = reply.send(result);
+            }
+            AppMessage::JournalFinished { header, result } => {
+                let selected = app_state
+                    .journal_studies
+                    .as_ref()
+                    .is_some_and(|j| j.selected == Some(header.ticket.study().stored_id));
+                let Some(manager) = app_state
+                    .journal_studies
+                    .as_mut()
+                    .filter(|j| j.source == header.ticket.study().source)
+                    .and_then(|j| j.managers.get_mut(&header.ticket.study().stored_id))
+                else {
+                    return;
+                };
+                if manager.header(header.ticket).is_err() {
+                    return;
+                }
+                let succeeded = match result {
+                    Ok(()) => {
+                        if let Err(e) = manager.finish(header.ticket, header.sequence) {
+                            let _ = manager.fail(header.ticket);
+                            *load_error = Some(e.to_string());
+                            false
+                        } else {
+                            true
+                        }
+                    }
+                    Err(e) => {
+                        let _ = manager.fail(header.ticket);
+                        *load_error = Some(e);
+                        false
+                    }
+                };
+                if !succeeded {
+                    Self::complete_journal_comparison(header.ticket.study(), None, app_state);
+                }
+                Self::publish_journal(header.ticket.study(), app_state, widget_states);
+                if selected {
+                    *is_loading = false;
+                }
+            }
+            AppMessage::JournalActivate { key } => {
+                if !app_state
+                    .journal_studies
+                    .as_ref()
+                    .filter(|j| j.source == key.source)
+                    .and_then(|j| j.managers.get(&key.stored_id))
+                    .and_then(|m| m.load_state())
+                    .is_some_and(|s| s.phase == tdashboard_study::LoadPhase::Complete)
+                {
+                    return;
+                }
+                Self::publish_journal(key, app_state, widget_states);
+                if app_state
+                    .journal_studies
+                    .as_ref()
+                    .is_some_and(|j| j.source == key.source && j.selected == Some(key.stored_id))
+                {
+                    *is_loading = false;
+                }
+            }
+            AppMessage::JournalScanned { .. } => {
+                unreachable!("Journal scan is handled by the entry adapter")
+            }
             AppMessage::JournalParsed { studies, path } => {
                 app_state.all_studies = studies;
                 app_state.journal_path = Some(path);

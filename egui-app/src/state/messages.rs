@@ -206,6 +206,29 @@ pub struct SurrogateCompareUiResult {
 // ============================================================
 
 pub enum AppMessage {
+    /// Legacy storage callbacks retain their caller's acquisition identity.
+    StorageResult {
+        source_generation: u64,
+        result: Box<AppMessage>,
+    },
+    JournalScanned {
+        source: tdashboard_study::SourceInstanceId,
+        scan: u64,
+        path: std::path::PathBuf,
+        result: Result<(Vec<u8>, Vec<StudyMeta>), String>,
+    },
+    JournalBatch {
+        header: tdashboard_study::BatchHeader,
+        batch: tdashboard_study::StudyBatch,
+        reply: std::sync::mpsc::SyncSender<Result<tdashboard_study::ApplyReceipt, String>>,
+    },
+    JournalFinished {
+        header: tdashboard_study::BatchHeader,
+        result: Result<(), String>,
+    },
+    JournalActivate {
+        key: tdashboard_study::StudyKey,
+    },
     JournalParsed {
         studies: Vec<StudyMeta>,
         path: std::path::PathBuf,

@@ -19,7 +19,7 @@ pub use hypervolume::{
     compute_hv_history_from_data, compute_hv_history_with_ref, compute_hypervolume_history,
     hypervolume_2d, hypervolume_nd,
 };
-pub use ranking::{compute_pareto_ranks, nd_sort};
+pub use ranking::{compute_pareto_ranks, compute_pareto_ranks_from_df, nd_sort};
 pub use types::{HvHistoryResult, ParetoResult};
 
 #[cfg(test)]

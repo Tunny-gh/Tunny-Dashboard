@@ -10,9 +10,11 @@ use tunny_core::dataframe::DataFrame;
 use tunny_core::rdb::RdbUrl;
 
 enum StudyCommand {
-    /// Phase 1: scans the file and retrieves only the list of Studies
+    /// A scan barrier behind legacy storage writes, not Journal authority.
     ScanJournal {
         path: PathBuf,
+        source: tdashboard_study::SourceInstanceId,
+        scan: u64,
         tx: SyncSender<AppMessage>,
     },
     /// Loads a flat CSV (1 row = 1 trial) format and registers it as a single Study.
@@ -24,16 +26,19 @@ enum StudyCommand {
     /// Opens Optuna SQLite (RDBStorage) and retrieves only the list of Studies.
     ScanSqlite {
         path: PathBuf,
+        source_generation: u64,
         tx: SyncSender<AppMessage>,
     },
     /// Opens Optuna RDBStorage (PostgreSQL/MySQL) via a URL and retrieves only the list of Studies.
     ScanRdb {
         url: RdbUrl,
+        source_generation: u64,
         tx: SyncSender<AppMessage>,
     },
     /// Phase 2 / reselection: fully parses if not yet loaded, activates immediately if already loaded
     SelectStudy {
         meta: StudyMeta,
+        source_generation: u64,
         tx: SyncSender<AppMessage>,
     },
     /// Loads another Study within the same file as a comparison target.
@@ -41,6 +46,7 @@ enum StudyCommand {
     /// and returns a DataFrame snapshot and HV history without changing the active Study.
     LoadComparisonStudy {
         meta: StudyMeta,
+        source_generation: u64,
         /// Re-parses from storage even when a snapshot for this study_id is
         /// already in the shared store. Set by the toolbar Reload, whose whole
         /// point is that the stored snapshot is stale.
@@ -51,8 +57,6 @@ enum StudyCommand {
 
 /// Local state of the worker thread
 struct WorkerState {
-    /// Raw byte buffer read in Phase 1. Cached to avoid re-reading the file in Phase 2
-    journal_data: Option<Vec<u8>>,
     /// Path of the currently open Optuna SQLite storage. Unlike journal, the bytes aren't cached;
     /// Phase 2 re-queries directly from this path. Mutually exclusive with journal/CSV.
     sqlite_path: Option<PathBuf>,
@@ -78,7 +82,6 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
         let (cmd_tx, cmd_rx) = mpsc::channel::<StudyCommand>();
         std::thread::spawn(move || {
             let mut state = WorkerState {
-                journal_data: None,
                 sqlite_path: None,
                 rdb_url: None,
                 loaded_study_ids: HashSet::new(),
@@ -86,16 +89,25 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
             };
             while let Ok(cmd) = cmd_rx.recv() {
                 match cmd {
-                    StudyCommand::ScanJournal { path, tx } => {
-                        let (data, msg) = crate::io::journal::scan_journal_task(path);
-                        if !matches!(msg, AppMessage::Error(_)) {
-                            state.journal_data = Some(data);
-                            state.sqlite_path = None;
-                            state.rdb_url = None;
-                            state.loaded_study_ids.clear();
-                            state.csv_artifacts = None;
-                        }
-                        let _ = tx.send(msg);
+                    StudyCommand::ScanJournal {
+                        path,
+                        source,
+                        scan,
+                        tx,
+                    } => {
+                        let result = crate::io::file::read_journal_file(&path).and_then(|bytes| {
+                            let studies = tunny_core::journal_parser::scan_study_list(&bytes)?
+                                .into_iter()
+                                .map(crate::io::journal::convert_study_meta)
+                                .collect();
+                            Ok((bytes, studies))
+                        });
+                        let _ = tx.send(AppMessage::JournalScanned {
+                            source,
+                            scan,
+                            path,
+                            result,
+                        });
                     }
                     StudyCommand::ScanCsv {
                         path,
@@ -106,7 +118,6 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                             Ok((meta, images)) => {
                                 // CSV immediately registers its single Study in the store. It
                                 // doesn't use the Journal's streaming path, so it's treated as loaded.
-                                state.journal_data = None;
                                 state.sqlite_path = None;
                                 state.rdb_url = None;
                                 state.loaded_study_ids.clear();
@@ -116,79 +127,116 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                                     source_generation,
                                     images,
                                 });
-                                let _ = tx.send(AppMessage::JournalParsed {
-                                    studies: vec![meta],
-                                    path,
-                                });
+                                send_result(
+                                    &tx,
+                                    source_generation,
+                                    AppMessage::JournalParsed {
+                                        studies: vec![meta],
+                                        path,
+                                    },
+                                );
                             }
                             Err(e) => {
-                                let _ = tx.send(AppMessage::Error(e));
+                                send_result(&tx, source_generation, AppMessage::Error(e));
                             }
                         }
                     }
-                    StudyCommand::ScanSqlite { path, tx } => {
+                    StudyCommand::ScanSqlite {
+                        path,
+                        source_generation,
+                        tx,
+                    } => {
                         let msg = crate::io::sqlite::scan_sqlite_task(path.clone());
                         if !matches!(msg, AppMessage::Error(_)) {
-                            state.journal_data = None;
                             state.sqlite_path = Some(path);
                             state.rdb_url = None;
                             state.loaded_study_ids.clear();
                             state.csv_artifacts = None;
                         }
-                        let _ = tx.send(msg);
+                        send_result(&tx, source_generation, msg);
                     }
-                    StudyCommand::ScanRdb { url, tx } => {
+                    StudyCommand::ScanRdb {
+                        url,
+                        source_generation,
+                        tx,
+                    } => {
                         let msg = crate::io::rdb::scan_rdb_task(url.clone());
                         if !matches!(msg, AppMessage::Error(_)) {
-                            state.journal_data = None;
                             state.sqlite_path = None;
                             state.rdb_url = Some(url);
                             state.loaded_study_ids.clear();
                             state.csv_artifacts = None;
                         }
-                        let _ = tx.send(msg);
+                        send_result(&tx, source_generation, msg);
                     }
-                    StudyCommand::SelectStudy { meta, tx } => {
+                    StudyCommand::SelectStudy {
+                        meta,
+                        source_generation,
+                        tx,
+                    } => {
                         let study_id = meta.study_id;
                         if state.loaded_study_ids.contains(&study_id) {
                             // The DataFrame is already in the store -> activate it directly (single immediate message)
-                            let _ = tx.send(crate::io::study::select_study_task(meta));
+                            send_result(
+                                &tx,
+                                source_generation,
+                                crate::io::study::select_study_task(meta),
+                            );
                             // Supply source-identified CSV img associations on activation,
                             // including the initial import.
                             if let Some(artifacts) = &state.csv_artifacts {
-                                let _ = tx.send(AppMessage::CsvArtifacts {
-                                    source_path: artifacts.source_path.clone(),
-                                    source_generation: artifacts.source_generation,
-                                    images: artifacts.images.clone(),
-                                });
-                            }
-                        } else if let Some(ref data) = state.journal_data {
-                            // Not yet loaded -> Phase 2: streaming parse. Sends completed Trials to
-                            // tx incrementally as StudyChunkLoaded, every 1000 trials (multiple messages).
-                            let ok = crate::io::journal::stream_single_study_task(data, meta, &tx);
-                            if ok {
-                                state.loaded_study_ids.insert(study_id);
+                                send_result(
+                                    &tx,
+                                    source_generation,
+                                    AppMessage::CsvArtifacts {
+                                        source_path: artifacts.source_path.clone(),
+                                        source_generation: artifacts.source_generation,
+                                        images: artifacts.images.clone(),
+                                    },
+                                );
                             }
                         } else if let Some(ref path) = state.sqlite_path {
                             // Not yet loaded -> loads all rows from SQLite as a single chunk (one message).
-                            let ok = crate::io::sqlite::load_single_study_task(path, study_id, &tx);
+                            // Capture that one result so every storage callback,
+                            // including its error, receives the dispatch identity.
+                            let (local_tx, local_rx) = mpsc::sync_channel(1);
+                            let ok = crate::io::sqlite::load_single_study_task(
+                                path, study_id, &local_tx,
+                            );
+                            if let Ok(result) = local_rx.try_recv() {
+                                send_result(&tx, source_generation, result);
+                            }
                             if ok {
                                 state.loaded_study_ids.insert(study_id);
                             }
                         } else if let Some(ref url) = state.rdb_url {
                             // Not yet loaded -> loads all rows from the RDB as a single chunk (one message).
-                            let ok = crate::io::rdb::load_single_study_task(url, study_id, &tx);
+                            let (local_tx, local_rx) = mpsc::sync_channel(1);
+                            let ok =
+                                crate::io::rdb::load_single_study_task(url, study_id, &local_tx);
+                            if let Ok(result) = local_rx.try_recv() {
+                                send_result(&tx, source_generation, result);
+                            }
                             if ok {
                                 state.loaded_study_ids.insert(study_id);
                             }
                         } else {
-                            let _ = tx.send(AppMessage::Error(
-                                "No journal is loaded yet. Please open a journal first."
-                                    .to_string(),
-                            ));
+                            send_result(
+                                &tx,
+                                source_generation,
+                                AppMessage::Error(
+                                    "No journal is loaded yet. Please open a journal first."
+                                        .to_string(),
+                                ),
+                            );
                         }
                     }
-                    StudyCommand::LoadComparisonStudy { meta, force, tx } => {
+                    StudyCommand::LoadComparisonStudy {
+                        meta,
+                        force,
+                        source_generation,
+                        tx,
+                    } => {
                         let study_id = meta.study_id;
                         // Secure the DataFrame: use it as-is if already in the store,
                         // otherwise parse only the target Study from the cached storage.
@@ -210,12 +258,7 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                                 // done together after a successful parse (consolidating the
                                 // 8-line block that was copy-pasted 3 times in the old implementation
                                 // into one place).
-                                let parsed = if let Some(data) = state.journal_data.as_ref() {
-                                    tunny_core::io::journal::parser::parse_single_study(
-                                        data, study_id,
-                                    )
-                                    .map(|(_full_meta, df, extras)| (df, extras))
-                                } else if let Some(path) = state.sqlite_path.as_ref() {
+                                let parsed = if let Some(path) = state.sqlite_path.as_ref() {
                                     tunny_core::sqlite::parse_single_study(path, study_id)
                                         .map(|(_full_meta, df, extras)| (df, extras))
                                 } else if let Some(url) = state.rdb_url.as_ref() {
@@ -241,17 +284,13 @@ fn worker_sender() -> &'static mpsc::Sender<StudyCommand> {
                                 meta.name
                             )),
                         };
-                        let _ = tx.send(msg);
+                        send_result(&tx, source_generation, msg);
                     }
                 }
             }
         });
         cmd_tx
     })
-}
-
-pub fn dispatch_scan_journal(path: PathBuf, tx: SyncSender<AppMessage>) {
-    let _ = worker_sender().send(StudyCommand::ScanJournal { path, tx });
 }
 
 /// Loads a flat CSV and registers it as a single Study.
@@ -264,17 +303,29 @@ pub fn dispatch_scan_csv(path: PathBuf, source_generation: u64, tx: SyncSender<A
 }
 
 /// Opens the Optuna SQLite storage and retrieves the list of Studies.
-pub fn dispatch_scan_sqlite(path: PathBuf, tx: SyncSender<AppMessage>) {
-    let _ = worker_sender().send(StudyCommand::ScanSqlite { path, tx });
+pub fn dispatch_scan_sqlite(path: PathBuf, source_generation: u64, tx: SyncSender<AppMessage>) {
+    let _ = worker_sender().send(StudyCommand::ScanSqlite {
+        path,
+        source_generation,
+        tx,
+    });
 }
 
 /// Opens Optuna RDBStorage (PostgreSQL/MySQL) via a URL and retrieves the list of Studies.
-pub fn dispatch_scan_rdb(url: RdbUrl, tx: SyncSender<AppMessage>) {
-    let _ = worker_sender().send(StudyCommand::ScanRdb { url, tx });
+pub fn dispatch_scan_rdb(url: RdbUrl, source_generation: u64, tx: SyncSender<AppMessage>) {
+    let _ = worker_sender().send(StudyCommand::ScanRdb {
+        url,
+        source_generation,
+        tx,
+    });
 }
 
-pub fn dispatch_select_study(meta: StudyMeta, tx: SyncSender<AppMessage>) {
-    let _ = worker_sender().send(StudyCommand::SelectStudy { meta, tx });
+pub fn dispatch_select_study(meta: StudyMeta, source_generation: u64, tx: SyncSender<AppMessage>) {
+    let _ = worker_sender().send(StudyCommand::SelectStudy {
+        meta,
+        source_generation,
+        tx,
+    });
 }
 
 /// Loads another Study within the same file as a comparison target.
@@ -284,8 +335,39 @@ pub fn dispatch_select_study(meta: StudyMeta, tx: SyncSender<AppMessage>) {
 /// `force` re-parses from storage even when a snapshot is already registered —
 /// used by the toolbar Reload, where the stored snapshot is exactly what has
 /// gone stale.
-pub fn dispatch_load_comparison_study(meta: StudyMeta, force: bool, tx: SyncSender<AppMessage>) {
-    let _ = worker_sender().send(StudyCommand::LoadComparisonStudy { meta, force, tx });
+pub fn dispatch_load_comparison_study(
+    meta: StudyMeta,
+    force: bool,
+    source_generation: u64,
+    tx: SyncSender<AppMessage>,
+) {
+    let _ = worker_sender().send(StudyCommand::LoadComparisonStudy {
+        meta,
+        force,
+        source_generation,
+        tx,
+    });
+}
+
+fn send_result(tx: &SyncSender<AppMessage>, source_generation: u64, result: AppMessage) {
+    let _ = tx.send(AppMessage::StorageResult {
+        source_generation,
+        result: Box::new(result),
+    });
+}
+
+pub fn dispatch_scan_journal(
+    path: PathBuf,
+    source: tdashboard_study::SourceInstanceId,
+    scan: u64,
+    tx: SyncSender<AppMessage>,
+) {
+    let _ = worker_sender().send(StudyCommand::ScanJournal {
+        path,
+        source,
+        scan,
+        tx,
+    });
 }
 
 /// Builds a `StudyContext` from a comparison Study's DataFrame snapshot.
