@@ -840,6 +840,11 @@ impl DataFrame {
         self.filter_rows(&mask)
     }
 
+    /// Retain a derived column layout without retaining any trial values.
+    pub(crate) fn empty_with_schema(&self) -> DataFrame {
+        self.filter_rows(&[])
+    }
+
     /// Return a new `DataFrame` keeping only the rows for which `mask[i]` is `true`.
     fn filter_rows(&self, mask: &[bool]) -> DataFrame {
         let trial_ids: Vec<u32> = self

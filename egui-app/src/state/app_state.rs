@@ -13,6 +13,9 @@ use tunny_core::indicators::MoIndicator;
 
 #[derive(Debug)]
 pub struct AppState {
+    /// Explicit Journal authorities; active selection is screen state.
+    pub journal_studies: Option<super::journal_studies::JournalStudies>,
+    pub journal_display: Option<tdashboard_study::AcquiredStamp>,
     pub all_studies: Vec<StudyMeta>,
     pub journal_path: Option<std::path::PathBuf>,
     pub current_study: Option<StudyContext>,
@@ -147,6 +150,8 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         Self {
+            journal_studies: None,
+            journal_display: None,
             all_studies: Vec::new(),
             journal_path: None,
             current_study: None,
@@ -217,6 +222,9 @@ impl AppState {
     /// Call this when `comparison_base_study` doesn't match the current study_id, or
     /// on an explicit reset.
     pub fn reset_comparison_session(&mut self) {
+        if let Some(journal) = self.journal_studies.as_mut() {
+            journal.clear_comparisons();
+        }
         self.comparison_mode = false;
         self.comparison_studies.clear();
         self.comparison_colors.clear();

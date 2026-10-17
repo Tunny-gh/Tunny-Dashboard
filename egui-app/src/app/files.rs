@@ -71,7 +71,16 @@ impl TunnyApp {
         // being replaced, and the incoming scan result is not theirs.
         self.pending_reload = None;
         self.reload_when_idle = false;
-        dispatch_scan(path, self.app_state.source_generation, self.sender());
+        if let Err(error) = dispatch_scan(
+            path,
+            self.app_state.source_generation,
+            self.sender(),
+            &mut self.app_state,
+            false,
+        ) {
+            self.is_loading = false;
+            self.load_error = Some(error);
+        }
     }
 
     // ── File D&D (.ghx -> optimization setup modal, storage -> open) ────

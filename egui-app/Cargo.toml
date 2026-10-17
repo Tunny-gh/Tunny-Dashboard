@@ -12,6 +12,7 @@ name = "TunnyDashboard"
 path = "src/main.rs"
 
 [dependencies]
+tdashboard-study = { path = "../crates/study" }
 tunny-core = { path = "../rust_core", default-features = false }
 eframe = { version = "0.35", features = ["wgpu", "persistence"] }
 egui = "0.35"

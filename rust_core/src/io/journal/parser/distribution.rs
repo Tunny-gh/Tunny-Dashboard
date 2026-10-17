@@ -33,10 +33,10 @@ impl Distribution {
         external: Option<&Value>,
     ) {
         let discrete = match self {
-            Self::Int { .. } => true,
+            Self::Int { .. } => tdashboard_study::NumericKind::Int.is_discrete(None),
             Self::Float {
                 step: Some(step), ..
-            } => step.is_finite() && *step > 0.0,
+            } => tdashboard_study::NumericKind::Float.is_discrete(Some(*step)),
             _ => false,
         };
         metadata.numeric_discrete.insert(name.to_string(), discrete);

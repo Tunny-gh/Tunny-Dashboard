@@ -1,6 +1,132 @@
 use super::*;
 
 impl MessageHandler {
+    /// Explicit-input table/history path. Legacy store writes below are derived
+    /// mirrors for unmigrated widgets only (#253); they are never read here.
+    pub(super) fn publish_journal(
+        key: tdashboard_study::StudyKey,
+        app_state: &mut AppState,
+        widget_states: &mut WidgetStates,
+    ) {
+        let Some(journal) = app_state
+            .journal_studies
+            .as_mut()
+            .filter(|j| j.source == key.source)
+        else {
+            return;
+        };
+        let comparison_ready = journal.has_comparison(key)
+            && journal
+                .managers
+                .get(&key.stored_id)
+                .and_then(|m| m.load_state())
+                .is_some_and(|s| s.phase == tdashboard_study::LoadPhase::Complete);
+        let selected = journal.selected == Some(key.stored_id);
+        let Some(input) = journal
+            .managers
+            .get(&key.stored_id)
+            .and_then(|m| m.acquire())
+        else {
+            return;
+        };
+        let projection = journal
+            .projections
+            .entry(key.stored_id)
+            .or_default()
+            .project(&input);
+        let complete = input.load_state().phase == tdashboard_study::LoadPhase::Complete;
+        let meta = crate::io::journal::convert_study_meta(projection.meta);
+        let pareto = if complete {
+            tunny_core::pareto::compute_pareto_ranks_from_df(
+                &projection.dataframe,
+                &meta
+                    .directions
+                    .iter()
+                    .map(|d| matches!(d, Direction::Minimize))
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            tunny_core::pareto::ParetoResult {
+                ranks: vec![],
+                pareto_indices: vec![],
+                hypervolume: None,
+            }
+        };
+        let df = std::sync::Arc::new(projection.dataframe);
+        // Remove these compatibility publications in #253. No parser writes them.
+        tunny_core::dataframe::swap_snapshot(key.stored_id, df.clone());
+        tunny_core::dataframe::store_extras_for(key.stored_id, projection.extras);
+        let context = StudyContext {
+            meta: meta.clone(),
+            view: StudyView::new(df, pareto.ranks),
+            pareto_indices: pareto.pareto_indices,
+        };
+        let comparison_context = comparison_ready.then(|| context.clone());
+        if let Some(existing) = app_state
+            .all_studies
+            .iter_mut()
+            .find(|m| m.study_id == key.stored_id)
+        {
+            *existing = meta;
+        }
+        if selected {
+            let stamp = input.stamp();
+            let first = app_state.journal_display.is_none_or(|old| {
+                old.input.study != stamp.input.study
+                    || old.input.generation != stamp.input.generation
+            });
+            if first {
+                app_state.clear();
+                widget_states.cluster_scatter = Default::default();
+                widget_states.cluster_scatter_3d.clear_runtime_state();
+                widget_states.trial_table.cluster.clear_runtime_state();
+                widget_states.reset_infeasible_flags();
+            }
+            app_state.journal_display = Some(stamp);
+            app_state.current_study = Some(context);
+            app_state.study_streaming = !complete;
+            app_state.best_trial_history = if complete { projection.history } else { None };
+            app_state.convergence_history = None;
+            app_state.comparison_convergence_histories.clear();
+            widget_states.convergence.computing = false;
+            // Only unmigrated active-store consumers need this selection (#253).
+            let _ = tunny_core::dataframe::select_study(key.stored_id);
+        }
+        // Primary invalidation above must not clear histories just appended by a
+        // shared acquisition's comparison handoff.
+        if let Some(context) = comparison_context {
+            Self::complete_journal_comparison(key, Some(context), app_state);
+        }
+    }
+    pub(super) fn complete_journal_comparison(
+        key: tdashboard_study::StudyKey,
+        context: Option<StudyContext>,
+        app_state: &mut AppState,
+    ) {
+        let Some(journal) = app_state
+            .journal_studies
+            .as_mut()
+            .filter(|j| j.source == key.source)
+        else {
+            return;
+        };
+        for context in journal.complete_comparison(key, context) {
+            app_state.comparison_studies.push(context);
+            let idx = app_state.comparison_colors.len();
+            app_state
+                .comparison_colors
+                .push(crate::theme::color_compute::comparison_color_at(idx));
+            app_state
+                .comparison_convergence_histories
+                .push(ConvergenceHistory {
+                    trial_ids: vec![],
+                    values: vec![],
+                    sample_step: 1,
+                    ref_point: vec![],
+                });
+            app_state.convergence_history = None;
+        }
+    }
     /// Builds a single-objective Study's best-so-far history (trial_number,
     /// cumulative best) and stores it in `app_state.best_trial_history`. Left
     /// as None for multi-objective Studies (the convergence card is hidden,

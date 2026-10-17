@@ -2,8 +2,1051 @@ use super::files::has_discardable_state;
 use super::*;
 use crate::state::app_state::StudyMeta;
 
+#[test]
+fn d2_journal_live_open_select_reload_replace_and_headless_projection() {
+    let _guard = test_store_guard();
+    use tdashboard_study::*;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("slice.log");
+    let bytes = concat!(
+        "{\"op_code\":0,\"study_name\":\"a\",\"directions\":[1]}\n",
+        "{\"op_code\":0,\"study_name\":\"b\",\"directions\":[1]}\n",
+        "{\"op_code\":4,\"study_id\":1,\"state\":1,\"distributions\":{},\"params\":{},\"values\":[9]}\n",
+        "{\"op_code\":4,\"study_id\":0}\n",
+        "{\"op_code\":4,\"study_id\":0}\n",
+        "{\"op_code\":8,\"trial_id\":1,\"user_attr\":{\"json\":[1,null]}}\n",
+        "{\"op_code\":6,\"trial_id\":2,\"state\":1,\"values\":[4]}\n",
+        "{\"op_code\":6,\"trial_id\":1,\"state\":1,\"values\":[2]}\n",
+        "{\"op_code\":4,\"study_id\":0,\"state\":2,\"distributions\":{},\"params\":{\"hidden\":7},\"values\":[8],\"system_attrs\":{\"constraints\":[-1,null]}}\n",
+    );
+    std::fs::write(&path, bytes).unwrap();
+    let mut app = artifact_test_app(None);
+    app.open_path(path.clone());
+    poll_until(&mut app, |a| a.app_state.all_studies.len() == 2);
+    select_artifact_study(&mut app, 0);
+    let journal = app.app_state.journal_studies.as_ref().unwrap();
+    let old = journal.managers[&0].acquire().unwrap();
+    assert_eq!(old.data().trials().len(), 3);
+    assert_eq!(old.data().trials()[2].state, TrialState::Pruned);
+    assert_eq!(
+        app.app_state.current_study.as_ref().unwrap().view.trial_ids,
+        vec![2, 1]
+    );
+    assert_eq!(
+        app.app_state.best_trial_history,
+        tunny_core::journal_parser::study_projection::project(&old).history
+    );
+    // The derived global mirror is not the acquisition authority or table input.
+    tunny_core::dataframe::swap_snapshot(
+        0,
+        std::sync::Arc::new(tunny_core::dataframe::DataFrame::empty()),
+    );
+    select_artifact_study(&mut app, 1);
+    select_artifact_study(&mut app, 0);
+    assert_eq!(
+        app.app_state.current_study.as_ref().unwrap().trial_count(),
+        2
+    );
+    assert_eq!(app.app_state.journal_display, Some(old.stamp()));
+    let ctx = egui::Context::default();
+    let mut table = crate::ui::widgets::trial_table::TrialTable::default();
+    let mut history = crate::ui::widgets::optimization_history::OptimizationHistoryChart::default();
+    let output = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1000.0, 800.0),
+            )),
+            ..Default::default()
+        },
+        |ui| {
+            ui.scope(|ui| {
+                ui.set_max_height(300.0);
+                table.show(ui, &mut app.app_state);
+            });
+            let study = app.app_state.current_study.as_ref().unwrap();
+            history.show_with_comparisons(
+                ui,
+                &study.view,
+                &study.meta.objective_names,
+                &study.meta.directions,
+                &study.meta.param_names,
+                &study.meta.name,
+                &[],
+                &app.app_state.artifact_map,
+            );
+        },
+    );
+    assert!(!ctx
+        .tessellate(output.shapes, output.pixels_per_point)
+        .is_empty());
+    let independent = app.app_state.journal_studies.as_ref().unwrap().managers[&1]
+        .acquire()
+        .unwrap();
+    app.reload_current();
+    poll_until(&mut app, |a| a.pending_reload.is_none() && !a.is_loading);
+    let journal = app.app_state.journal_studies.as_ref().unwrap();
+    let reloaded = journal.managers[&0].acquire().unwrap();
+    assert_eq!(old.stamp().input.study, reloaded.stamp().input.study);
+    assert_ne!(
+        old.stamp().input.generation,
+        reloaded.stamp().input.generation
+    );
+    assert!(!reloaded.matches(old.stamp()));
+    assert_eq!(
+        journal.managers[&1].acquire().unwrap().stamp(),
+        independent.stamp()
+    );
+    select_artifact_study(&mut app, 1);
+    let reread = app.app_state.journal_studies.as_ref().unwrap().managers[&1]
+        .acquire()
+        .unwrap();
+    assert_ne!(
+        reread.stamp().input.generation,
+        independent.stamp().input.generation
+    );
+    app.open_path(path);
+    poll_until(&mut app, |a| a.app_state.all_studies.len() == 2);
+    select_artifact_study(&mut app, 0);
+    let replaced = app.app_state.journal_studies.as_ref().unwrap().managers[&0]
+        .acquire()
+        .unwrap();
+    assert_ne!(
+        replaced.stamp().input.study.source,
+        old.stamp().input.study.source
+    );
+    assert_eq!(
+        app.app_state.current_study.as_ref().unwrap().trial_count(),
+        2
+    );
+}
+
+#[test]
+fn d2_stale_same_path_scan_and_old_loader_cannot_populate_replaced_source() {
+    use tdashboard_study::*;
+    let mut app = artifact_test_app(None);
+    let mut old = crate::state::journal_studies::JournalStudies::new(1).unwrap();
+    let key = StudyKey {
+        source: old.source,
+        stored_id: 0,
+    };
+    let mut manager = StudyManager::new(key);
+    let ticket = manager.begin(LoadKind::Initial).unwrap();
+    let header = manager.header(ticket).unwrap();
+    old.managers.insert(0, manager);
+    app.app_state.journal_studies =
+        Some(crate::state::journal_studies::JournalStudies::new(2).unwrap());
+    app.app_state.journal_path = Some("same.log".into());
+    app.is_loading = true;
+    app.tx
+        .send(AppMessage::JournalScanned {
+            source: old.source,
+            scan: 1,
+            path: "same.log".into(),
+            result: Ok((vec![], vec![])),
+        })
+        .unwrap();
+    let (reply, ack) = mpsc::sync_channel(1);
+    app.tx
+        .send(AppMessage::JournalBatch {
+            header,
+            batch: StudyBatch::Replace {
+                trials: vec![],
+                metadata: Default::default(),
+            },
+            reply,
+        })
+        .unwrap();
+    app.tx
+        .send(AppMessage::JournalFinished {
+            header,
+            result: Err("obsolete error".into()),
+        })
+        .unwrap();
+    app.poll_messages(&egui::Context::default());
+    assert!(ack.recv().unwrap().is_err());
+    app.poll_messages(&egui::Context::default());
+    assert!(app.app_state.current_study.is_none());
+    assert!(app
+        .app_state
+        .journal_studies
+        .as_ref()
+        .unwrap()
+        .bytes
+        .is_none());
+    assert!(app.is_loading);
+    assert!(app.load_error.is_none());
+}
+
+#[test]
+fn d2_gui_reload_failure_preserves_the_correct_generation_before_and_after_acceptance() {
+    let _guard = test_store_guard();
+    use tdashboard_study::*;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("reload.log");
+    std::fs::write(&path, "{\"op_code\":0,\"study_name\":\"s\",\"directions\":[1]}\n{\"op_code\":4,\"study_id\":0,\"distributions\":{},\"state\":1,\"values\":[3]}\n").unwrap();
+    let mut app = artifact_test_app(None);
+    app.open_path(path);
+    poll_until(&mut app, |a| {
+        !a.is_loading && a.app_state.current_study.is_some()
+    });
+    let old = app.app_state.journal_studies.as_ref().unwrap().managers[&0]
+        .acquire()
+        .unwrap();
+    let manager = app
+        .app_state
+        .journal_studies
+        .as_mut()
+        .unwrap()
+        .managers
+        .get_mut(&0)
+        .unwrap();
+    let ticket = manager.begin(LoadKind::Reload).unwrap();
+    let header = manager.header(ticket).unwrap();
+    app.tx
+        .send(AppMessage::JournalFinished {
+            header,
+            result: Err("before acceptance".into()),
+        })
+        .unwrap();
+    app.poll_messages(&egui::Context::default());
+    assert_eq!(app.app_state.journal_display, Some(old.stamp()));
+    assert_eq!(
+        app.app_state.current_study.as_ref().unwrap().trial_count(),
+        1
+    );
+    let manager = app
+        .app_state
+        .journal_studies
+        .as_mut()
+        .unwrap()
+        .managers
+        .get_mut(&0)
+        .unwrap();
+    let ticket = manager.begin(LoadKind::Reload).unwrap();
+    let header = manager.header(ticket).unwrap();
+    let (reply, ack) = mpsc::sync_channel(1);
+    app.tx
+        .send(AppMessage::JournalBatch {
+            header,
+            batch: StudyBatch::Replace {
+                trials: vec![],
+                metadata: Default::default(),
+            },
+            reply,
+        })
+        .unwrap();
+    app.poll_messages(&egui::Context::default());
+    let receipt = ack.recv().unwrap().unwrap();
+    assert_eq!(
+        app.app_state.current_study.as_ref().unwrap().trial_count(),
+        0
+    );
+    assert_ne!(
+        app.app_state.journal_display.unwrap().input.generation,
+        old.stamp().input.generation
+    );
+    app.tx
+        .send(AppMessage::JournalFinished {
+            header: receipt.next_header(ticket),
+            result: Err("after acceptance".into()),
+        })
+        .unwrap();
+    app.poll_messages(&egui::Context::default());
+    assert_eq!(
+        app.app_state.current_study.as_ref().unwrap().trial_count(),
+        0
+    );
+    let failed = app.app_state.journal_studies.as_ref().unwrap().managers[&0]
+        .acquire()
+        .unwrap();
+    assert_eq!(failed.load_state().phase, LoadPhase::Failed);
+    assert_eq!(
+        app.app_state.journal_display.unwrap().input,
+        receipt.stamp.input
+    );
+    assert_eq!(old.data().trials().len(), 1);
+    assert_eq!(app.load_error.as_deref(), Some("after acceptance"));
+    // Failed comparison acquisition retains its domain prefix, but must not
+    // append a partial comparison view (the existing caller error policy).
+    let manager = app
+        .app_state
+        .journal_studies
+        .as_mut()
+        .unwrap()
+        .managers
+        .get_mut(&0)
+        .unwrap();
+    let ticket = manager.begin(LoadKind::Reload).unwrap();
+    let receipt = manager
+        .apply(
+            manager.header(ticket).unwrap(),
+            StudyBatch::Replace {
+                trials: vec![],
+                metadata: Default::default(),
+            },
+        )
+        .unwrap();
+    app.tx
+        .send(AppMessage::JournalFinished {
+            header: receipt.next_header(ticket),
+            result: Err("comparison failed".into()),
+        })
+        .unwrap();
+    app.poll_messages(&egui::Context::default());
+    assert!(app.app_state.comparison_studies.is_empty());
+}
+
 fn make_channel() -> (mpsc::SyncSender<AppMessage>, mpsc::Receiver<AppMessage>) {
     mpsc::sync_channel(32)
+}
+
+fn d2_comparison_fixture() -> String {
+    use serde_json::json;
+    let mut lines = vec![
+        json!({"op_code":0,"study_name":"base","directions":[1]}),
+        json!({"op_code":0,"study_name":"large","directions":[1]}),
+        json!({"op_code":0,"study_name":"small","directions":[1]}),
+        json!({"op_code":4,"study_id":0,"distributions":{},"state":1,"values":[0]}),
+    ];
+    for (study, ids) in [(1, 1..1002), (2, 1002..1004)] {
+        for _ in ids.clone() {
+            lines.push(json!({"op_code":4,"study_id":study}));
+        }
+        for id in ids.rev() {
+            lines.push(json!({"op_code":6,"trial_id":id,"state":1,"values":[id]}));
+        }
+    }
+    lines
+        .into_iter()
+        .map(|line| line.to_string() + "\n")
+        .collect()
+}
+
+#[test]
+fn d2_replaced_sqlite_callbacks_cannot_overwrite_a_completed_journal_load() {
+    let _guard = test_store_guard();
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("old.db");
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    connection.execute_batch("
+        CREATE TABLE studies (study_id INTEGER PRIMARY KEY, study_name TEXT);
+        CREATE TABLE study_directions (study_direction_id INTEGER PRIMARY KEY, study_id INTEGER, objective INTEGER, direction TEXT);
+        CREATE TABLE trials (trial_id INTEGER PRIMARY KEY, number INTEGER, study_id INTEGER, state TEXT, datetime_start TEXT, datetime_complete TEXT);
+        CREATE TABLE trial_values (trial_value_id INTEGER PRIMARY KEY, trial_id INTEGER, objective INTEGER, value REAL, value_type TEXT);
+        CREATE TABLE trial_params (param_id INTEGER PRIMARY KEY, trial_id INTEGER, param_name TEXT, param_value REAL, distribution_json TEXT);
+        CREATE TABLE trial_user_attributes (id INTEGER PRIMARY KEY, trial_id INTEGER, key TEXT, value_json TEXT);
+        CREATE TABLE trial_system_attributes (id INTEGER PRIMARY KEY, trial_id INTEGER, key TEXT, value_json TEXT);
+        CREATE TABLE study_system_attributes (id INTEGER PRIMARY KEY, study_id INTEGER, key TEXT, value_json TEXT);
+        INSERT INTO studies VALUES (0, 'old'), (1, 'other');
+        INSERT INTO study_directions (study_id, objective, direction) VALUES (0, 0, 'MINIMIZE'), (1, 0, 'MINIMIZE');
+        INSERT INTO trials (trial_id, number, study_id, state) VALUES (0, 0, 0, 'COMPLETE'), (9, 1, 0, 'FAIL');
+        INSERT INTO trial_values (trial_id, objective, value, value_type) VALUES (0, 0, 99, 'FINITE');
+    ").unwrap();
+    drop(connection);
+    let journal_path = dir.path().join("new.log");
+    std::fs::write(&journal_path, "{\"op_code\":0,\"study_name\":\"new\",\"directions\":[1]}\n{\"op_code\":4,\"study_id\":0,\"distributions\":{},\"state\":1,\"values\":[3]}\n").unwrap();
+    for callback in ["chunk", "selected", "comparison", "error"] {
+        let mut app = artifact_test_app(None);
+        app.open_path(db.clone());
+        poll_until(&mut app, |a| a.app_state.all_studies.len() == 2);
+        if callback == "selected" {
+            select_artifact_study(&mut app, 0);
+        }
+        let mut meta = app
+            .app_state
+            .all_studies
+            .iter()
+            .find(|s| s.study_id == 0)
+            .unwrap()
+            .clone();
+        if callback == "error" {
+            meta.study_id = 999;
+        }
+        let old_generation = app.app_state.source_generation;
+        let delivery = app.tx.clone();
+        let (intercept, results) = make_channel();
+        app.tx = intercept;
+        app.select_study(meta, callback == "comparison", callback == "comparison");
+        let held = results
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap();
+        let AppMessage::StorageResult {
+            source_generation,
+            result,
+        } = &held
+        else {
+            panic!("storage callback lacks source identity");
+        };
+        assert_eq!(*source_generation, old_generation);
+        assert!(match callback {
+            "chunk" => matches!(result.as_ref(), AppMessage::StudyChunkLoaded { .. }),
+            "selected" => matches!(result.as_ref(), AppMessage::StudySelected { .. }),
+            "comparison" => matches!(result.as_ref(), AppMessage::ComparisonStudyLoaded { .. }),
+            _ => matches!(result.as_ref(), AppMessage::Error(_)),
+        });
+        app.tx = delivery.clone();
+        app.open_path(journal_path.clone());
+        poll_until(&mut app, |a| {
+            !a.is_loading && a.app_state.journal_display.is_some()
+        });
+        let stamp = app.app_state.journal_display;
+        let df = app
+            .app_state
+            .current_study
+            .as_ref()
+            .unwrap()
+            .view
+            .df
+            .clone();
+        assert_eq!(df.get_numeric_column("obj0"), Some([3.0].as_slice()));
+        delivery.send(held).unwrap();
+        app.poll_messages(&egui::Context::default());
+        assert_eq!(app.app_state.journal_display, stamp);
+        assert_eq!(
+            app.app_state.current_study.as_ref().unwrap().meta.name,
+            "new"
+        );
+        assert!(std::sync::Arc::ptr_eq(
+            &app.app_state.current_study.as_ref().unwrap().view.df,
+            &df
+        ));
+        assert!(std::sync::Arc::ptr_eq(
+            &tunny_core::dataframe::snapshot(0).unwrap(),
+            &df
+        ));
+        assert_eq!(
+            tunny_core::dataframe::extras_snapshot(0)
+                .unwrap()
+                .trials
+                .len(),
+            1
+        );
+        assert!(app.app_state.comparison_studies.is_empty());
+        assert!(!app.is_loading);
+        assert!(app.load_error.is_none());
+    }
+}
+
+#[test]
+fn d2_streaming_gui_preserves_column_discovery_order_across_the_batch_boundary() {
+    let _guard = test_store_guard();
+    use serde_json::json;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("columns.log");
+    let mut bytes = json!({"op_code":0,"study_name":"columns","directions":[1]}).to_string() + "\n";
+    for i in 0..1001 {
+        let name = if i < 1000 { "z" } else { "a" };
+        bytes.push_str(&(json!({"op_code":4,"study_id":0,"distributions":{},"state":1,"params":{name:i},"values":[i],"user_attrs":{format!("{name}_num"):i,format!("{name}_text"):name}}).to_string() + "\n"));
+    }
+    std::fs::write(&path, &bytes).unwrap();
+    let mut legacy = tunny_core::dataframe::DataFrame::empty();
+    tunny_core::journal_parser::parse_single_study_streaming(bytes.as_bytes(), 0, 1000, |batch| {
+        legacy.append_trials(
+            &batch.new_rows,
+            &batch.param_names,
+            &batch.objective_names,
+            &batch.user_attr_numeric_names,
+            &batch.user_attr_string_names,
+            batch.max_constraints,
+        );
+    })
+    .unwrap();
+    let mut app = artifact_test_app(None);
+    app.open_path(path);
+    poll_until(&mut app, |a| {
+        !a.is_loading && a.app_state.current_study.is_some()
+    });
+    let view = &app.app_state.current_study.as_ref().unwrap().view;
+    assert_eq!(view.param_names(), ["z", "a"]);
+    assert_eq!(view.df.column_names(), legacy.column_names());
+    assert_eq!(
+        view.df
+            .user_attr_numeric_columns()
+            .map(|(n, _)| n)
+            .collect::<Vec<_>>(),
+        vec!["z_num", "a_num"]
+    );
+    assert_eq!(
+        view.df
+            .user_attr_string_columns()
+            .map(|(n, _)| n)
+            .collect::<Vec<_>>(),
+        vec!["z_text", "a_text"]
+    );
+    for name in legacy.column_names() {
+        assert_eq!(
+            view.df.get_string_column(&name),
+            legacy.get_string_column(&name)
+        );
+        let equal_numeric = view
+            .df
+            .get_numeric_column(&name)
+            .zip(legacy.get_numeric_column(&name))
+            .is_none_or(|(a, b)| {
+                a.iter()
+                    .zip(b)
+                    .all(|(a, b)| a == b || a.is_nan() && b.is_nan())
+            });
+        assert!(equal_numeric, "column {name}");
+    }
+}
+
+#[test]
+fn d2_comparison_reload_preserves_request_order_and_full_read_rows_on_reverse_completion() {
+    let _guard = test_store_guard();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("comparison.log");
+    let bytes = d2_comparison_fixture();
+    std::fs::write(&path, &bytes).unwrap();
+    let mut app = artifact_test_app(None);
+    app.open_path(path);
+    poll_until(&mut app, |a| a.app_state.all_studies.len() == 3);
+    select_artifact_study(&mut app, 0);
+    let requested: Vec<_> = [1, 2]
+        .into_iter()
+        .map(|id| {
+            app.app_state
+                .all_studies
+                .iter()
+                .find(|s| s.study_id == id)
+                .unwrap()
+                .clone()
+        })
+        .collect();
+    app.apply_toolbar_actions(
+        requested
+            .into_iter()
+            .map(ToolbarAction::AddComparisonStudy)
+            .collect(),
+    );
+    poll_until(&mut app, |a| a.app_state.comparison_studies.len() == 2);
+    let assert_comparisons = |app: &TunnyApp| {
+        assert_eq!(
+            app.app_state
+                .comparison_studies
+                .iter()
+                .map(|s| s.meta.study_id)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        assert_eq!(
+            app.app_state.comparison_colors,
+            (0..2)
+                .map(crate::theme::color_compute::comparison_color_at)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(app.app_state.comparison_convergence_histories.len(), 2);
+        for context in &app.app_state.comparison_studies {
+            let (_, legacy, _) = tunny_core::journal_parser::parse_single_study(
+                bytes.as_bytes(),
+                context.meta.study_id,
+            )
+            .unwrap();
+            assert_eq!(
+                context.view.trial_ids,
+                (0..legacy.row_count())
+                    .map(|row| legacy.get_trial_id(row).unwrap())
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(
+                context.view.numeric_column("obj0"),
+                legacy.get_numeric_column("obj0")
+            );
+            assert_eq!(
+                (0..context.trial_count())
+                    .map(|row| context.view.df.get_trial_number(row))
+                    .collect::<Vec<_>>(),
+                (0..legacy.row_count())
+                    .map(|row| legacy.get_trial_number(row))
+                    .collect::<Vec<_>>()
+            );
+        }
+    };
+    // Both comparisons were initially unloaded: their order must match the old
+    // full-read caller, not the primary Study's streaming completion order.
+    assert_comparisons(&app);
+
+    // Intercept production worker delivery, not sleeps or a guessed timing gap.
+    // Forward the real reload scan/base/batches and small comparison completion,
+    // but withhold the large comparison's finish until the small one is complete.
+    let delivery = app.tx.clone();
+    let (intercept, completions) = make_channel();
+    app.tx = intercept;
+    app.reload_current();
+    let mut held_large = None;
+    let mut small_finished = false;
+    while held_large.is_none() || !small_finished {
+        let message = completions
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap();
+        if matches!(&message, AppMessage::JournalFinished { header, .. } if header.ticket.study().stored_id == 1)
+        {
+            held_large = Some(message);
+        } else {
+            let is_small = matches!(&message, AppMessage::JournalFinished { header, result: Ok(()) } if header.ticket.study().stored_id == 2);
+            delivery.send(message).unwrap();
+            app.poll_messages(&egui::Context::default());
+            assert!(app.load_error.is_none(), "{:?}", app.load_error);
+            if is_small {
+                small_finished = true;
+                assert!(
+                    app.app_state.comparison_studies.is_empty(),
+                    "later requests must not take the earlier display/color slot"
+                );
+                assert_eq!(
+                    app.app_state.journal_studies.as_ref().unwrap().managers[&2]
+                        .load_state()
+                        .unwrap()
+                        .phase,
+                    tdashboard_study::LoadPhase::Complete
+                );
+            }
+        }
+    }
+    delivery.send(held_large.unwrap()).unwrap();
+    app.poll_messages(&egui::Context::default());
+    assert_comparisons(&app);
+}
+
+#[test]
+fn d2_comparison_cached_streaming_input_is_reused_but_forced_reload_uses_full_read_order() {
+    let _guard = test_store_guard();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("cached-comparison.log");
+    std::fs::write(&path, d2_comparison_fixture()).unwrap();
+    let mut app = artifact_test_app(None);
+    app.open_path(path);
+    poll_until(&mut app, |a| a.app_state.all_studies.len() == 3);
+    select_artifact_study(&mut app, 1);
+    let streaming = app
+        .app_state
+        .current_study
+        .as_ref()
+        .unwrap()
+        .view
+        .trial_ids
+        .clone();
+    assert_eq!(streaming, (1..1002).rev().collect::<Vec<_>>());
+    let stamp = app.app_state.journal_studies.as_ref().unwrap().managers[&1]
+        .acquire()
+        .unwrap()
+        .stamp();
+    select_artifact_study(&mut app, 0);
+    let meta = app
+        .app_state
+        .all_studies
+        .iter()
+        .find(|s| s.study_id == 1)
+        .unwrap()
+        .clone();
+    app.apply_toolbar_actions(vec![ToolbarAction::AddComparisonStudy(meta)]);
+    poll_until(&mut app, |a| a.app_state.comparison_studies.len() == 1);
+    assert_eq!(
+        app.app_state.comparison_studies[0].view.trial_ids,
+        streaming
+    );
+    assert_eq!(
+        app.app_state.journal_studies.as_ref().unwrap().managers[&1]
+            .acquire()
+            .unwrap()
+            .stamp(),
+        stamp
+    );
+    app.reload_current();
+    poll_until(&mut app, |a| {
+        a.pending_reload.is_none() && a.app_state.comparison_studies.len() == 1
+    });
+    assert_eq!(
+        app.app_state.comparison_studies[0].view.trial_ids,
+        (1..1002).collect::<Vec<_>>()
+    );
+    let reloaded = app.app_state.journal_studies.as_ref().unwrap().managers[&1]
+        .acquire()
+        .unwrap();
+    assert_ne!(reloaded.stamp().input.generation, stamp.input.generation);
+}
+
+fn assert_d2_overlapping_journal_load_is_shared(comparison_first: bool) {
+    let _guard = test_store_guard();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("overlap.log");
+    std::fs::write(&path, d2_comparison_fixture()).unwrap();
+    let mut app = artifact_test_app(None);
+    app.open_path(path);
+    poll_until(&mut app, |a| a.app_state.all_studies.len() == 3);
+    select_artifact_study(&mut app, 0);
+    let b = app
+        .app_state
+        .all_studies
+        .iter()
+        .find(|s| s.study_id == 1)
+        .unwrap()
+        .clone();
+    let c = app
+        .app_state
+        .all_studies
+        .iter()
+        .find(|s| s.study_id == 2)
+        .unwrap()
+        .clone();
+    app.apply_toolbar_actions(vec![if comparison_first {
+        ToolbarAction::AddComparisonStudy(b.clone())
+    } else {
+        ToolbarAction::SelectStudy(b.clone())
+    }]);
+    // Hold the real first batch while its worker waits for acknowledgement.
+    // The opposite interest is added before any B input is published.
+    let first_batch = app
+        .rx
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .unwrap();
+    let AppMessage::JournalBatch { header, .. } = &first_batch else {
+        panic!("expected B's first batch");
+    };
+    let ticket = header.ticket;
+    app.apply_toolbar_actions(vec![if comparison_first {
+        ToolbarAction::SelectStudy(b.clone())
+    } else {
+        ToolbarAction::AddComparisonStudy(b.clone())
+    }]);
+    app.apply_toolbar_actions(vec![ToolbarAction::AddComparisonStudy(b.clone())]);
+    let journal = app.app_state.journal_studies.as_ref().unwrap();
+    assert_eq!(journal.managers[&1].load_state().unwrap().ticket, ticket);
+    assert!(journal.has_comparison(ticket.study()));
+    assert!(
+        app.rx.try_recv().is_err(),
+        "sharing must not launch another worker"
+    );
+    app.tx.send(first_batch).unwrap();
+    poll_until(&mut app, |a| {
+        !a.is_loading && a.app_state.comparison_studies.len() == 1
+    });
+    let journal = app.app_state.journal_studies.as_ref().unwrap();
+    let input = journal.managers[&1].acquire().unwrap();
+    assert_eq!(
+        input.load_state().phase,
+        tdashboard_study::LoadPhase::Complete
+    );
+    assert_eq!(input.load_state().ticket, ticket);
+    assert_eq!(app.app_state.journal_display, Some(input.stamp()));
+    assert!(!journal.has_comparison(ticket.study()));
+    let primary = app.app_state.current_study.as_ref().unwrap();
+    let comparison = &app.app_state.comparison_studies[0];
+    let expected: Vec<u32> = if comparison_first {
+        (1..1002).collect()
+    } else {
+        (1..1002).rev().collect()
+    };
+    assert_eq!(primary.meta.study_id, 1);
+    assert_eq!(primary.view.trial_ids, expected);
+    assert_eq!(comparison.view.trial_ids, expected);
+    assert!(std::sync::Arc::ptr_eq(
+        &primary.view.df,
+        &comparison.view.df
+    ));
+    assert!(std::sync::Arc::ptr_eq(
+        &primary.view.df,
+        &tunny_core::dataframe::snapshot(1).unwrap()
+    ));
+    assert_eq!(app.app_state.comparison_colors.len(), 1);
+    assert_eq!(app.app_state.comparison_convergence_histories.len(), 1);
+
+    // A later comparison must not wait behind an orphaned B reservation.
+    app.apply_toolbar_actions(vec![ToolbarAction::AddComparisonStudy(c)]);
+    poll_until(&mut app, |a| a.app_state.comparison_studies.len() == 2);
+    assert_eq!(
+        app.app_state
+            .comparison_studies
+            .iter()
+            .map(|s| s.meta.study_id)
+            .collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+    select_artifact_study(&mut app, 0);
+    app.apply_toolbar_actions(vec![
+        ToolbarAction::RemoveComparisonStudy(0),
+        ToolbarAction::AddComparisonStudy(b),
+    ]);
+    poll_until(&mut app, |a| {
+        a.app_state
+            .comparison_studies
+            .iter()
+            .map(|s| s.meta.study_id)
+            .collect::<Vec<_>>()
+            == [2, 1]
+    });
+    assert!(!app
+        .app_state
+        .journal_studies
+        .as_ref()
+        .unwrap()
+        .has_comparison(ticket.study()));
+}
+
+#[test]
+fn d2_comparison_in_flight_then_primary_selection_shares_the_study_load() {
+    assert_d2_overlapping_journal_load_is_shared(true);
+}
+
+#[test]
+fn d2_primary_in_flight_then_comparison_request_shares_the_study_load() {
+    assert_d2_overlapping_journal_load_is_shared(false);
+}
+
+#[test]
+fn d2_shared_journal_failure_retry_and_forced_supersede_resolve_comparison_interests() {
+    let _guard = test_store_guard();
+    for comparison_first in [true, false] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("overlap-failure.log");
+        std::fs::write(&path, d2_comparison_fixture()).unwrap();
+        let mut app = artifact_test_app(None);
+        app.open_path(path);
+        poll_until(&mut app, |a| a.app_state.all_studies.len() == 3);
+        select_artifact_study(&mut app, 0);
+        let b = app
+            .app_state
+            .all_studies
+            .iter()
+            .find(|s| s.study_id == 1)
+            .unwrap()
+            .clone();
+        let c = app
+            .app_state
+            .all_studies
+            .iter()
+            .find(|s| s.study_id == 2)
+            .unwrap()
+            .clone();
+        let delivery = app.tx.clone();
+        let (intercept, results) = make_channel();
+        app.tx = intercept;
+        app.apply_toolbar_actions(vec![if comparison_first {
+            ToolbarAction::AddComparisonStudy(b.clone())
+        } else {
+            ToolbarAction::SelectStudy(b.clone())
+        }]);
+        let mut bad_batch = results
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap();
+        let AppMessage::JournalBatch { header, .. } = &mut bad_batch else {
+            panic!("expected B batch");
+        };
+        let failed_ticket = header.ticket;
+        header.base_revision += 1;
+        app.apply_toolbar_actions(vec![
+            if comparison_first {
+                ToolbarAction::SelectStudy(b.clone())
+            } else {
+                ToolbarAction::AddComparisonStudy(b.clone())
+            },
+            ToolbarAction::AddComparisonStudy(c),
+        ]);
+        while app
+            .app_state
+            .journal_studies
+            .as_ref()
+            .unwrap()
+            .managers
+            .get(&2)
+            .and_then(|m| m.load_state())
+            .is_none_or(|s| s.phase != tdashboard_study::LoadPhase::Complete)
+        {
+            let msg = results
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .unwrap();
+            delivery.send(msg).unwrap();
+            app.poll_messages(&egui::Context::default());
+        }
+        assert!(app.app_state.comparison_studies.is_empty());
+        delivery.send(bad_batch).unwrap();
+        app.poll_messages(&egui::Context::default());
+        // Rejection travels back through the real worker's fallible sink/finish.
+        let failure = results
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap();
+        assert!(
+            matches!(&failure, AppMessage::JournalFinished { header, result: Err(_), .. } if header.ticket == failed_ticket)
+        );
+        delivery.send(failure).unwrap();
+        app.poll_messages(&egui::Context::default());
+        assert!(!app.is_loading);
+        assert!(app.load_error.is_some());
+        assert_eq!(
+            app.app_state
+                .comparison_studies
+                .iter()
+                .map(|s| s.meta.study_id)
+                .collect::<Vec<_>>(),
+            [2]
+        );
+        assert!(!app
+            .app_state
+            .journal_studies
+            .as_ref()
+            .unwrap()
+            .has_comparison(failed_ticket.study()));
+        app.apply_toolbar_actions(vec![
+            ToolbarAction::ClearLoadError,
+            ToolbarAction::AddComparisonStudy(b.clone()),
+        ]);
+        let old_batch = results
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap();
+        let AppMessage::JournalBatch { header, .. } = &old_batch else {
+            panic!("expected retry batch");
+        };
+        let old_ticket = header.ticket;
+        app.apply_toolbar_actions(vec![ToolbarAction::SelectStudy(b.clone())]);
+        // Force uses the production reload entry adapter, retaining the pending
+        // comparison interest while replacing the acquisition ticket.
+        app.select_study(b, false, true);
+        let current_ticket = app.app_state.journal_studies.as_ref().unwrap().managers[&1]
+            .load_state()
+            .unwrap()
+            .ticket;
+        assert_ne!(current_ticket, old_ticket);
+        delivery.send(old_batch).unwrap();
+        app.poll_messages(&egui::Context::default());
+        let mut stale_finished = false;
+        loop {
+            let msg = results
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .unwrap();
+            stale_finished |= matches!(&msg, AppMessage::JournalFinished { header, .. } if header.ticket == old_ticket);
+            delivery.send(msg).unwrap();
+            app.poll_messages(&egui::Context::default());
+            assert!(app.load_error.is_none(), "{:?}", app.load_error);
+            let journal = app.app_state.journal_studies.as_ref().unwrap();
+            if stale_finished
+                && journal.managers[&1].load_state().unwrap().phase
+                    == tdashboard_study::LoadPhase::Complete
+                && !journal.has_comparison(current_ticket.study())
+            {
+                break;
+            }
+        }
+        assert!(!app.is_loading);
+        assert_eq!(
+            app.app_state
+                .comparison_studies
+                .iter()
+                .map(|s| s.meta.study_id)
+                .collect::<Vec<_>>(),
+            [2, 1]
+        );
+        let input = app.app_state.journal_studies.as_ref().unwrap().managers[&1]
+            .acquire()
+            .unwrap();
+        assert_eq!(input.load_state().ticket, current_ticket);
+        assert_eq!(app.app_state.journal_display, Some(input.stamp()));
+    }
+}
+
+#[test]
+fn d2_cached_journal_selection_and_comparison_complete_with_a_full_gui_channel() {
+    fn apply_without_draining(app: &mut TunnyApp, action: ToolbarAction) {
+        assert!(matches!(
+            app.tx.try_send(AppMessage::CsvExportDone),
+            Err(mpsc::TrySendError::Full(_))
+        ));
+        // Keep the GUI receiver undrained. A watchdog releases one slot only on
+        // regression, so a blocking self-send fails instead of hanging the suite.
+        // This timeout bounds the harness; it is not a product latency promise.
+        let (_, placeholder) = mpsc::sync_channel(0);
+        let receiver = std::mem::replace(&mut app.rx, placeholder);
+        let (finished, done) = mpsc::channel();
+        let watchdog = std::thread::spawn(move || {
+            let timed_out = done
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .is_err();
+            if timed_out {
+                let _ = receiver.recv();
+            }
+            (receiver, timed_out)
+        });
+        app.apply_toolbar_actions(vec![action]);
+        let _ = finished.send(());
+        let (receiver, timed_out) = watchdog.join().unwrap();
+        app.rx = receiver;
+        assert!(
+            !timed_out,
+            "cached activation blocked on the GUI's full channel"
+        );
+        assert!(
+            matches!(
+                app.tx.try_send(AppMessage::CsvExportDone),
+                Err(mpsc::TrySendError::Full(_))
+            ),
+            "activation must not consume backlog to make space"
+        );
+    }
+
+    let _guard = test_store_guard();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("cached-full-channel.log");
+    std::fs::write(&path, d2_comparison_fixture()).unwrap();
+    let mut app = artifact_test_app(None);
+    app.open_path(path);
+    poll_until(&mut app, |a| a.app_state.all_studies.len() == 3);
+    select_artifact_study(&mut app, 1);
+    select_artifact_study(&mut app, 2);
+    select_artifact_study(&mut app, 0);
+    let b = app
+        .app_state
+        .all_studies
+        .iter()
+        .find(|s| s.study_id == 1)
+        .unwrap()
+        .clone();
+    let c = app
+        .app_state
+        .all_studies
+        .iter()
+        .find(|s| s.study_id == 2)
+        .unwrap()
+        .clone();
+    let b_input = app.app_state.journal_studies.as_ref().unwrap().managers[&1]
+        .acquire()
+        .unwrap();
+    let c_input = app.app_state.journal_studies.as_ref().unwrap().managers[&2]
+        .acquire()
+        .unwrap();
+    for _ in 0..32 {
+        assert!(app.tx.try_send(AppMessage::CsvExportDone).is_ok());
+    }
+    apply_without_draining(&mut app, ToolbarAction::SelectStudy(b));
+    assert_eq!(
+        app.app_state.current_study.as_ref().unwrap().meta.study_id,
+        1
+    );
+    assert_eq!(app.app_state.journal_display, Some(b_input.stamp()));
+    assert!(!app.is_loading);
+    assert!(app.load_error.is_none());
+    apply_without_draining(&mut app, ToolbarAction::AddComparisonStudy(c));
+    assert_eq!(app.app_state.comparison_studies.len(), 1);
+    assert_eq!(app.app_state.comparison_studies[0].meta.study_id, 2);
+    assert_eq!(app.app_state.comparison_colors.len(), 1);
+    assert_eq!(app.app_state.comparison_convergence_histories.len(), 1);
+    let journal = app.app_state.journal_studies.as_ref().unwrap();
+    assert_eq!(
+        journal.managers[&1].acquire().unwrap().stamp(),
+        b_input.stamp()
+    );
+    assert_eq!(
+        journal.managers[&2].acquire().unwrap().stamp(),
+        c_input.stamp()
+    );
+    assert!(!journal.has_comparison(c_input.stamp().input.study));
+    assert!(!app.is_loading);
+    app.poll_messages(&egui::Context::default());
+    assert_eq!(
+        app.app_state.current_study.as_ref().unwrap().meta.study_id,
+        1
+    );
+    assert_eq!(app.app_state.comparison_studies.len(), 1);
+    assert!(app.load_error.is_none());
 }
 
 fn artifact_test_app(root: Option<std::path::PathBuf>) -> TunnyApp {
@@ -322,16 +1365,22 @@ fn artifact_race_late_journal_scan_cannot_replace_requested_storage() {
     assert_eq!(app.app_state.journal_path.as_ref(), Some(&b_path));
 
     // Hold B's real worker completion so A is processed on its own first.
-    let late_a = app
+    let first = app
         .rx
         .recv_timeout(std::time::Duration::from_secs(10))
         .unwrap();
-    let current_b = app
+    let second = app
         .rx
         .recv_timeout(std::time::Duration::from_secs(10))
         .unwrap();
-    assert!(matches!(&late_a, AppMessage::JournalParsed { path, .. } if path != &b_path));
-    assert!(matches!(&current_b, AppMessage::JournalParsed { path, .. } if path == &b_path));
+    let (late_a, current_b) = if matches!(&first, AppMessage::JournalScanned { path, .. } if path == &b_path)
+    {
+        (second, first)
+    } else {
+        (first, second)
+    };
+    assert!(matches!(&late_a, AppMessage::JournalScanned { path, .. } if path != &b_path));
+    assert!(matches!(&current_b, AppMessage::JournalScanned { path, .. } if path == &b_path));
     let scan_id = app.latest_artifact_scan_id;
     app.tx.send(late_a).unwrap();
     app.poll_messages(&ctx);
@@ -407,7 +1456,7 @@ fn artifact_race_manual_folder_during_reload_stays_authoritative() {
         if matches!(&msg, AppMessage::ArtifactsDirScanned { .. }) {
             manual_scan = Some(msg);
         } else {
-            assert!(matches!(&msg, AppMessage::JournalParsed { .. }));
+            assert!(matches!(&msg, AppMessage::JournalScanned { .. }));
             held_reload = Some(msg);
         }
     }

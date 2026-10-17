@@ -135,7 +135,16 @@ impl TunnyApp {
         self.is_loading = true;
         self.load_error = None;
         self.app_state.source_generation += 1;
-        dispatch_scan(path, self.app_state.source_generation, self.sender());
+        if let Err(error) = dispatch_scan(
+            path,
+            self.app_state.source_generation,
+            self.sender(),
+            &mut self.app_state,
+            true,
+        ) {
+            self.is_loading = false;
+            self.load_error = Some(error);
+        }
     }
 
     /// Reacts to the study list arriving from a reload's re-scan.
@@ -166,7 +175,7 @@ impl TunnyApp {
         };
         restore.reselect_dispatched = true;
         self.is_loading = true;
-        crate::io::study_worker::dispatch_select_study(meta, self.sender());
+        self.select_study(meta, false, true);
         true
     }
 
@@ -209,7 +218,7 @@ impl TunnyApp {
             // force: the shared store still holds this study's pre-reload
             // snapshot, which is exactly the stale data the reload exists to
             // replace.
-            crate::io::study_worker::dispatch_load_comparison_study(meta, true, self.sender());
+            self.select_study(meta, true, true);
         }
     }
 }
