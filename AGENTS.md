@@ -17,6 +17,14 @@ A Rust egui desktop app for analyzing Optuna optimization results.
   requirements.
 - Prefer established, well-maintained libraries over custom implementations.
 
+## Code, Tests, Commits, and Comments
+
+- **Code — How:** Make the implementation clear from the code itself.
+- **Tests — What:** Specify the expected behavior, not the implementation details.
+- **Commit messages — Why:** Explain the reason for the change, not just what changed.
+- **Code comments — Why not:** When needed, explain non-obvious constraints or why
+  an otherwise plausible approach was not taken. Do not restate the code.
+
 ## Documentation
 
 - A user-facing change (new feature, behavior change, bug fix) must add an
