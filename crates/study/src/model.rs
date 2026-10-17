@@ -28,7 +28,7 @@ impl IdentityAllocator {
     pub fn new() -> Result<Self, StudyError> {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let namespace = NEXT
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
             .map_err(|_| StudyError::CounterExhausted)?;
         Ok(Self {
             namespace,

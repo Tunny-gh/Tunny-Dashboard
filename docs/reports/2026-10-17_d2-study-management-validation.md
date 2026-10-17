@@ -44,8 +44,9 @@ then reselects the Study successfully from its manager.
 
 ## Regression evidence
 
-All tests listed here ran successfully on Windows with Rust 1.97.1 and the local
-LightGBM DLL/import library. Focused suites contain 10 Study tests, nine headless
+Initial D2 verification used Windows with Rust 1.97.1 and the local LightGBM
+DLL/import library. The PR #262 section below records the later Rust 1.99.1 rerun.
+Focused suites contain 10 Study tests, nine headless
 Journal tests and eleven `d2_` GUI orchestration tests, plus a comparison-handoff
 unit test for failure/reset cleanup.
 
@@ -226,6 +227,38 @@ succeeded on Windows. The desktop library and binary suites each report 861 pass
 pass in the focused run. Existing environment-gated tests remain ignored. Native
 capture and standalone startup below are prior source/column-review evidence, not
 rerun evidence for the lifecycle or cached-activation follow-ups. The audit remains unavailable.
+
+### PR #262: CI stable-toolchain correction
+
+The lint log for run `39023091705`, job `117368650833`, uses Rust 1.99.1
+(`58cf8f9c3`) and rejects `AtomicU64::fetch_update` as deprecated under
+`-D warnings`. The same failure was reproduced locally after aligning default
+stable to that version. The sole production change is the method-name replacement
+with `try_update`: the standard library implements the old name as a direct alias
+to it. The `checked_add`, both Relaxed orderings, returned previous namespace and
+`CounterExhausted` mapping are unchanged, preserving atomic uniqueness and no-wrap
+failure semantics without a custom CAS loop or lint suppression.
+
+`try_update` has been stable since Rust 1.95.0. The documented 1.97.1 baseline
+therefore needs no increase. A named 1.97.1 installation was used for verification;
+default stable remains 1.99.1 and no repository toolchain configuration was added.
+
+Final local verification on Rust 1.99.1 / Windows:
+
+- Both exact manifest-based formatting checks in the table below passed.
+- `cargo clippy --workspace --all-targets --locked -- -D warnings` passed.
+- `cargo test -p tdashboard-study --locked --profile ci-test` passed: 10 tests.
+- `cargo test --workspace --locked --profile ci-test` passed, retaining the
+  existing ignored/opt-in tests. Each desktop suite reports 861 passed / 1 ignored.
+- `cargo +1.97.1 test -p tdashboard-study --locked --profile ci-test` and
+  `cargo +1.97.1 clippy -p tdashboard-study --all-targets --locked -- -D warnings`
+  passed on the documented baseline.
+
+Ubuntu lint was not rerun locally, and this unpublished correction cannot change
+the existing remote lint conclusion. The final inspection of run `39023091705`
+showed both macOS and Windows build/test jobs successful, with no other non-audit
+failure beyond the reproduced lint error. Security audit, dependencies and workflows were
+explicitly excluded from this repair and were not changed or investigated.
 
 ## Commands and outcomes
 
