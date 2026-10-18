@@ -68,16 +68,16 @@ pub fn parse_single_study_url(
     parse_single_study(backend.as_mut(), study_id)
 }
 
-/// A reusable connection session for RDB live-update polling.
+/// A reusable connection session for public fingerprint queries.
 ///
 /// `study_fingerprint_url` connects and disconnects on every call, which incurs
-/// the cost of re-establishing a connection on every polling interval
-/// (`RdbLivePoller` used to call it on every tick). This session holds a
+/// the cost of re-establishing a connection for callers that repeatedly query.
+/// This session holds a
 /// connection (`Box<dyn OptunaBackend>`) and reuses it across `fingerprint`
 /// calls. If fetching the fingerprint fails, the connection itself may be
 /// broken, so this type does not auto-reconnect internally; instead the caller
-/// is expected to drop the session and `connect` again next time (see
-/// `RdbLivePoller`'s behavior for how this is used).
+/// is expected to drop the session and `connect` again next time.
+/// The Dashboard itself uses explicit Reload rather than polling.
 pub struct RdbFingerprintSession {
     backend: Box<dyn OptunaBackend>,
 }
@@ -96,8 +96,8 @@ impl RdbFingerprintSession {
     }
 }
 
-/// URL variant: a lightweight fingerprint fetch called during live-update
-/// polling. See `study_fingerprint` for details.
+/// URL variant of the public change-detection query. See `study_fingerprint`
+/// for coverage, attribute scan cost and limitations.
 ///
 /// A compatibility API for one-shot use that connects and disconnects on every
 /// call. For repeated calls such as polling, use `RdbFingerprintSession`,

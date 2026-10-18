@@ -627,6 +627,107 @@ fn scan_study_list_empty_database_errors() {
 
 // ── study_fingerprint (live update change detection) ─────────────────────────
 
+fn check_attribute_only_mutations(
+    study_id: u32,
+    mutations: &[&str],
+    check_load: impl Fn(usize, &StudyMeta, &DataFrame),
+) {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+    let source_id: String = conn
+        .query_row("SELECT sqlite_source_id()", [], |row| row.get(0))
+        .unwrap();
+    println!("SQLite {} ({source_id})", rusqlite::version());
+    let mut backend = SqliteBackend::open_readonly(file.path()).unwrap();
+    let mut previous = rdb::study_fingerprint(&mut backend, study_id).unwrap();
+    let (_, initial, _) = rdb::parse_single_study(&mut backend, study_id).unwrap();
+    let row_count = initial.row_count();
+    assert_eq!(previous, study_fingerprint(file.path(), study_id).unwrap());
+    let mut missed = Vec::new();
+    for (index, sql) in mutations.iter().enumerate() {
+        conn.execute_batch(&format!("BEGIN; {sql}; COMMIT;"))
+            .unwrap();
+        assert!(conn.is_autocommit());
+        let current = rdb::study_fingerprint(&mut backend, study_id).unwrap();
+        let (meta, df, _) = rdb::parse_single_study(&mut backend, study_id).unwrap();
+        assert_eq!(df.row_count(), row_count);
+        check_load(index, &meta, &df);
+        println!("mutation {index}: {sql}\nbefore={previous:?}\nafter={current:?}");
+        assert_eq!(current.total_trials, previous.total_trials);
+        assert_eq!(current.completed_trials, previous.completed_trials);
+        assert_eq!(current.max_trial_id, previous.max_trial_id);
+        assert_eq!(current.state_digest, previous.state_digest);
+        assert_eq!(current.intermediate_count, previous.intermediate_count);
+        assert_eq!(current, study_fingerprint(file.path(), study_id).unwrap());
+        if previous == current {
+            missed.push(index);
+        }
+        previous = current;
+    }
+    assert!(
+        missed.is_empty(),
+        "attribute-only mutations missed: {missed:?}"
+    );
+}
+
+#[test]
+fn study_fingerprint_detects_complete_user_attribute_mutations() {
+    use serde_json::json;
+    check_attribute_only_mutations(
+        1,
+        &[
+            "INSERT INTO trial_user_attributes (trial_id,key,value_json) VALUES (2,'details','{\"v\":1}')",
+            "UPDATE trial_user_attributes SET value_json = '{\"v\":2}' WHERE trial_id = 2 AND key = 'details'",
+        ],
+        |index, _, df| {
+            let expected = json!({"v": index + 1});
+            assert_eq!(df.user_attr_value("details", 1), Some(&expected));
+            println!("direct load: rows={}, details={expected}", df.row_count());
+        },
+    );
+}
+
+#[test]
+fn study_fingerprint_detects_complete_constraint_mutations() {
+    use crate::dataframe::FeasibilityState::*;
+    check_attribute_only_mutations(
+        1,
+        &[
+            "INSERT INTO trial_system_attributes (trial_id,key,value_json) VALUES (1,'constraints','[-1]')",
+            "UPDATE trial_system_attributes SET value_json = '[1]' WHERE trial_id = 1 AND key = 'constraints'",
+        ],
+        |index, meta, df| {
+            assert!(meta.has_constraints);
+            assert_eq!(df.constraint_col_names().len(), 1);
+            assert_eq!(df.feasibility().state(0), if index == 0 { Feasible } else { Infeasible });
+            println!("direct load: rows={}, width=1, trial 1={:?}", df.row_count(), df.feasibility().state(0));
+        },
+    );
+}
+
+#[test]
+fn study_fingerprint_detects_noncomplete_constraint_schema_mutations() {
+    use crate::dataframe::FeasibilityState::Unverified;
+    check_attribute_only_mutations(
+        1,
+        &[
+            "INSERT INTO trial_system_attributes (trial_id,key,value_json) VALUES (4,'constraints','[]')",
+            "UPDATE trial_system_attributes SET value_json = '[-1]' WHERE trial_id = 4 AND key = 'constraints'",
+            "UPDATE trial_system_attributes SET value_json = '[-1,-2]' WHERE trial_id = 4 AND key = 'constraints'",
+        ],
+        |index, meta, df| {
+            assert!(meta.has_constraints);
+            assert_eq!(df.constraint_col_names().len(), index);
+            for row in 0..df.row_count() {
+                assert_eq!(df.feasibility().state(row), Unverified);
+            }
+            println!("direct load: rows={}, width={index}, all COMPLETE trials Unverified", df.row_count());
+        },
+    );
+}
+
 #[test]
 fn study_fingerprint_equal_on_unchanged_db() {
     let file = tempfile::NamedTempFile::new().unwrap();

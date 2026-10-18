@@ -38,8 +38,8 @@ pub type SqliteStudyRows = RdbStudyRows;
 /// Compatibility re-export of `StudyFingerprint`.
 pub use crate::io::rdb::StudyFingerprint;
 
-/// Lightweight fingerprint retrieval called by live-update polling.
-/// See `rdb::generic::study_fingerprint` for details.
+/// Public change-detection query, including COMPLETE user attributes and all-state
+/// constraints. See [`rdb::study_fingerprint`] for scan cost and limitations.
 pub fn study_fingerprint(path: &Path, study_id: u32) -> Result<StudyFingerprint, String> {
     let mut backend = SqliteBackend::open_readonly(path)?;
     rdb::study_fingerprint(&mut backend, study_id)

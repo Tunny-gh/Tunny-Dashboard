@@ -21,6 +21,10 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- The public RDB/SQLite fingerprint API now detects COMPLETE trial user-attribute
+  insertions and updates, and constraint insertions and updates across all trial
+  states, even when trial counts, states and intermediate-record counts do not change.
+
 - Journal loading now retains user attributes and replacement constraint results
   recorded after COMPLETE, PRUNED or FAIL, correcting earlier displayed rows and
   all-state feasibility evidence in batches without delaying the initial results.

@@ -94,3 +94,4 @@ order:
 | 0020 | [Commit Study updates by validated batch](0020-commit-study-updates-by-validated-batch.md) | Accepted | 2026-10-16 |
 | 0021 | [Study, analysis, and I/O boundary contracts](0021-study-analysis-and-io-boundary-contracts.md) | Accepted | 2026-10-16 |
 | 0022 | [Retain recorded Journal attributes for postprocessing](0022-retain-recorded-journal-attributes-for-postprocessing.md) | Accepted | 2026-10-18 |
+| 0023 | [Include supported attribute changes in RDB fingerprints](0023-include-supported-attribute-changes-in-rdb-fingerprints.md) | Accepted | 2026-10-18 |
