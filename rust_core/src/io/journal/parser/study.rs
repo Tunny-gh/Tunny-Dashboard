@@ -93,13 +93,22 @@ fn parameter(
 }
 
 /// Ordered replay of acquired bytes, with fallible synchronous backpressure.
-/// This first slice supports attributes before terminal state. Post-terminal
-/// handling remains #258's separate investigation, as in the existing stream.
+/// Recorded user/constraint attributes correct prior trials at batch boundaries
+/// or EOF, without postponing the initial COMPLETE prefix (ADR-0022).
 pub fn read_batches(
     bytes: &[u8],
     key: StudyKey,
     batch_size: usize,
     mut sink: impl FnMut(StudyBatch) -> Result<(), String>,
+) -> Result<(), String> {
+    read_batches_with_final(bytes, key, batch_size, |batch, _| sink(batch))
+}
+
+pub(super) fn read_batches_with_final(
+    bytes: &[u8],
+    key: StudyKey,
+    batch_size: usize,
+    mut sink: impl FnMut(StudyBatch, bool) -> Result<(), String>,
 ) -> Result<(), String> {
     if bytes.is_empty() {
         return Err("Empty journal data".into());
@@ -125,7 +134,13 @@ pub fn read_batches(
         } else {
             get_u64(&json, "trial_id").and_then(|n| u32::try_from(n).ok())
         };
-        if (5..=9).contains(&op) && tid.is_some_and(|t| terminal.contains(&t)) {
+        let was_terminal = tid.is_some_and(|t| terminal.contains(&t));
+        let constraint_update = op == 9
+            && json
+                .get("system_attr")
+                .and_then(Value::as_object)
+                .is_some_and(|attrs| attrs.contains_key("constraints"));
+        if was_terminal && op != 8 && !constraint_update {
             continue;
         }
         if op == 4 && state.next_trial_id == u32::MAX {
@@ -170,6 +185,7 @@ pub fn read_batches(
                     "system_attr"
                 })
                 .and_then(Value::as_object)
+                .filter(|_| !was_terminal)
             {
                 for (name, value) in attrs {
                     let Some(id) = name.strip_prefix("artifacts:") else {
@@ -218,34 +234,40 @@ pub fn read_batches(
             }
         }
         if completions >= batch_size.max(1) {
-            sink(batch(
-                &state,
-                key,
-                &mut dirty,
-                &params,
-                &associations,
-                &orders,
-                first,
-            )?)?;
+            sink(
+                batch(
+                    &state,
+                    key,
+                    &mut dirty,
+                    &params,
+                    &associations,
+                    &orders,
+                    first,
+                )?,
+                false,
+            )?;
             first = false;
             completions = 0;
         }
     }
     // Always deliver final metadata, even with no COMPLETE rows or no data change.
-    sink(batch(
-        &state,
-        key,
-        &mut dirty,
-        &params,
-        &associations,
-        &orders,
-        first,
-    )?)
+    sink(
+        batch(
+            &state,
+            key,
+            &mut dirty,
+            &params,
+            &associations,
+            &orders,
+            first,
+        )?,
+        true,
+    )
 }
 
 /// The comparison caller's existing full-read boundary. Reuse the same supported
 /// replay without publishing a streaming prefix, and retain full-reader row order
-/// in acquisition evidence (ADR-0021). Late terminal attributes remain #258.
+/// in acquisition evidence (ADR-0021).
 pub fn read_full(bytes: &[u8], key: StudyKey) -> Result<StudyBatch, String> {
     let mut result = None;
     read_batches(bytes, key, usize::MAX, |batch| {

@@ -380,17 +380,7 @@ fn shipped_journal_fixtures_preserve_streamed_numeric_table_values() {
         let projection = project(&input);
         let mut legacy = tunny_core::dataframe::DataFrame::empty();
         journal_parser::parse_single_study_streaming(bytes, 0, 1000, |batch| {
-            legacy.append_trials(
-                &batch.new_rows,
-                &batch.param_names,
-                &batch.objective_names,
-                &batch.user_attr_numeric_names,
-                &batch.user_attr_string_names,
-                batch.max_constraints,
-            );
-            if batch.meta.has_constraints && !legacy.feasibility().has_constraints() {
-                legacy.mark_constrained();
-            }
+            batch.apply_to(&mut legacy);
         })
         .unwrap();
         assert_eq!(projection.dataframe.row_count(), legacy.row_count());

@@ -39,14 +39,7 @@ fn distribution_metadata_survives_inline_events_streaming_and_filtering() {
         let (_, initial, _) = parse_single_study(data.as_bytes(), 0).unwrap();
         let mut streamed = DataFrame::empty();
         parse_single_study_streaming(data.as_bytes(), 0, 1, |batch| {
-            streamed.append_trials(
-                &batch.new_rows,
-                &batch.param_names,
-                &batch.objective_names,
-                &batch.user_attr_numeric_names,
-                &batch.user_attr_string_names,
-                batch.max_constraints,
-            );
+            batch.apply_to(&mut streamed);
         })
         .unwrap();
         for df in [&initial, &streamed] {
@@ -110,14 +103,7 @@ fn objective_nonfinite_positions_survive_op4_and_op6_and_are_excluded_from_repor
                 for row in &batch.new_rows {
                     assert_eq!(row.objective_values.len(), 2);
                 }
-                streamed.append_trials(
-                    &batch.new_rows,
-                    &batch.param_names,
-                    &batch.objective_names,
-                    &batch.user_attr_numeric_names,
-                    &batch.user_attr_string_names,
-                    batch.max_constraints,
-                );
+                batch.apply_to(&mut streamed);
             })
             .unwrap();
             for df in [&initial, &streamed] {
@@ -211,17 +197,7 @@ fn python_nonfinite_constraints_and_all_trial_schema_match_metadata_only_batches
     assert_eq!(last.meta.total_trials, meta.total_trials);
     let mut streamed = DataFrame::empty();
     for batch in batches {
-        streamed.append_trials(
-            &batch.new_rows,
-            &batch.param_names,
-            &batch.objective_names,
-            &batch.user_attr_numeric_names,
-            &batch.user_attr_string_names,
-            batch.max_constraints,
-        );
-        if batch.meta.has_constraints && !streamed.feasibility().has_constraints() {
-            streamed.mark_constrained();
-        }
+        batch.apply_to(&mut streamed);
     }
     assert_eq!(
         streamed.constraint_col_names(),
@@ -255,17 +231,7 @@ fn noncomplete_attribute_only_evidence_is_not_unconstrained() {
         assert_eq!(last.max_constraints, 0);
         let mut streamed = DataFrame::empty();
         for batch in batches {
-            streamed.append_trials(
-                &batch.new_rows,
-                &batch.param_names,
-                &batch.objective_names,
-                &batch.user_attr_numeric_names,
-                &batch.user_attr_string_names,
-                batch.max_constraints,
-            );
-            if batch.meta.has_constraints && !streamed.feasibility().has_constraints() {
-                streamed.mark_constrained();
-            }
+            batch.apply_to(&mut streamed);
         }
         assert_eq!(streamed.row_count(), initial.row_count());
         assert_eq!(
@@ -291,19 +257,12 @@ fn studies_without_complete_rows_still_infer_noncomplete_constraint_schema() {
         let mut batches = Vec::new();
         parse_single_study_streaming(data.as_bytes(), 0, 1, |batch| batches.push(batch)).unwrap();
         assert_eq!(batches.len(), 1);
-        let batch = &batches[0];
+        let batch = batches.into_iter().next().unwrap();
         assert!(batch.new_rows.is_empty());
         assert!(batch.is_first && batch.is_final && batch.meta.has_constraints);
         assert_eq!(batch.max_constraints, 3);
         let mut streamed = DataFrame::empty();
-        streamed.append_trials(
-            &batch.new_rows,
-            &batch.param_names,
-            &batch.objective_names,
-            &batch.user_attr_numeric_names,
-            &batch.user_attr_string_names,
-            batch.max_constraints,
-        );
+        batch.apply_to(&mut streamed);
         assert_eq!(
             streamed.constraint_col_names(),
             initial.constraint_col_names()
@@ -336,14 +295,7 @@ fn python_nonfinite_inline_array_is_unverified_not_a_lost_trial() {
     );
     let mut streamed = DataFrame::empty();
     parse_single_study_streaming(data.as_bytes(), 0, 1, |batch| {
-        streamed.append_trials(
-            &batch.new_rows,
-            &batch.param_names,
-            &batch.objective_names,
-            &batch.user_attr_numeric_names,
-            &batch.user_attr_string_names,
-            batch.max_constraints,
-        );
+        batch.apply_to(&mut streamed);
     })
     .unwrap();
     assert_eq!(streamed.row_count(), initial.row_count());
@@ -380,17 +332,7 @@ fn invalid_constraint_positions_and_schema_growth_match_streaming() {
     assert!(initial.get_numeric_column("c3").unwrap()[2].is_nan());
     let mut streamed = DataFrame::empty();
     parse_single_study_streaming(data.as_bytes(), 0, 1, |batch| {
-        streamed.append_trials(
-            &batch.new_rows,
-            &batch.param_names,
-            &batch.objective_names,
-            &batch.user_attr_numeric_names,
-            &batch.user_attr_string_names,
-            batch.max_constraints,
-        );
-        if batch.meta.has_constraints && !streamed.feasibility().has_constraints() {
-            streamed.mark_constrained();
-        }
+        batch.apply_to(&mut streamed);
     })
     .unwrap();
     let expected = vec![Unverified, Unverified, Unverified, Infeasible];
@@ -988,15 +930,8 @@ fn json_user_attrs_survive_inline_and_update_events_in_streaming() {
         &batches[0].user_attr_string_names,
         batches[0].max_constraints,
     );
-    for batch in batches.iter().skip(1) {
-        streamed.append_trials(
-            &batch.new_rows,
-            &batch.param_names,
-            &batch.objective_names,
-            &batch.user_attr_numeric_names,
-            &batch.user_attr_string_names,
-            batch.max_constraints,
-        );
+    for batch in batches.into_iter().skip(1) {
+        batch.apply_to(&mut streamed);
     }
     for name in full.user_attr_names() {
         for row in 0..full.row_count() {

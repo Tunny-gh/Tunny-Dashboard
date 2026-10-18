@@ -354,12 +354,8 @@ pub fn parse_single_study(
     Ok((study.meta, study.dataframe, study.extras))
 }
 
-/// A batch that `parse_single_study_streaming` passes to the sequential callback.
-///
-/// Emits completed trials forward-streamed in groups of `batch_size`. Each batch is
-/// bundled with cumulative metadata up to that point (column name sets and counts) so
-/// the UI side can rebuild the DataFrame, including newly added columns. The final batch
-/// has `is_final = true` (emitted even with 0 remaining rows).
+/// Transitional table delivery over the owned Journal replay. Corrections replace
+/// the derived table; use `apply_to` rather than assuming every batch only appends.
 pub struct StudyStreamBatch {
     /// The cumulative StudyMeta up to this point (user_attr_names is merged and sorted).
     pub meta: StudyMeta,
@@ -373,233 +369,39 @@ pub struct StudyStreamBatch {
     pub user_attr_numeric_names: Vec<String>,
     /// Cumulative string user_attr column names (sorted).
     pub user_attr_string_names: Vec<String>,
-    /// The maximum number of constraints observed so far.
+    /// Current all-state constraint width, which may shrink after replacement.
     pub max_constraints: usize,
     /// Whether this is the first batch (used by the UI side to decide whether to create a new StudyContext).
     pub is_first: bool,
     /// Whether this is the final batch (used by the UI side to finalize the Pareto computation and end loading).
     pub is_final: bool,
+    /// Present when previously emitted rows or their constraint width changed.
+    pub replacement: Option<crate::dataframe::DataFrame>,
 }
 
-/// Accumulated state for `parse_single_study_streaming` (batch, column name sets, counters).
-///
-/// Consolidates into a single struct the mutable state that the old
-/// `stream_emit_completed_trial` used to pass around via roughly 15 arguments
-/// (behavior is unchanged).
-struct StreamAccum {
-    batch: Vec<crate::dataframe::TrialRow>,
-    batch_size: usize,
-    param_set: std::collections::BTreeSet<String>,
-    uan_set: std::collections::BTreeSet<String>,
-    uas_set: std::collections::BTreeSet<String>,
-    user_attr_name_set: std::collections::BTreeSet<String>,
-    derived_objective_names: Vec<String>,
-    has_constraints: bool,
-    max_constraints: usize,
-    completed: u32,
-    first_sent: bool,
-}
-
-impl StreamAccum {
-    fn new(batch_size: usize) -> Self {
-        let batch_size = batch_size.max(1);
-        StreamAccum {
-            batch: Vec::with_capacity(batch_size),
-            batch_size,
-            param_set: std::collections::BTreeSet::new(),
-            uan_set: std::collections::BTreeSet::new(),
-            uas_set: std::collections::BTreeSet::new(),
-            user_attr_name_set: std::collections::BTreeSet::new(),
-            derived_objective_names: Vec::new(),
-            has_constraints: false,
-            max_constraints: 0,
-            completed: 0,
-            first_sent: false,
-        }
-    }
-
-    /// Chooses the objective names: uses the confirmed names from the study builder
-    /// if available, otherwise `obj{i}` derived from the number of values in completed trials.
-    fn objective_names(&self, state: &ParserState, target: u32) -> Vec<String> {
-        let builder_names = &state.studies[target as usize].objective_names;
-        if builder_names.is_empty() {
-            self.derived_objective_names.clone()
+impl StudyStreamBatch {
+    pub fn apply_to(self, dataframe: &mut crate::dataframe::DataFrame) {
+        if let Some(replacement) = self.replacement {
+            *dataframe = replacement;
         } else {
-            builder_names.clone()
-        }
-    }
-
-    /// Builds a StudyMeta snapshot from the accumulated sets.
-    fn snapshot_meta(&self, state: &ParserState, target: u32) -> StudyMeta {
-        let builder = &state.studies[target as usize];
-        let user_attr_names: Vec<String> = self.user_attr_name_set.iter().cloned().collect();
-        StudyMeta {
-            study_id: target,
-            name: builder.name.clone(),
-            directions: builder.directions.clone(),
-            completed_trials: self.completed,
-            total_trials: builder.total_trials,
-            param_names: self.param_set.iter().cloned().collect(),
-            objective_names: self.objective_names(state, target),
-            user_attr_names,
-            has_constraints: self.has_constraints,
-            param_bounds: builder.param_bounds.clone(),
-        }
-    }
-
-    /// Builds and emits a `StudyStreamBatch` from the current accumulated content
-    /// (`batch` is taken and left empty).
-    fn send_batch<F>(&mut self, state: &ParserState, target: u32, is_final: bool, on_batch: &mut F)
-    where
-        F: FnMut(StudyStreamBatch),
-    {
-        let meta = self.snapshot_meta(state, target);
-        let objective_names = self.objective_names(state, target);
-        on_batch(StudyStreamBatch {
-            meta,
-            new_rows: std::mem::take(&mut self.batch),
-            param_names: self.param_set.iter().cloned().collect(),
-            objective_names,
-            user_attr_numeric_names: self.uan_set.iter().cloned().collect(),
-            user_attr_string_names: self.uas_set.iter().cloned().collect(),
-            max_constraints: self.max_constraints,
-            is_first: !self.first_sent,
-            is_final,
-        });
-        self.first_sent = true;
-    }
-
-    /// Takes a completed trial's (state==1) builder into the batch, updating the column
-    /// name sets and counters. Emits via `on_batch` once the batch is full.
-    fn emit_completed_trial<F>(
-        &mut self,
-        tid: u32,
-        builder: builders::TrialBuilder,
-        state: &ParserState,
-        target: u32,
-        on_batch: &mut F,
-    ) where
-        F: FnMut(StudyStreamBatch),
-    {
-        use crate::dataframe::TrialRow;
-
-        let b = builder;
-        for name in b.param_display.keys() {
-            self.param_set.insert(name.clone());
-        }
-        for name in b.param_category_label.keys() {
-            self.param_set.insert(name.clone());
-        }
-        for name in b.distribution_metadata.categories.keys() {
-            self.param_set.insert(name.clone());
-        }
-        for name in b.user_attrs_numeric.keys() {
-            self.uan_set.insert(name.clone());
-        }
-        for name in b.user_attrs_string.keys() {
-            self.uas_set.insert(name.clone());
-        }
-        for name in b.user_attrs_json.keys() {
-            self.user_attr_name_set.insert(name.clone());
-        }
-        if self.derived_objective_names.is_empty() {
-            if let Some(values) = &b.values {
-                self.derived_objective_names =
-                    (0..values.len()).map(|i| format!("obj{i}")).collect();
-            }
-        }
-        self.completed += 1;
-        self.batch.push(TrialRow {
-            trial_id: tid,
-            trial_number: b.trial_number,
-            param_display: b.param_display,
-            param_category_label: b.param_category_label,
-            distribution_metadata: b.distribution_metadata,
-            objective_values: b.values.unwrap_or_default(),
-            user_attrs_numeric: b.user_attrs_numeric,
-            user_attrs_string: b.user_attrs_string,
-            user_attrs_json: b.user_attrs_json,
-            constraint_values: b.constraint_values,
-        });
-
-        if self.batch.len() >= self.batch_size {
-            self.send_batch(state, target, false, on_batch);
-        }
-    }
-
-    /// Finalizes a trial's state (shared by op_code=4's inline state and op_code=6).
-    ///
-    /// In-memory storage carries all trial data (state / values / params) inline in
-    /// op_code=4, with no subsequent op_code=6. File storage, on the other hand, completes
-    /// via op_code=6. If state==1 (complete), emits the finalized row; if 2/3 (prune/fail),
-    /// discards the builder and only records extras. Otherwise (RUNNING), keeps the builder
-    /// and waits for a subsequent op.
-    fn resolve_trial_state<F>(
-        &mut self,
-        state: &mut ParserState,
-        tid: u32,
-        target: u32,
-        extras_trials: &mut Vec<crate::data::extras::TrialExtra>,
-        on_batch: &mut F,
-    ) where
-        F: FnMut(StudyStreamBatch),
-    {
-        let trial_state = state.trial_builders.get(&tid).map(|b| b.state).unwrap_or(0);
-        if let Some(b) = state.trial_builders.get(&tid) {
-            self.observe_constraints(b);
-        }
-        if trial_state == 1 {
-            let b = state.trial_builders.remove(&tid).unwrap();
-            extras_trials.push(trial_extra_from_builder(tid, &b));
-            self.emit_completed_trial(tid, b, state, target, on_batch);
-        } else if trial_state == 2 || trial_state == 3 {
-            if let Some(b) = state.trial_builders.remove(&tid) {
-                extras_trials.push(trial_extra_from_builder(tid, &b));
+            dataframe.append_trials(
+                &self.new_rows,
+                &self.param_names,
+                &self.objective_names,
+                &self.user_attr_numeric_names,
+                &self.user_attr_string_names,
+                self.max_constraints,
+            );
+            if self.meta.has_constraints && !dataframe.feasibility().has_constraints() {
+                dataframe.mark_constrained();
             }
         }
     }
-
-    /// Constraint schema evidence belongs to the study, not just COMPLETE rows.
-    fn observe_constraints(&mut self, trial: &builders::TrialBuilder) {
-        self.has_constraints |= trial.has_constraints || !trial.constraint_values.is_empty();
-        self.max_constraints = self.max_constraints.max(trial.constraint_values.len());
-    }
 }
 
-/// Builds a `TrialExtra` from a `TrialBuilder` that's being removed (finalized as
-/// complete/prune/fail, or at EOF). Intermediate values are sorted in ascending step order.
-fn trial_extra_from_builder(
-    trial_id: u32,
-    b: &builders::TrialBuilder,
-) -> crate::data::extras::TrialExtra {
-    let mut intermediate_values = b.intermediate_values.clone();
-    intermediate_values.sort_by_key(|(step, _)| *step);
-    crate::data::extras::TrialExtra {
-        trial_id,
-        trial_number: b.trial_number,
-        state: crate::data::extras::TrialState::from_journal(b.state),
-        datetime_start: b.datetime_start,
-        datetime_complete: b.datetime_complete,
-        intermediate_values,
-    }
-}
-
-/// Parses the target study's completed trials in a single forward pass, emitting to
-/// `on_batch` every `batch_size` trials.
-///
-/// Unlike `parse_single_study`, this emits completed trials incrementally without
-/// waiting for the entire parse to finish, letting the UI side "render while loading".
-/// A trial is finalized as complete at op_code=6 / state==1, incorporating the
-/// params/attrs/constraints set up to that point (the same incremental semantics as
-/// live_update).
-///
-/// The column name sets (param/user_attr) accumulate across trials and are bundled
-/// into each batch.
-///
-/// Auxiliary info for all trials (all states) ([`crate::data::extras::StudyExtras`]) is
-/// also collected, and stored into the shared store via `store_extras_for` upon
-/// completion (the counterpart, for the single-study load path, to `parse_journal`'s
-/// storage via `store_extras`).
+/// Emits early COMPLETE prefixes and batched corrections using the same replay
+/// and projection as the GUI. The final callback always arrives, even empty.
+/// The legacy extras publication remains until #251 removes this adapter.
 pub fn parse_single_study_streaming<F>(
     data: &[u8],
     target_study_id: u32,
@@ -609,125 +411,72 @@ pub fn parse_single_study_streaming<F>(
 where
     F: FnMut(StudyStreamBatch),
 {
-    if data.is_empty() {
-        return Err("Empty journal data".to_string());
-    }
-    let text = String::from_utf8_lossy(data);
-    let mut state = ParserState::new_with_target(target_study_id);
-    let mut acc = StreamAccum::new(batch_size);
-    let mut any_valid = false;
-    // Auxiliary info for all trials (all states). Appended as trials are removed (complete/prune/fail/EOF).
-    let mut extras_trials: Vec<crate::data::extras::TrialExtra> = Vec::new();
-
-    for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        let op = match line_u32_field(line, "op_code") {
-            #[allow(clippy::cast_possible_truncation)]
-            Some(op) => op as u8,
-            None => continue,
+    use tdashboard_study::*;
+    let key = StudyKey {
+        source: IdentityAllocator::new()
+            .and_then(|mut a| a.source())
+            .map_err(|e| e.to_string())?,
+        stored_id: target_study_id,
+    };
+    let mut manager = StudyManager::new(key);
+    let ticket = manager
+        .begin(LoadKind::Initial)
+        .map_err(|e| e.to_string())?;
+    let mut header = manager.header(ticket).map_err(|e| e.to_string())?;
+    let mut table = study_projection::TableProjection::default();
+    let mut emitted = std::collections::HashSet::new();
+    let mut width = 0;
+    let mut first = true;
+    // Reuse owned replay rather than maintaining a second late-update parser.
+    let mut deliver = |batch: StudyBatch, is_final| -> Result<(), String> {
+        let updates = match &batch {
+            StudyBatch::Replace { trials, .. } => trials,
+            StudyBatch::Delta { upserts, .. } => upserts,
         };
-
-        match op {
-            0 | 3 => {
-                if process_study_meta_op(&mut state, op, line) {
-                    any_valid = true;
-                }
-            }
-            4 => {
-                any_valid = true;
-                let mut parsed_target = false;
-                match line_u32_field(line, "study_id") {
-                    Some(sid) if sid == target_study_id => {
-                        if let Ok(json) = parse_json(line) {
-                            state.process_op(4, &json);
-                            parsed_target = true;
-                        }
-                    }
-                    Some(sid) => {
-                        // Other study: only keep the trial_id counter consistent (no JSON needed).
-                        count_other_study_trial(&mut state, sid);
-                    }
-                    None => {
-                        if let Ok(json) = parse_json(line) {
-                            state.process_op(4, &json);
-                            parsed_target = true;
-                        }
-                    }
-                }
-                // In-memory storage carries state/values/params inline in op_code=4, with
-                // no subsequent op_code=6. Finalize and emit the completed trial (state==1) here.
-                // File storage's op_code=4 has state==0, so the builder is kept, waiting for 5/6.
-                if parsed_target {
-                    let tid = state.next_trial_id.wrapping_sub(1);
-                    acc.resolve_trial_state(
-                        &mut state,
-                        tid,
-                        target_study_id,
-                        &mut extras_trials,
-                        &mut on_batch,
-                    );
-                }
-            }
-            5..=9 => {
-                any_valid = true;
-                let Some(tid) = line_u32_field(line, "trial_id") else {
-                    continue;
-                };
-                if !state.trial_builders.contains_key(&tid) {
-                    continue; // Trial not from the target study → ignore
-                }
-                let Ok(json) = parse_json(line) else {
-                    continue;
-                };
-                state.process_op(op, &json);
-                if let Some(trial) = state.trial_builders.get(&tid) {
-                    acc.observe_constraints(trial);
-                }
-
-                if op != 6 {
-                    continue;
-                }
-                // op6 completion check: emit the finalized row when state==1; discard for 2/3 (prune/fail).
-                acc.resolve_trial_state(
-                    &mut state,
-                    tid,
-                    target_study_id,
-                    &mut extras_trials,
-                    &mut on_batch,
-                );
-            }
-            _ => {}
+        let corrected = updates.iter().any(|t| emitted.contains(&t.key.stored_id));
+        header = manager
+            .apply(header, batch)
+            .map_err(|e| e.to_string())?
+            .next_header(ticket);
+        if is_final {
+            manager
+                .finish(ticket, header.sequence)
+                .map_err(|e| e.to_string())?;
         }
-    }
-
-    if !any_valid {
-        return Err("No valid JSON lines found in journal".to_string());
-    }
-    if (target_study_id as usize) >= state.studies.len() {
-        return Err(format!("study_id {target_study_id} not found in journal"));
-    }
-
-    // trial_builders still remaining at EOF (only generated for the target study) are
-    // still Running, i.e. not yet finalized as complete/prune/fail. Fold them into extras.
-    for (tid, b) in state.trial_builders.drain() {
-        acc.observe_constraints(&b);
-        extras_trials.push(trial_extra_from_builder(tid, &b));
-    }
-    extras_trials.sort_by_key(|t| t.trial_id);
-    crate::dataframe::store_extras_for(
-        target_study_id,
-        crate::data::extras::StudyExtras {
-            trials: extras_trials,
-        },
-    );
-
-    // Emit the final batch (remainder). Notifies is_final even with 0 completions.
-    acc.send_batch(&state, target_study_id, true, &mut on_batch);
-
-    Ok(())
+        let input = manager.acquire().ok_or("No acquired Journal input")?;
+        let mut projection = table.project(&input);
+        let new_rows = projection
+            .trial_rows
+            .drain(..)
+            .filter(|r| emitted.insert(r.trial_id))
+            .collect();
+        let new_width = input.data().constraint_schema().width;
+        let mut user_attr_numeric_names =
+            projection.dataframe.user_attr_numeric_col_names().to_vec();
+        user_attr_numeric_names.sort();
+        let mut user_attr_string_names = projection.dataframe.user_attr_string_col_names().to_vec();
+        user_attr_string_names.sort();
+        let replacement = (corrected || new_width < width).then_some(projection.dataframe);
+        width = new_width;
+        if is_final {
+            crate::dataframe::store_extras_for(target_study_id, projection.extras);
+        }
+        on_batch(StudyStreamBatch {
+            param_names: projection.meta.param_names.clone(),
+            objective_names: projection.meta.objective_names.clone(),
+            user_attr_numeric_names,
+            user_attr_string_names,
+            meta: projection.meta,
+            new_rows,
+            max_constraints: width,
+            is_first: first,
+            is_final,
+            replacement,
+        });
+        first = false;
+        Ok(())
+    };
+    study::read_batches_with_final(data, key, batch_size, &mut deliver)
 }
 
 #[cfg(test)]
