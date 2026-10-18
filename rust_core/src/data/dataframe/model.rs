@@ -845,6 +845,45 @@ impl DataFrame {
         self.filter_rows(&[])
     }
 
+    /// Rebuild current records in their discovered layout, not an obsolete
+    /// constraint high-water mark after an observation is replaced.
+    pub(crate) fn empty_with_constraint_width(&self, width: usize) -> DataFrame {
+        let mut schema = self.empty_with_schema();
+        if width >= schema.constraint_col_names.len() {
+            return schema;
+        }
+        let named_indices: std::collections::HashSet<_> = schema
+            .param_numeric_indices
+            .values()
+            .chain(schema.objective_col_indices.iter())
+            .chain(schema.user_attr_numeric_col_indices.iter())
+            .copied()
+            .collect();
+        let obsolete = &schema.constraint_col_names[width..];
+        let mut indices = vec![0; schema.numeric_cols.len()];
+        let mut next = 0;
+        let mut index = 0;
+        schema.numeric_cols.retain(|(name, _)| {
+            let keep = named_indices.contains(&index) || !obsolete.contains(name);
+            if keep {
+                indices[index] = next;
+                next += 1;
+            }
+            index += 1;
+            keep
+        });
+        for i in schema
+            .param_numeric_indices
+            .values_mut()
+            .chain(schema.objective_col_indices.iter_mut())
+            .chain(schema.user_attr_numeric_col_indices.iter_mut())
+        {
+            *i = indices[*i];
+        }
+        schema.constraint_col_names.truncate(width);
+        schema
+    }
+
     /// Return a new `DataFrame` keeping only the rows for which `mask[i]` is `true`.
     fn filter_rows(&self, mask: &[bool]) -> DataFrame {
         let trial_ids: Vec<u32> = self

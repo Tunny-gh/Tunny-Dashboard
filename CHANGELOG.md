@@ -21,6 +21,10 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- Journal loading now retains user attributes and replacement constraint results
+  recorded after COMPLETE, PRUNED or FAIL, correcting earlier displayed rows and
+  all-state feasibility evidence in batches without delaying the initial results.
+
 - Artifact Animation starts the next trial-prefix preparation as soon as a cached
   frame becomes ready, avoiding an extra loading wait during deadline-driven playback.
 

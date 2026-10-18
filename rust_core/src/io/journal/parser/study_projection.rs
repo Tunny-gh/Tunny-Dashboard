@@ -11,6 +11,7 @@ pub struct Projection {
     pub dataframe: DataFrame,
     pub extras: StudyExtras,
     pub history: Option<Vec<(u32, f64)>>,
+    pub(crate) trial_rows: Vec<TrialRow>,
 }
 
 /// Transitional caller-owned projection state (#252). Only the derived empty
@@ -218,8 +219,12 @@ fn project_with_schema(input: &StudyInput, previous: Option<&DataFrame>) -> Proj
     let param_names: Vec<_> = params.into_iter().collect();
     let schema = data.constraint_schema();
     let mut dataframe = previous
-        .map(DataFrame::empty_with_schema)
+        .map(|df| df.empty_with_constraint_width(schema.width))
         .unwrap_or_else(DataFrame::empty);
+    // A late overwrite can remove the last numeric/text observation of a key.
+    // Keep its discovered column, but fill missing cells rather than stale values.
+    numeric_attrs.extend(dataframe.user_attr_numeric_col_names().iter().cloned());
+    string_attrs.extend(dataframe.user_attr_string_col_names().iter().cloned());
     dataframe.append_trials(
         &rows,
         &param_names,
@@ -293,5 +298,6 @@ fn project_with_schema(input: &StudyInput, previous: Option<&DataFrame>) -> Proj
         dataframe,
         extras,
         history,
+        trial_rows: rows,
     }
 }

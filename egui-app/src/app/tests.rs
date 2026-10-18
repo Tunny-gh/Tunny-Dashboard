@@ -3,6 +3,131 @@ use super::*;
 use crate::state::app_state::StudyMeta;
 
 #[test]
+fn journal_late_attributes_correct_the_live_prefix_before_completion_and_reload() {
+    let _guard = test_store_guard();
+    use serde_json::json;
+    use tdashboard_study::FeasibilityState;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("late-attrs.log");
+    let mut bytes = concat!(
+        "{\"op_code\":0,\"study_name\":\"target\",\"directions\":[1]}\n",
+        "{\"op_code\":0,\"study_name\":\"other\",\"directions\":[1]}\n",
+    )
+    .to_string();
+    for i in 0..1000 {
+        bytes.push_str(
+            &(json!({"op_code":4,"study_id":0,"distributions":{},"state":1,
+            "params":{"z":i},"values":[i],"user_attrs":{"payload":{"old":true}},
+            "system_attrs":{"constraints":[-1]}})
+            .to_string()
+                + "\n"),
+        );
+    }
+    bytes.push_str(concat!(
+        "{\"op_code\":4,\"study_id\":0,\"distributions\":{},\"state\":2}\n",
+        "{\"op_code\":4,\"study_id\":0,\"distributions\":{},\"state\":3}\n",
+        "{\"op_code\":8,\"trial_id\":0,\"user_attr\":{\"payload\":null,\"empty\":[]}}\n",
+        "{\"op_code\":9,\"trial_id\":0,\"system_attr\":{\"constraints\":[1]}}\n",
+        "{\"op_code\":9,\"trial_id\":1000,\"system_attr\":{\"constraints\":[-1,null,0]}}\n",
+        "{\"op_code\":9,\"trial_id\":1001,\"system_attr\":{\"constraints\":[-1,0]}}\n",
+    ));
+    std::fs::write(&path, bytes).unwrap();
+    let mut app = artifact_test_app(None);
+    app.open_path(path);
+    poll_until(&mut app, |a| a.app_state.all_studies.len() == 2);
+    let meta = app
+        .app_state
+        .all_studies
+        .iter()
+        .find(|m| m.study_id == 0)
+        .unwrap()
+        .clone();
+    app.apply_toolbar_actions(vec![ToolbarAction::SelectStudy(meta)]);
+    let first = app
+        .rx
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .unwrap();
+    assert!(matches!(&first, AppMessage::JournalBatch { .. }));
+    // Deliver one real message directly, so the next worker delivery cannot
+    // conceal the early visible prefix behind the message pump's drain loop.
+    crate::state::message_handler::MessageHandler::handle(
+        first,
+        &mut app.app_state,
+        &mut app.widget_states,
+        &mut app.is_loading,
+        &mut app.load_error,
+    );
+    let old = app.app_state.journal_studies.as_ref().unwrap().managers[&0]
+        .acquire()
+        .unwrap();
+    let old_df = app
+        .app_state
+        .current_study
+        .as_ref()
+        .unwrap()
+        .view
+        .df
+        .clone();
+    assert!(app.is_loading);
+    assert_eq!(old_df.row_count(), 1000);
+    assert_eq!(old_df.feasibility().state(0), FeasibilityState::Feasible);
+    assert_eq!(
+        old_df.user_attr_value("payload", 0),
+        Some(&json!({"old":true}))
+    );
+    let correction = app
+        .rx
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .unwrap();
+    let AppMessage::JournalBatch { batch, .. } = &correction else {
+        panic!("expected final dirty batch")
+    };
+    assert!(
+        matches!(batch, tdashboard_study::StudyBatch::Delta { upserts, .. } if upserts.len() == 3)
+    );
+    crate::state::message_handler::MessageHandler::handle(
+        correction,
+        &mut app.app_state,
+        &mut app.widget_states,
+        &mut app.is_loading,
+        &mut app.load_error,
+    );
+    let corrected = &app.app_state.current_study.as_ref().unwrap().view.df;
+    assert!(app.is_loading, "dirty changes must publish before Complete");
+    assert_eq!(corrected.row_count(), 1000);
+    assert_eq!(corrected.get_trial_id(0), Some(0));
+    assert_eq!(corrected.get_trial_id(999), Some(999));
+    assert_eq!(corrected.param_col_names(), ["z"]);
+    assert_eq!(
+        corrected.user_attr_value("payload", 0),
+        Some(&serde_json::Value::Null)
+    );
+    assert_eq!(corrected.user_attr_value("empty", 0), Some(&json!([])));
+    assert_eq!(corrected.constraint_col_names().len(), 3);
+    assert_eq!(
+        corrected.feasibility().state(0),
+        FeasibilityState::Infeasible
+    );
+    assert_eq!(
+        corrected.feasibility().state(1),
+        FeasibilityState::Unverified
+    );
+    assert_eq!(old.data().constraint_schema().width, 1);
+    assert_eq!(old_df.feasibility().state(0), FeasibilityState::Feasible);
+    poll_until(&mut app, |a| !a.is_loading);
+    assert!(app.load_error.is_none());
+    app.reload_current();
+    poll_until(&mut app, |a| !a.is_loading && a.pending_reload.is_none());
+    let loaded = &app.app_state.current_study.as_ref().unwrap().view.df;
+    assert_eq!(loaded.row_count(), 1000);
+    assert_eq!(
+        loaded.user_attr_value("payload", 0),
+        Some(&serde_json::Value::Null)
+    );
+    assert_eq!(loaded.feasibility().state(0), FeasibilityState::Infeasible);
+}
+
+#[test]
 fn d2_journal_live_open_select_reload_replace_and_headless_projection() {
     let _guard = test_store_guard();
     use tdashboard_study::*;
@@ -442,14 +567,7 @@ fn d2_streaming_gui_preserves_column_discovery_order_across_the_batch_boundary()
     std::fs::write(&path, &bytes).unwrap();
     let mut legacy = tunny_core::dataframe::DataFrame::empty();
     tunny_core::journal_parser::parse_single_study_streaming(bytes.as_bytes(), 0, 1000, |batch| {
-        legacy.append_trials(
-            &batch.new_rows,
-            &batch.param_names,
-            &batch.objective_names,
-            &batch.user_attr_numeric_names,
-            &batch.user_attr_string_names,
-            batch.max_constraints,
-        );
+        batch.apply_to(&mut legacy);
     })
     .unwrap();
     let mut app = artifact_test_app(None);
