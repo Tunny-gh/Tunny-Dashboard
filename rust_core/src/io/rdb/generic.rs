@@ -19,6 +19,7 @@ mod study_rows;
 
 pub use fingerprint::{study_fingerprint, StudyFingerprint};
 pub use study_list::scan_study_list;
+pub(crate) use study_rows::study_rows_to_dataframe;
 pub use study_rows::{parse_single_study, parse_single_study_rows, RdbStudyRows};
 
 use super::backend::{OptunaBackend, SqlParam};

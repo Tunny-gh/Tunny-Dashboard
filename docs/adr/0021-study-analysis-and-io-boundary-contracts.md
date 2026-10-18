@@ -414,6 +414,19 @@ Use concrete backend implementations or enum dispatch for this scoped generic
 boundary; do not add a generic method to a `dyn OptunaBackend` interface and
 assume it remains object-safe. The borrowed query facade is confined to I/O.
 
+For the SQLite correction reviewed on 2026-10-19, retain both public file-path
+APIs but use one acquisition path: `sqlite::parse_single_study_rows` owns the
+read-only connection and deferred transaction; `sqlite::parse_single_study`
+reuses its owned result and the shared rows-to-DataFrame conversion only after
+the session and connection end. The generic RDB parsers remain query decoders
+with caller-owned session responsibility, not automatic snapshot APIs. This
+keeps the correction local without adding server transaction hooks or duplicate
+conversion logic. The user accepted acquisition-limited DELETE writer contention
+and WAL checkpoint retention; the
+[SQLite validation report](../reports/2026-10-19_sqlite-study-snapshot-investigation.md)
+records the tested configuration and limits. PostgreSQL/MySQL/MariaDB are
+explicitly excluded from this correction and remain unverified.
+
 Selected mechanisms to validate in [#260](https://github.com/Tunny-gh/Tunny-Dashboard/issues/260):
 SQLite explicit deferred read transaction on the existing read-only connection
 (snapshot established by first read); PostgreSQL read-only REPEATABLE READ;
@@ -430,8 +443,9 @@ snapshot. SQLite WAL versus rollback-journal waits/checkpoint retention, server
 versions/engines/permissions and transaction cleanup are #260's configuration
 gate, not assumptions. If a required configuration cannot meet the selected
 mechanism, review that concrete finding before its I/O path ships; it does not
-change #250's domain API. This is not an implemented guarantee, writer-wide
-business transaction, simultaneous multi-Study snapshot, or no-wait promise.
+change #250's domain API. The selected mechanisms do not imply an implemented
+all-backend guarantee, writer-wide business transaction, simultaneous multi-Study
+snapshot, or no-wait promise.
 Journal uses ordered replay of acquired bytes; no all-format external lock.
 
 ## Alternatives

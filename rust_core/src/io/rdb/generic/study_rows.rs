@@ -56,6 +56,10 @@ pub struct RdbStudyRows {
 /// Since this is the intermediate representation before `DataFrame` assembly,
 /// `parse_single_study` is just a wrapper that passes it straight to
 /// `DataFrame::from_trials`.
+///
+/// This decoder does not start a read transaction. The caller must supply a
+/// backend session spanning all queries when a consistent snapshot is required.
+/// SQLite file-path callers should use `crate::io::sqlite::parse_single_study_rows`.
 pub fn parse_single_study_rows(
     backend: &mut dyn OptunaBackend,
     study_id: u32,
@@ -457,10 +461,17 @@ fn fetch_study_extras(backend: &mut dyn OptunaBackend, sid: i64) -> Result<Study
 /// Phase 2: reads all COMPLETE trials for the given study, and returns
 /// (finalized metadata, `DataFrame`, `StudyExtras`)
 /// (same output contract as journal's `parse_single_study`).
+/// The caller owns the read-session boundary, as for `parse_single_study_rows`.
 pub fn parse_single_study(
     backend: &mut dyn OptunaBackend,
     study_id: u32,
 ) -> Result<(StudyMeta, DataFrame, StudyExtras), String> {
+    Ok(study_rows_to_dataframe(parse_single_study_rows(
+        backend, study_id,
+    )?))
+}
+
+pub(crate) fn study_rows_to_dataframe(load: RdbStudyRows) -> (StudyMeta, DataFrame, StudyExtras) {
     let RdbStudyRows {
         meta,
         rows,
@@ -470,7 +481,7 @@ pub fn parse_single_study(
         user_attr_string_names,
         max_constraints,
         extras,
-    } = parse_single_study_rows(backend, study_id)?;
+    } = load;
 
     let mut df = DataFrame::from_trials(
         &rows,
@@ -484,5 +495,5 @@ pub fn parse_single_study(
         df.mark_constrained();
     }
 
-    Ok((meta, df, extras))
+    (meta, df, extras)
 }

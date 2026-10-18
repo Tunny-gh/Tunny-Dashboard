@@ -8,8 +8,8 @@
 //! The core query-building logic has been moved to `crate::io::rdb::generic`
 //! (to share logic with PostgreSQL / MySQL). This module is now a thin
 //! compatibility layer that opens a `SqliteBackend` and delegates to the
-//! `rdb` layer, keeping the public functions' signatures, return types, and
-//! error wording identical to before the migration.
+//! `rdb` layer. Study acquisition uses one deferred read transaction; DataFrame
+//! projection happens after that session and its connection have ended.
 
 use std::path::Path;
 
@@ -53,9 +53,11 @@ pub fn scan_study_list(path: &Path) -> Result<Vec<StudyMeta>, String> {
 
 /// Phase 2: Reads all COMPLETE trials for the given study and returns the finalized
 /// metadata and row data. See `rdb::generic::parse_single_study_rows` for details.
+/// All related queries share one read snapshot, established by the first read.
+/// The session ends before the owned result is returned.
 pub fn parse_single_study_rows(path: &Path, study_id: u32) -> Result<SqliteStudyRows, String> {
     let mut backend = SqliteBackend::open_readonly(path)?;
-    rdb::parse_single_study_rows(&mut backend, study_id)
+    backend.with_study_read(|session| rdb::parse_single_study_rows(session, study_id))
 }
 
 /// Phase 2: Reads all COMPLETE trials for the given study and returns
@@ -65,6 +67,7 @@ pub fn parse_single_study(
     path: &Path,
     study_id: u32,
 ) -> Result<(StudyMeta, DataFrame, StudyExtras), String> {
-    let mut backend = SqliteBackend::open_readonly(path)?;
-    rdb::parse_single_study(&mut backend, study_id)
+    Ok(rdb::study_rows_to_dataframe(parse_single_study_rows(
+        path, study_id,
+    )?))
 }

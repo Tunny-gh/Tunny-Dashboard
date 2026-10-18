@@ -21,6 +21,10 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- SQLite Study loading now reads metadata, trial data and supplementary information
+  from one database snapshot, avoiding mixed results when a writer commits during
+  acquisition. The read transaction ends before DataFrame conversion or analysis.
+
 - The public RDB/SQLite fingerprint API now detects COMPLETE trial user-attribute
   insertions and updates, and constraint insertions and updates across all trial
   states, even when trial counts, states and intermediate-record counts do not change.
