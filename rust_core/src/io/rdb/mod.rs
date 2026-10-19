@@ -13,6 +13,8 @@ mod postgres_backend;
 mod sqlite_backend;
 mod url;
 
+pub(crate) use generic::study_rows_to_dataframe;
+
 use crate::data::dataframe::DataFrame;
 use crate::data::extras::StudyExtras;
 use crate::io::journal::parser::StudyMeta;
