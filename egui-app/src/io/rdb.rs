@@ -9,10 +9,12 @@
 //! `RdbUrl::parse` each time to detect and reconstruct it.
 
 use std::path::Path;
+#[cfg(test)]
 use std::sync::mpsc::SyncSender;
 
-use tunny_core::rdb::RdbUrl;
+use tdashboard_io::rdb::RdbUrl;
 
+#[cfg(test)]
 use crate::state::messages::AppMessage;
 
 /// Determines whether the path stored in `journal_path` can be interpreted as an RDB
@@ -25,6 +27,7 @@ pub fn path_as_rdb_url(path: &Path) -> Option<RdbUrl> {
 
 /// Phase 1: opens the RDB storage and returns the Study list (same role as
 /// `io::sqlite::scan_sqlite_task`).
+#[cfg(test)]
 pub fn scan_rdb_task(url: RdbUrl) -> AppMessage {
     match tunny_core::rdb::scan_study_list_url(&url) {
         Ok(studies) => {
@@ -43,10 +46,10 @@ pub fn scan_rdb_task(url: RdbUrl) -> AppMessage {
 
 /// Phase 2: reads all COMPLETE trials for the specified study and sends them as a
 /// single chunk via `StudyChunkLoaded` (same role as `io::sqlite::load_single_study_task`).
+#[cfg(test)]
 pub fn load_single_study_task(url: &RdbUrl, study_id: u32, tx: &SyncSender<AppMessage>) -> bool {
     match tunny_core::rdb::parse_single_study_rows_url(url, study_id) {
         Ok(rows) => {
-            tunny_core::dataframe::store_extras_for(study_id, rows.extras);
             let _ = tx.send(AppMessage::StudyChunkLoaded {
                 study_id,
                 has_constraints: rows.meta.has_constraints,

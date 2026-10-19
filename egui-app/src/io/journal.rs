@@ -1,6 +1,6 @@
 use crate::state::app_state::{Direction, StudyMeta};
 
-use tunny_core::io::journal::parser::{self, OptimizationDirection};
+use tdashboard_io::journal::parser::{self, OptimizationDirection};
 
 /// Converts a rust_core StudyMeta into an egui-app StudyMeta.
 pub fn convert_study_meta(meta: parser::StudyMeta) -> StudyMeta {

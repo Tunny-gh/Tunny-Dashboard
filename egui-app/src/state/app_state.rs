@@ -16,6 +16,7 @@ pub struct AppState {
     /// Explicit Journal authorities; active selection is screen state.
     pub journal_studies: Option<super::journal_studies::JournalStudies>,
     pub journal_display: Option<tdashboard_study::AcquiredStamp>,
+    pub artifact_scan_ticket: Option<tdashboard_io::artifacts::ArtifactScanTicket>,
     pub all_studies: Vec<StudyMeta>,
     pub journal_path: Option<std::path::PathBuf>,
     pub current_study: Option<StudyContext>,
@@ -152,6 +153,7 @@ impl AppState {
         Self {
             journal_studies: None,
             journal_display: None,
+            artifact_scan_ticket: None,
             all_studies: Vec::new(),
             journal_path: None,
             current_study: None,

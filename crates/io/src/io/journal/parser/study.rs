@@ -1,12 +1,12 @@
-//! Transitional Journal-to-domain adapter (#251 replaces delivery).
+//! Owned Journal-to-domain replay with fallible batch delivery.
 //! Builders exist only during acquisition; only the caller's manager commits data.
-use super::{get_u64, parse_json, ParserState};
+use super::{get_u64, ParserState};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use tdashboard_study::*;
 
-fn distribution(value: &Value) -> Option<Distribution> {
+pub(crate) fn distribution(value: &Value) -> Option<Distribution> {
     let parsed;
     let value = if let Some(text) = value.as_str() {
         parsed = serde_json::from_str::<Value>(text).ok()?;
@@ -47,7 +47,7 @@ fn distribution(value: &Value) -> Option<Distribution> {
         _ => None,
     }
 }
-fn parameter(
+pub(crate) fn parameter(
     encoded: Option<&Value>,
     dist: Option<&Value>,
     external: bool,
@@ -92,6 +92,27 @@ fn parameter(
     }
 }
 
+/// Decode an observed number without losing nonfinite values in a JSON conversion.
+pub(crate) fn parameter_number(
+    value: f64,
+    dist: Option<&Value>,
+    external: bool,
+) -> ParameterObservation {
+    let mut observation = parameter(Some(&Value::from(value)), dist, external);
+    if matches!(
+        observation.distribution,
+        Some(Distribution::Categorical { .. })
+    ) {
+        if !value.is_finite() {
+            observation.value = ParameterValue::Unavailable(UnavailableValue::InvalidEncodedValue);
+            observation.encoded_numeric = Some(Number(value));
+        }
+    } else {
+        observation.value = ParameterValue::Numeric(Number(value));
+    }
+    observation
+}
+
 /// Ordered replay of acquired bytes, with fallible synchronous backpressure.
 /// Recorded user/constraint attributes correct prior trials at batch boundaries
 /// or EOF, without postponing the initial COMPLETE prefix (ADR-0022).
@@ -104,7 +125,7 @@ pub fn read_batches(
     read_batches_with_final(bytes, key, batch_size, |batch, _| sink(batch))
 }
 
-pub(super) fn read_batches_with_final(
+pub fn read_batches_with_final(
     bytes: &[u8],
     key: StudyKey,
     batch_size: usize,
@@ -123,16 +144,17 @@ pub(super) fn read_batches_with_final(
     let mut completions = 0;
     let mut first = true;
     for line in String::from_utf8_lossy(bytes).lines() {
-        let Ok(json) = parse_json(line.trim()) else {
+        let Ok(record) = crate::optuna_json::record(line.trim()) else {
             continue;
         };
-        let Some(op) = get_u64(&json, "op_code").and_then(|n| u8::try_from(n).ok()) else {
+        let json = &record.json;
+        let Some(op) = get_u64(json, "op_code").and_then(|n| u8::try_from(n).ok()) else {
             continue;
         };
         let tid = if op == 4 {
             Some(state.next_trial_id)
         } else {
-            get_u64(&json, "trial_id").and_then(|n| u32::try_from(n).ok())
+            get_u64(json, "trial_id").and_then(|n| u32::try_from(n).ok())
         };
         let was_terminal = tid.is_some_and(|t| terminal.contains(&t));
         let constraint_update = op == 9
@@ -146,7 +168,7 @@ pub(super) fn read_batches_with_final(
         if op == 4 && state.next_trial_id == u32::MAX {
             return Err("Journal trial identity exhausted".into());
         }
-        state.process_op(op, &json);
+        state.process_record(op, &record);
         if let Some(tid) = tid.filter(|t| state.trial_builders.contains_key(t)) {
             dirty.insert(tid);
             if op == 5 {
@@ -155,26 +177,43 @@ pub(super) fn read_batches_with_final(
                     .and_then(Value::as_str)
                     .filter(|s| !s.is_empty())
                 {
-                    params.entry(tid).or_default().insert(
-                        name.to_string(),
+                    let observation = if let Some(value) = record
+                        .root()
+                        .get("param_value_internal")
+                        .and_then(|v| record.number(v))
+                    {
+                        parameter_number(value, json.get("distribution"), false)
+                    } else {
                         parameter(
                             json.get("param_value_internal"),
                             json.get("distribution"),
                             false,
-                        ),
-                    );
+                        )
+                    };
+                    params
+                        .entry(tid)
+                        .or_default()
+                        .insert(name.to_string(), observation);
                 }
             } else if op == 4 {
                 if let Some(values) = json.get("params").and_then(Value::as_object) {
                     for (name, value) in values {
-                        params.entry(tid).or_default().insert(
-                            name.clone(),
-                            parameter(
-                                Some(value),
-                                json.get("distributions").and_then(|d| d.get(name)),
-                                true,
-                            ),
-                        );
+                        let dist = json.get("distributions").and_then(|d| d.get(name));
+                        let observation = if let Some(number) = record
+                            .root()
+                            .get("params")
+                            .and_then(|p| p.get(name))
+                            .and_then(|v| record.number(v))
+                            .filter(|number| !number.is_finite())
+                        {
+                            parameter_number(number, dist, true)
+                        } else {
+                            parameter(Some(value), dist, true)
+                        };
+                        params
+                            .entry(tid)
+                            .or_default()
+                            .insert(name.clone(), observation);
                     }
                 }
             }
@@ -333,7 +372,7 @@ fn batch(
         }
         metadata
             .user_attribute_names
-            .extend(trial.user_attrs_json.keys().cloned());
+            .extend(trial.attributes.keys().cloned());
     }
     let mut upserts = Vec::new();
     for id in std::mem::take(dirty) {
@@ -362,12 +401,7 @@ fn batch(
                 })
                 .collect::<Result<_, String>>()?,
         );
-        trial.user_attributes = Arc::new(
-            b.user_attrs_json
-                .iter()
-                .map(|(k, v)| (k.clone(), Arc::new(v.clone())))
-                .collect(),
-        );
+        trial.user_attributes = Arc::new(b.attributes.clone());
         trial.constraints = ConstraintObservation {
             present: b.has_constraints,
             values: Arc::new(b.constraint_values.iter().copied().map(Number).collect()),

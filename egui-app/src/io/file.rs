@@ -1,96 +1,5 @@
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-
-/// Sequence number to avoid collisions in `write_atomic`'s temp file names.
-static TMP_WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// A streaming output kept private until the complete file is ready to publish.
-pub(crate) struct AtomicOutput {
-    pub file: std::fs::File,
-    temporary: PathBuf,
-    destination: PathBuf,
-}
-impl AtomicOutput {
-    pub fn create(destination: &Path) -> std::io::Result<Self> {
-        let parent = destination
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .unwrap_or(Path::new("."));
-        let sequence = TMP_WRITE_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let temporary = parent.join(format!(
-            ".tunny-export-{}-{sequence}.tmp",
-            std::process::id()
-        ));
-        let file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)?;
-        Ok(Self {
-            file,
-            temporary,
-            destination: destination.to_owned(),
-        })
-    }
-    pub fn sync(&mut self) -> std::io::Result<()> {
-        self.file.flush()?;
-        self.file.sync_all()
-    }
-    pub fn publish(self) -> std::io::Result<()> {
-        // The cloned writer in the encoder has already been dropped.
-        std::fs::rename(&self.temporary, &self.destination)
-    }
-}
-impl Drop for AtomicOutput {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.temporary);
-    }
-}
-
-/// Atomically overwrites a file (writes to a temp file, then `rename`s it).
-///
-/// `std::fs::write` performs a non-atomic "truncate -> write" operation, so a disk-full
-/// condition or crash midway through an overwrite can corrupt or lose the existing
-/// file. This function writes the entire content to a temp file in the same directory
-/// first, then replaces it via `rename`, so the existing file is left untouched if it
-/// fails (`rename` is only atomic within the same file system, so the temp file must
-/// always be created in the same directory as the target — on a different file system,
-/// `rename` would fail).
-///
-/// If either the write or the `rename` fails, this attempts to clean up the temp file
-/// before returning the error.
-pub fn write_atomic(path: &Path, contents: &[u8]) -> std::io::Result<()> {
-    // Place the temp file in the same directory as the target (avoids a cross-FS rename).
-    let dir = match path.parent() {
-        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
-        _ => PathBuf::from("."),
-    };
-    let base = path.file_name().and_then(|n| n.to_str()).unwrap_or("tunny");
-    let seq = TMP_WRITE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let tmp_name = format!(".{base}.tmp-{}-{seq}", std::process::id());
-    let tmp_path = dir.join(tmp_name);
-
-    // Write the temp file fully, then rename. Clean up the temp file if it fails partway.
-    if let Err(e) = write_all_to_new_file(&tmp_path, contents) {
-        let _ = std::fs::remove_file(&tmp_path);
-        return Err(e);
-    }
-
-    if let Err(e) = std::fs::rename(&tmp_path, path) {
-        let _ = std::fs::remove_file(&tmp_path);
-        return Err(e);
-    }
-    Ok(())
-}
-
-/// Creates a new file, writes the content in full, and flushes it (the temp-file-write
-/// part of `write_atomic`).
-fn write_all_to_new_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
-    let mut f = std::fs::File::create(path)?;
-    f.write_all(contents)?;
-    f.flush()?;
-    Ok(())
-}
+pub use tdashboard_io::file::{write_atomic, AtomicOutput};
 
 /// Selects an optimization result file via the native file dialog.
 /// The filter names make it clear that `.log` is Optuna's Journal storage, `.csv` is
@@ -145,6 +54,7 @@ pub fn is_storage_path(path: &Path) -> bool {
 }
 
 /// Reads a file as a byte buffer.
+#[cfg(test)]
 pub fn read_journal_file(path: &PathBuf) -> Result<Vec<u8>, String> {
     std::fs::read(path).map_err(|e| e.to_string())
 }

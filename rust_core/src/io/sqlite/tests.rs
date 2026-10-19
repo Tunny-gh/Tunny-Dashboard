@@ -465,9 +465,9 @@ fn python_constraint_tokens_and_noncomplete_schema_are_ingested() {
     assert_eq!(df.feasibility().state(0), Infeasible);
     assert_eq!(df.feasibility().state(1), Unverified);
     assert_eq!(df.get_numeric_column("c2").unwrap()[0], 0.5);
-    for name in ["c1", "c3", "c4"] {
-        assert!(df.get_numeric_column(name).unwrap()[0].is_nan());
-    }
+    assert!(df.get_numeric_column("c1").unwrap()[0].is_nan());
+    assert_eq!(df.get_numeric_column("c3").unwrap()[0], f64::INFINITY);
+    assert_eq!(df.get_numeric_column("c4").unwrap()[0], f64::NEG_INFINITY);
     conn.execute("UPDATE trial_system_attributes SET value_json = '[NaN,Infinity,-Infinity]' WHERE trial_id = 5", []).unwrap();
     let (_, df, _) = parse_single_study(file.path(), 2).unwrap();
     assert_eq!(df.constraint_col_names().len(), 5);

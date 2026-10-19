@@ -23,8 +23,12 @@ pub struct StudyMeta {
 }
 
 /// Parse result of the journal file (metadata for all studies and elapsed time).
-#[derive(Debug)]
 pub struct ParseResult {
     pub studies: Vec<StudyMeta>,
     pub duration_ms: f64,
+    pub contents: Vec<(
+        StudyMeta,
+        crate::decoded::DecodedTable,
+        crate::extras::StudyExtras,
+    )>,
 }

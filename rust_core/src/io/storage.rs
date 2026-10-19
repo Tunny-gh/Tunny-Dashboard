@@ -2,14 +2,14 @@
 //!
 //! The same detection rules had drifted across mcp-server, examples, and egui-app
 //! as separate copies, so they are consolidated here. Detection rules:
-//! 1. If [`RdbUrl::parse`] recognizes it as a URL, it's PostgreSQL / MySQL
+//! 1. If [`tdashboard_io::rdb::RdbUrl::parse`] recognizes it as a URL, it's PostgreSQL / MySQL
 //! 2. If the extension is `.log` / `.journal`, it's an Optuna journal file
 //! 3. Otherwise, it's a local SQLite file
 //!
 //! ## Handling of credentials
 //!
 //! The display storage name returned for an RDB URL always goes through
-//! [`RdbUrl::masked`]. Error messages never embed the raw storage string —
+//! [`tdashboard_io::rdb::RdbUrl::masked`]. Error messages never embed the raw storage string —
 //! even a string that fails to parse as a URL may contain a password (e.g. a
 //! typo'd scheme such as `postgresqll://user:pass@...`), so it is never echoed
 //! back regardless of the code path taken.
@@ -18,22 +18,11 @@ use std::path::Path;
 
 use crate::data::dataframe::DataFrame;
 use crate::data::extras::StudyExtras;
-use crate::io::journal::parser as journal_parser;
 use crate::io::journal::parser::StudyMeta;
-use crate::io::rdb::{parse_single_study_url, scan_study_list_url, RdbUrl};
-use crate::io::sqlite;
 
 /// Retrieves the list of studies from a storage string.
 pub fn scan_studies(storage: &str) -> Result<Vec<StudyMeta>, String> {
-    if let Some(url) = RdbUrl::parse(storage) {
-        return scan_study_list_url(&url);
-    }
-    let path = Path::new(storage);
-    if is_journal(path) {
-        let data = read_journal(path)?;
-        return journal_parser::scan_study_list(&data);
-    }
-    sqlite::scan_study_list(path)
+    tdashboard_io::storage::scan_studies(storage)
 }
 
 /// Loads a single study from a storage string.
@@ -43,33 +32,39 @@ pub fn load_study(
     storage: &str,
     study_id: u32,
 ) -> Result<(StudyMeta, DataFrame, StudyExtras, String), String> {
-    if let Some(url) = RdbUrl::parse(storage) {
-        let masked = url.masked();
-        let (meta, df, extras) = parse_single_study_url(&url, study_id)?;
-        return Ok((meta, df, extras, masked));
-    }
-    let path = Path::new(storage);
-    if is_journal(path) {
-        let data = read_journal(path)?;
-        let (meta, df, extras) = journal_parser::parse_single_study(&data, study_id)?;
-        return Ok((meta, df, extras, storage.to_string()));
-    }
-    let (meta, df, extras) = sqlite::parse_single_study(path, study_id)?;
-    Ok((meta, df, extras, storage.to_string()))
+    use tdashboard_study::*;
+    // D7 removes this legacy entry facade; this request owns its manager.
+    let key = StudyKey {
+        source: IdentityAllocator::new()
+            .and_then(|mut a| a.source())
+            .map_err(|e| e.to_string())?,
+        stored_id: study_id,
+    };
+    let (batch, display) = tdashboard_io::storage::load_study(storage, key)?;
+    let mut manager = StudyManager::new(key);
+    let ticket = manager
+        .begin(LoadKind::Initial)
+        .map_err(|e| e.to_string())?;
+    let receipt = manager
+        .apply(manager.header(ticket).map_err(|e| e.to_string())?, batch)
+        .map_err(|e| e.to_string())?;
+    manager
+        .finish(ticket, receipt.next_sequence)
+        .map_err(|e| e.to_string())?;
+    let projection = crate::journal_parser::study_projection::project(
+        &manager.acquire().ok_or("No acquired Study")?,
+    );
+    Ok((
+        projection.meta,
+        projection.dataframe,
+        projection.extras,
+        display,
+    ))
 }
 
 /// Whether the extension identifies it as a journal file.
 pub fn is_journal(path: &Path) -> bool {
-    matches!(
-        path.extension().and_then(|e| e.to_str()),
-        Some("log") | Some("journal")
-    )
-}
-
-/// Reads a journal file. Does not embed the path string in the error
-/// (see the module doc's credentials-handling policy).
-fn read_journal(path: &Path) -> Result<Vec<u8>, String> {
-    std::fs::read(path).map_err(|e| format!("failed to read journal file: {e}"))
+    tdashboard_io::storage::is_journal(path)
 }
 
 #[cfg(test)]

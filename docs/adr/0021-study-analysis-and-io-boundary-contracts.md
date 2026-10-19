@@ -88,16 +88,29 @@ nonfinite numeric observations; method-specific filtering remains in analysis.
 | Model element | Stored information and interpretation |
 | --- | --- |
 | `StudyMetadata` | Stored Study ID/name, ordered objective descriptors (explicit index, name, direction), observed parameter names, declared numeric bounds, user-attribute names, constrained-study evidence and expected constraint width. Names do not identify columns across roles; objective identity is its index. |
-| `TrialRecord` | Source-scoped trial key, immutable Study membership and Study trial number, all five trial states, parameter observations/distributions, indexed objective observations, original JSON user attributes, constraint observation, timestamps, intermediate values, Artifact associations and acquisition-order evidence. Read all available fields for non-COMPLETE trials too. |
+| `TrialRecord` | Source-scoped trial key, immutable Study membership and Study trial number, all five trial states, parameter observations/distributions, indexed objective observations, typed source user attributes, constraint observation, timestamps, intermediate values, Artifact associations and acquisition-order evidence. Read all available fields for non-COMPLETE trials too. |
 | `ParameterValue` | `Numeric(f64)` or `Category(serde_json::Value)`; missing parameters are absent map entries. A declared category with an unresolvable choice is present but unavailable, represented separately from absent. Category identity retains JSON type and presence; display labels are derived. |
 | `ParameterObservation` | Explicit value availability plus known distribution kind/bounds/step/log/discrete eligibility/choices (optional when unrecorded). Keep values in external units; category index decoding is I/O interpretation. Do not invent Optuna distributions for CSV. Preserve source declarations without changing current bounds/grouping/rounding; do not retain every uninterpreted distribution/system-attribute blob. |
 | `ObjectiveObservation` | Map keyed by objective index; absent entry means unobserved, present `f64` can be NaN or infinity. Do not compact sparse indices into different objectives. Analysis builds ordered columns using descriptors and current missing-value rules. |
 | `ConstraintObservation` | Attribute presence independent of values; ordered slots with invalid/nonfinite positions preserved. Width is not reduced by invalid values. The maximum observed array width over all current trial states is schema evidence. Attribute-only constrained Studies remain distinct from unconstrained ones. |
-| User attributes | Map of original present JSON values (including explicit null, arrays, objects); absence is no entry. Numeric/text display maps are projections, not parallel authorities. |
+| User attributes | One map of `AttributeValue::Json` (original present JSON, including explicit null, arrays and objects) or `AttributeValue::Number` (a source numeric observation, including nonfinite CSV/Python JSON values); structural array/object variants retain nested nonfinite numbers when JSON cannot. Absence is no entry. Numeric/text display maps are projections, not parallel authorities. |
 | Time/intermediate values | Optional naive Unix seconds as currently interpreted; sorted step/value observations and all-state status. No timezone or pruning-policy change. |
 | `ArtifactAssociation` | Trial key, source Artifact ID or CSV relative reference, original name, MIME and entry order. No resolved path or texture. Do not capture geometry or all system attrs. |
 
 Use enum/newtype boundaries even where both representations use `u32` or `f64`.
+During D3 the user approved extending the attribute value boundary: CSV already
+retains numeric infinity and NaN, which `serde_json::Value` alone cannot represent.
+Keep these observations in the same authoritative attribute map using `Number`'s
+stable representation equality. Do not normalize them to null/missing or retain
+an independent numeric side map. Ordinary JSON remains original JSON, including
+explicit null. Python's recorded bare nonfinite literals are numeric observations,
+not null; nested attributes use structural value variants only when necessary to
+retain them. Existing JSON presentation still cannot encode nonfinite numbers.
+This does not change analysis-specific finite-row filtering or extend numerical
+algorithms to infinite inputs.
+The [D3 validation report](../reports/2026-10-20_d3-io-extraction-validation.md)
+records the actual producer fixture, handoff checks, adapter owners and limits;
+it does not imply complete Optuna 5 feature or all-backend attribute support.
 An unavailable parameter value has a reason (missing/invalid encoded value), not
 a fabricated category. Distributions retain numeric kind and discrete eligibility
 without declaring numeric-looking categories ordinal. A trial may have no

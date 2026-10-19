@@ -5,7 +5,7 @@
 //! dependency on egui. This module handles asynchronous execution via
 //! `spawn_task` and sends `AppMessage`, and formats file URIs for egui's loader.
 
-pub use tunny_core::io::artifacts::{
+pub use tdashboard_io::artifacts::{
     parse_artifact_metadata, resolve_from_metadata, scan_legacy_layout, ArtifactEntry,
     ArtifactFileType,
 };

@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use super::types::OptimizationDirection;
 
 /// Intermediate state for assembling a `StudyMeta` from the journal's event stream.
-pub(super) struct StudyBuilder {
+pub(crate) struct StudyBuilder {
     pub(super) study_id: u32,
     pub(super) name: String,
     pub(super) directions: Vec<OptimizationDirection>,
@@ -19,8 +19,10 @@ pub(super) struct StudyBuilder {
 }
 
 /// Intermediate state for assembling a single trial's data from the journal's event stream.
-pub(super) struct TrialBuilder {
-    pub(super) distribution_metadata: crate::dataframe::DistributionMetadata,
+pub struct TrialBuilder {
+    pub(super) attributes:
+        std::collections::BTreeMap<String, std::sync::Arc<tdashboard_study::AttributeValue>>,
+    pub distribution_metadata: crate::decoded::DistributionMetadata,
     pub(super) study_id: u32,
     /// The 0-based trial.number within the study (creation order = order of op_code=4 occurrences within the study).
     pub(super) trial_number: u32,

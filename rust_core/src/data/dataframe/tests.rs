@@ -1,6 +1,11 @@
 use super::*;
 use std::collections::HashMap;
 
+fn install_journal_fixture(data: &[u8]) {
+    let parsed = crate::journal_parser::parse_journal(data).expect("journal fixture parses");
+    store_dataframes(parsed.contents.into_iter().map(|(_, df, _)| df).collect());
+}
+
 fn make_trial(params: &[(&str, f64)], objective_values: Vec<f64>) -> TrialRow {
     TrialRow {
         trial_id: 0,
@@ -468,7 +473,7 @@ fn tc_102_13_select_study_returns_result() {
         "\"distribution\":{\"name\":\"FloatDistribution\",\"low\":0.0,\"high\":1.0,\"log\":false}}\n",
         "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5]}\n"
     ));
-    crate::journal_parser::parse_journal(&data).expect("journal should parse successfully");
+    install_journal_fixture(&data);
     select_study(0).expect("select_study(0) should succeed");
     assert!(snapshot(0).expect("study 0 resident").row_count() >= 1);
 }
@@ -489,7 +494,7 @@ fn tc_102_14_select_study_multiple_studies() {
         "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":1,\"datetime_start\":\"2024-01-01T00:00:00\"}\n",
         "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":4,\"state\":1,\"values\":[5.0]}\n"
     ));
-    crate::journal_parser::parse_journal(&data).expect("journal should parse successfully");
+    install_journal_fixture(&data);
     select_study(1).expect("StudyBretrieval");
     assert_eq!(snapshot(1).expect("study 1 resident").row_count(), 2);
 }
@@ -510,7 +515,7 @@ fn tc_2330_all_studies_resident_by_id_after_parse() {
         "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":1,\"datetime_start\":\"2024-01-01T00:00:00\"}\n",
         "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":2,\"state\":1,\"values\":[5.0]}\n"
     ));
-    crate::journal_parser::parse_journal(&data).expect("parse ok");
+    install_journal_fixture(&data);
 
     // Both studies can be obtained via snapshot without calling select_study.
     let s0 = snapshot(0).expect("study 0 resident");
@@ -527,7 +532,7 @@ fn tc_2330_all_studies_resident_by_id_after_parse() {
 fn tc_102_e01_invalid_study_id_returns_err() {
     let data =
         to_bytes("{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n");
-    crate::journal_parser::parse_journal(&data).expect("journal should parse successfully");
+    install_journal_fixture(&data);
     let result = select_study(99);
     assert!(result.is_err());
 }
@@ -539,7 +544,7 @@ fn tc_102_e02_all_running_returns_empty() {
         "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00\"}\n",
         "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":0,\"values\":null}\n"
     ));
-    crate::journal_parser::parse_journal(&data).expect("journal should parse successfully");
+    install_journal_fixture(&data);
     select_study(0).expect("select_study(0) should succeed");
     assert_eq!(snapshot(0).expect("study 0 resident").row_count(), 0);
 }
@@ -548,7 +553,7 @@ fn tc_102_e02_all_running_returns_empty() {
 fn tc_102_b02_study_with_no_complete_trials() {
     let data =
         to_bytes("{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n");
-    crate::journal_parser::parse_journal(&data).expect("journal should parse successfully");
+    install_journal_fixture(&data);
     select_study(0).expect("select_study(0) should succeed for study with no complete trials");
     assert_eq!(snapshot(0).expect("study 0 resident").row_count(), 0);
 }
@@ -568,7 +573,7 @@ fn tc_102_p01_load_50000_trials_at_scale() {
     }
     let data = lines.join("\n").into_bytes();
 
-    crate::journal_parser::parse_journal(&data).expect("journal should parse successfully");
+    install_journal_fixture(&data);
 
     select_study(0).expect("select_study(0) should succeed");
 

@@ -1,5 +1,9 @@
 //! Memory measurement benchmark harness (TASK-2343 / TASK-2344)
 //!
+//! D3 retains caller-owned Study managers as well as derived frames. Resident
+//! measurements now include that authority and are not directly comparable with
+//! historical column-store-only runs or evidence of a new reduction guarantee.
+//!
 //! Loads an Optuna Journal log and quantitatively compares, via the `dhat` heap
 //! profiler, the resident representation at the core of the memory-efficiency
 //! refactor — "column-oriented `Arc<DataFrame>` + `StudyView` parallel arrays" — against
@@ -21,8 +25,8 @@
 //!
 //! dhat also outputs `dhat-heap.json` (viewable in detail with `dhat-view`).
 
-use tunny_core::dataframe::{select_study, snapshot};
-use tunny_core::io::journal::parser::parse_journal;
+use std::sync::Arc;
+use tdashboard_study::*;
 use tunny_desktop::state::types::StudyView;
 
 /// A local reproduction of the old implementation's (`main` branch) trial state enum.
@@ -87,15 +91,37 @@ fn main() {
     let file_bytes = data.len();
     let read_ms = read_start.elapsed().as_secs_f64() * 1000.0;
 
-    // --- Parse (makes all studies resident in the shared store) ---
+    // --- Acquire into caller-owned managers and derive the measured frames ---
     let parse_start = std::time::Instant::now();
-    let result = match parse_journal(&data) {
+    let scanned = match tdashboard_io::journal::parser::scan_study_list(&data) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("parse error: {e}");
             std::process::exit(1);
         }
     };
+    let source = IdentityAllocator::new().unwrap().source().unwrap();
+    let mut managers = Vec::new();
+    let mut studies = Vec::new();
+    let mut frames = std::collections::HashMap::new();
+    for study in scanned {
+        let key = StudyKey {
+            source,
+            stored_id: study.study_id,
+        };
+        let mut manager = StudyManager::new(key);
+        let ticket = manager.begin(LoadKind::Initial).unwrap();
+        let batch = tdashboard_io::journal::parser::study::read_full(&data, key).unwrap();
+        let receipt = manager
+            .apply(manager.header(ticket).unwrap(), batch)
+            .unwrap();
+        manager.finish(ticket, receipt.next_sequence).unwrap();
+        let projection =
+            tunny_core::journal_parser::study_projection::project(&manager.acquire().unwrap());
+        frames.insert(study.study_id, Arc::new(projection.dataframe));
+        studies.push(projection.meta);
+        managers.push(manager);
+    }
     let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
     // Record the peak right after parsing (while the raw file buffer `data` is still
     // alive).
@@ -109,7 +135,7 @@ fn main() {
     // (the shared store).
     let store_resident = after_parse as i128 - baseline as i128;
 
-    let studies = &result.studies;
+    let studies = &studies;
     let total_trials: usize = studies.iter().map(|s| s.completed_trials as usize).sum();
 
     // --- New representation: build StudyViews for all studies (shared DataFrame +
@@ -117,10 +143,7 @@ fn main() {
     let before_views = live();
     let mut views: Vec<StudyView> = Vec::with_capacity(studies.len());
     for s in studies {
-        if select_study(s.study_id).is_err() {
-            continue;
-        }
-        if let Some(df) = snapshot(s.study_id) {
+        if let Some(df) = frames.get(&s.study_id).cloned() {
             let n = df.row_count();
             views.push(StudyView::new(df, vec![0u32; n]));
         }
@@ -200,6 +223,7 @@ fn main() {
 
     // Keep alive (so the optimizer doesn't free them).
     std::hint::black_box(&views);
+    std::hint::black_box(&managers);
     std::hint::black_box(&legacy_rows);
 
     let n_cols = studies

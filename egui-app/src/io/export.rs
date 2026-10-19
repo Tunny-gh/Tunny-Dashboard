@@ -3,7 +3,7 @@ use std::sync::mpsc::SyncSender;
 
 use crate::state::messages::AppMessage;
 use crate::state::types::StudyView;
-use tunny_core::export::{CsvField, CsvWriter};
+use tdashboard_io::csv::{CsvField, CsvWriter};
 
 /// Target rows for CSV export.
 #[derive(Debug, Clone, PartialEq)]

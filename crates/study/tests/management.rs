@@ -8,6 +8,58 @@ fn key() -> StudyKey {
         stored_id: 4,
     }
 }
+
+#[test]
+fn numeric_attributes_preserve_nonfinite_identity_revisions_and_retained_inputs() {
+    let k = key();
+    let mut record = TrialRecord::new(k, 1, StudyTrialNumber(0), TrialState::Running);
+    record.user_attributes = Arc::new(BTreeMap::from([
+        (
+            "positive".into(),
+            Arc::new(AttributeValue::from(f64::INFINITY)),
+        ),
+        (
+            "negative".into(),
+            Arc::new(AttributeValue::from(f64::NEG_INFINITY)),
+        ),
+        ("nan".into(), Arc::new(AttributeValue::from(f64::NAN))),
+        ("null".into(), Arc::new(serde_json::Value::Null.into())),
+        (
+            "text".into(),
+            Arc::new(serde_json::json!("Infinity").into()),
+        ),
+    ]));
+    let mut manager = StudyManager::new(k);
+    let (ticket, receipt) = start(&mut manager, vec![Arc::new(record.clone())]);
+    let old = manager.acquire().unwrap();
+    let no_change = manager
+        .apply(
+            receipt.next_header(ticket),
+            delta(vec![Arc::new(record.clone())]),
+        )
+        .unwrap();
+    assert_eq!(no_change.stamp.input.revision, old.stamp().input.revision);
+    Arc::make_mut(&mut record.user_attributes).insert(
+        "positive".into(),
+        Arc::new(AttributeValue::from(f64::NEG_INFINITY)),
+    );
+    manager
+        .apply(no_change.next_header(ticket), delta(vec![Arc::new(record)]))
+        .unwrap();
+    assert_eq!(
+        manager.acquire().unwrap().stamp().input.revision,
+        old.stamp().input.revision + 1
+    );
+    let attrs = &old.data().trials()[0].user_attributes;
+    assert_eq!(
+        attrs["positive"].as_ref(),
+        &AttributeValue::from(f64::INFINITY)
+    );
+    assert_ne!(attrs["positive"], attrs["negative"]);
+    assert_ne!(attrs["nan"], attrs["null"]);
+    assert_ne!(attrs["positive"], attrs["text"]);
+    assert!(!attrs.contains_key("missing"));
+}
 fn trial(key: StudyKey, id: u32, number: u32, state: TrialState) -> Arc<TrialRecord> {
     let mut t = TrialRecord::new(key, id, StudyTrialNumber(number), state);
     t.parameters = Arc::new(BTreeMap::from([(
@@ -22,7 +74,7 @@ fn trial(key: StudyKey, id: u32, number: u32, state: TrialState) -> Arc<TrialRec
     t.objectives = Arc::new(BTreeMap::from([(ObjectiveIndex(3), Number(f64::INFINITY))]));
     t.user_attributes = Arc::new(BTreeMap::from([(
         "null".into(),
-        Arc::new(serde_json::Value::Null),
+        Arc::new(serde_json::Value::Null.into()),
     )]));
     t.completed_order = (state == TrialState::Complete).then_some(u64::from(id));
     Arc::new(t)
@@ -358,7 +410,7 @@ fn retained_roots_and_unchanged_payloads_are_shared_then_released() {
     let old_record = Arc::downgrade(original);
     let mut updated = (**original).clone();
     Arc::make_mut(&mut updated.user_attributes)
-        .insert("new".into(), Arc::new(serde_json::json!([1, 2])));
+        .insert("new".into(), Arc::new(serde_json::json!([1, 2]).into()));
     m.apply(receipt.next_header(ticket), delta(vec![Arc::new(updated)]))
         .unwrap();
     let new = m.acquire().unwrap();

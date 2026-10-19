@@ -203,9 +203,14 @@ fn project_with_schema(input: &StudyInput, previous: Option<&DataFrame>) -> Proj
             .collect();
         for (name, value) in trial.user_attributes.iter() {
             attrs.insert(name.clone());
+            if let AttributeValue::Number(number) = value.as_ref() {
+                row.user_attrs_numeric.insert(name.clone(), number.0);
+                continue;
+            }
+            let value = value.json_view();
             crate::io::user_attrs::insert_user_attr(
                 name,
-                (**value).clone(),
+                value,
                 &mut row.user_attrs_numeric,
                 &mut row.user_attrs_string,
                 &mut row.user_attrs_json,
@@ -221,6 +226,9 @@ fn project_with_schema(input: &StudyInput, previous: Option<&DataFrame>) -> Proj
     let mut dataframe = previous
         .map(|df| df.empty_with_constraint_width(schema.width))
         .unwrap_or_else(DataFrame::empty);
+    // Objective identity is its index; late source names replace labels rather
+    // than introducing a second set of objective columns into the retained layout.
+    dataframe.rename_objectives(&objective_names);
     // A late overwrite can remove the last numeric/text observation of a key.
     // Keep its discovered column, but fill missing cells rather than stale values.
     numeric_attrs.extend(dataframe.user_attr_numeric_col_names().iter().cloned());

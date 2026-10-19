@@ -3,9 +3,11 @@
 use std::collections::HashMap;
 
 use serde_json::Value;
+use std::sync::Arc;
+use tdashboard_study::{AttributeValue, Number, ObjectiveIndex};
 
-use crate::data::dataframe::{DataFrame, TrialRow};
-use crate::data::extras::{StudyExtras, TrialExtra, TrialState};
+use crate::decoded::{DecodedTable as DataFrame, TrialRow};
+use crate::extras::{StudyExtras, TrialExtra, TrialState};
 use crate::io::datetime::parse_naive_datetime;
 use crate::io::journal::parser::distribution::Distribution;
 use crate::io::journal::parser::StudyMeta;
@@ -15,7 +17,10 @@ use super::study_list::{fetch_directions, fetch_metric_names, objective_names_fo
 use super::{ensure_optuna_schema, query_scalar_i64};
 
 struct TrialAccum {
-    distribution_metadata: crate::dataframe::DistributionMetadata,
+    observations: std::collections::BTreeMap<String, tdashboard_study::ParameterObservation>,
+    attributes: std::collections::BTreeMap<String, Arc<AttributeValue>>,
+    constraint_present: bool,
+    distribution_metadata: crate::decoded::DistributionMetadata,
     trial_number: u32,
     objective_values: Vec<(i64, f64)>,
     param_display: HashMap<String, f64>,
@@ -28,10 +33,11 @@ struct TrialAccum {
 
 /// Return value of `parse_single_study_rows`. Holds row-oriented data before `DataFrame` assembly.
 ///
-/// Exposes the intermediate representation before calling `DataFrame::from_trials`
-/// so the egui-app side can treat it as a single chunk in the same shape as
-/// journal's `StudyStreamBatch` (meta + `Vec<TrialRow>` + column name sets).
+/// Legacy projection adapters can inspect the owned row view. Live entries consume
+/// `into_batch` with their own source key and apply the all-state contents through
+/// a Study manager; no GUI message or analysis table is created here.
 pub struct RdbStudyRows {
+    pub(crate) records: Vec<crate::decoded::DecodedTrial>,
     /// The finalized `StudyMeta` (includes param_bounds / param_names / user_attr_names).
     pub meta: StudyMeta,
     /// Row data for COMPLETE trials (ascending trial_id order).
@@ -49,6 +55,55 @@ pub struct RdbStudyRows {
     /// Supplementary info for every trial (all states): state / datetime /
     /// intermediate values. Ascending trial_id order.
     pub extras: StudyExtras,
+}
+
+impl RdbStudyRows {
+    pub fn into_batch(self, key: tdashboard_study::StudyKey) -> tdashboard_study::StudyBatch {
+        use tdashboard_study::*;
+        let mut metadata = crate::decoded::metadata(&self.meta);
+        let mut order = 0;
+        let trials = self
+            .records
+            .into_iter()
+            .zip(self.extras.trials)
+            .map(|(record, extra)| {
+                let state = match extra.state {
+                    crate::extras::TrialState::Running => tdashboard_study::TrialState::Running,
+                    crate::extras::TrialState::Complete => tdashboard_study::TrialState::Complete,
+                    crate::extras::TrialState::Pruned => tdashboard_study::TrialState::Pruned,
+                    crate::extras::TrialState::Fail => tdashboard_study::TrialState::Fail,
+                    crate::extras::TrialState::Waiting => tdashboard_study::TrialState::Waiting,
+                };
+                let mut trial =
+                    TrialRecord::new(key, record.id, StudyTrialNumber(record.number), state);
+                metadata
+                    .observed_parameters
+                    .extend(record.parameters.keys().cloned());
+                metadata
+                    .user_attribute_names
+                    .extend(record.attributes.keys().cloned());
+                trial.parameters = Arc::new(record.parameters);
+                trial.objectives = Arc::new(record.objectives);
+                trial.user_attributes = Arc::new(record.attributes);
+                trial.constraints = record.constraints;
+                trial.datetime_start = extra.datetime_start.map(Number);
+                trial.datetime_complete = extra.datetime_complete.map(Number);
+                trial.intermediate = Arc::new(
+                    extra
+                        .intermediate_values
+                        .into_iter()
+                        .map(|(s, v)| (s, Number(v)))
+                        .collect(),
+                );
+                if state == tdashboard_study::TrialState::Complete {
+                    trial.completed_order = Some(order);
+                    order += 1;
+                }
+                Arc::new(trial)
+            })
+            .collect();
+        StudyBatch::Replace { metadata, trials }
+    }
 }
 
 /// Phase 2: reads all COMPLETE trials for the given study, and returns the
@@ -118,6 +173,9 @@ pub fn parse_single_study_rows(
             accum.insert(
                 trial_id,
                 TrialAccum {
+                    observations: Default::default(),
+                    attributes: Default::default(),
+                    constraint_present: false,
                     distribution_metadata: Default::default(),
                     trial_number: number,
                     objective_values: Vec::new(),
@@ -133,11 +191,29 @@ pub fn parse_single_study_rows(
         },
     )?;
 
+    let complete: std::collections::HashSet<_> = trial_order.iter().copied().collect();
+    for trial in &extras.trials {
+        accum.entry(trial.trial_id).or_insert_with(|| TrialAccum {
+            observations: Default::default(),
+            attributes: Default::default(),
+            constraint_present: false,
+            distribution_metadata: Default::default(),
+            trial_number: trial.trial_number,
+            objective_values: Vec::new(),
+            param_display: HashMap::new(),
+            param_category_label: HashMap::new(),
+            user_attrs_numeric: HashMap::new(),
+            user_attrs_string: HashMap::new(),
+            user_attrs_json: HashMap::new(),
+            constraint_values: Vec::new(),
+        });
+    }
+
     // ── trial_values ──────────────────────────────────────────────────
     backend.query_for_each(
         "SELECT tv.trial_id, tv.objective, tv.value, tv.value_type \
          FROM trial_values tv JOIN trials t ON tv.trial_id = t.trial_id \
-         WHERE t.study_id = ? AND t.state = 'COMPLETE'",
+          WHERE t.study_id = ?",
         &[SqlParam::I64(sid)],
         &mut |row| {
             let trial_id = row[0].as_i64().ok_or_else(|| {
@@ -171,7 +247,7 @@ pub fn parse_single_study_rows(
     backend.query_for_each(
         "SELECT tp.trial_id, tp.param_name, tp.param_value, tp.distribution_json \
          FROM trial_params tp JOIN trials t ON tp.trial_id = t.trial_id \
-         WHERE t.study_id = ? AND t.state = 'COMPLETE' ORDER BY tp.trial_id",
+          WHERE t.study_id = ? ORDER BY tp.trial_id",
         &[SqlParam::I64(sid)],
         &mut |row| {
             let trial_id = row[0].as_i64().ok_or_else(|| {
@@ -190,15 +266,24 @@ pub fn parse_single_study_rows(
             let dist_value: Value = serde_json::from_str(distribution_json).unwrap_or(Value::Null);
             let distribution = Distribution::from_json(&dist_value);
 
-            if let Some(bounds) = distribution.bounds() {
-                param_bounds.entry(param_name.clone()).or_insert(bounds);
-            }
-
-            param_names.insert(param_name.clone());
             let Ok(trial_id) = u32::try_from(trial_id) else {
                 return Ok(());
             };
+            if complete.contains(&trial_id) {
+                if let Some(bounds) = distribution.bounds() {
+                    param_bounds.entry(param_name.clone()).or_insert(bounds);
+                }
+                param_names.insert(param_name.clone());
+            }
             if let Some(trial) = accum.get_mut(&trial_id) {
+                trial.observations.insert(
+                    param_name.clone(),
+                    crate::journal::parser::study::parameter_number(
+                        param_value,
+                        Some(&dist_value),
+                        false,
+                    ),
+                );
                 trial
                     .param_display
                     .insert(param_name.clone(), distribution.to_display_f64(param_value));
@@ -225,7 +310,7 @@ pub fn parse_single_study_rows(
     backend.query_for_each(
         "SELECT tua.trial_id, tua.key, tua.value_json \
          FROM trial_user_attributes tua JOIN trials t ON tua.trial_id = t.trial_id \
-         WHERE t.study_id = ? AND t.state = 'COMPLETE'",
+          WHERE t.study_id = ?",
         &[SqlParam::I64(sid)],
         &mut |row| {
             let trial_id = row[0].as_i64().ok_or_else(|| {
@@ -237,13 +322,18 @@ pub fn parse_single_study_rows(
             let value_json = row[2].as_text().ok_or_else(|| {
                 "Failed to read trial_user_attributes: value_json is not text".to_string()
             })?;
-            let Ok(value) = serde_json::from_str::<Value>(value_json) else {
+            let Ok(decoded) = crate::optuna_json::record(value_json) else {
                 return Ok(());
             };
+            let attribute = decoded.attribute(decoded.root());
+            let value = decoded.json;
             let Ok(trial_id) = u32::try_from(trial_id) else {
                 return Ok(());
             };
             if let Some(trial) = accum.get_mut(&trial_id) {
+                trial
+                    .attributes
+                    .insert(key.to_string(), Arc::new(attribute.clone()));
                 crate::io::user_attrs::insert_user_attr(
                     key,
                     value,
@@ -251,6 +341,12 @@ pub fn parse_single_study_rows(
                     &mut trial.user_attrs_string,
                     &mut trial.user_attrs_json,
                 );
+                if let AttributeValue::Number(number) = attribute {
+                    trial.user_attrs_numeric.insert(key.to_string(), number.0);
+                }
+                if !complete.contains(&trial_id) {
+                    return Ok(());
+                }
                 user_attr_names.insert(key.to_string());
                 if trial.user_attrs_numeric.contains_key(key) {
                     user_attr_numeric_names.insert(key.to_string());
@@ -278,24 +374,62 @@ pub fn parse_single_study_rows(
                 "Failed to read trial_system_attributes: value_json is not text".to_string()
             })?;
             has_constraints = true;
-            let constraints: Vec<f64> = match crate::io::optuna_json::parse(value_json) {
-                Ok(Value::Array(values)) => values
-                    .iter()
-                    .map(|v| v.as_f64().unwrap_or(f64::NAN))
-                    .collect(),
-                _ => Vec::new(),
-            };
+            let constraints: Vec<f64> = crate::optuna_json::record(value_json)
+                .ok()
+                .and_then(|decoded| {
+                    decoded.root().as_array().map(|values| {
+                        values
+                            .iter()
+                            .map(|v| decoded.number(v).unwrap_or(f64::NAN))
+                            .collect()
+                    })
+                })
+                .unwrap_or_default();
             max_constraints = max_constraints.max(constraints.len());
             let Ok(trial_id) = u32::try_from(trial_id) else {
                 return Ok(());
             };
             if let Some(trial) = accum.get_mut(&trial_id) {
+                trial.constraint_present = true;
                 trial.constraint_values = constraints;
             }
             Ok(())
         },
     )?;
 
+    let records = extras
+        .trials
+        .iter()
+        .filter_map(|extra| {
+            let trial = accum.get(&extra.trial_id)?;
+            Some(crate::decoded::DecodedTrial {
+                id: extra.trial_id,
+                number: extra.trial_number,
+                parameters: trial.observations.clone(),
+                objectives: trial
+                    .objective_values
+                    .iter()
+                    .filter_map(|(i, v)| {
+                        u32::try_from(*i)
+                            .ok()
+                            .map(|i| (ObjectiveIndex(i), Number(*v)))
+                    })
+                    .collect(),
+                attributes: trial.attributes.clone(),
+                constraints: tdashboard_study::ConstraintObservation {
+                    present: trial.constraint_present,
+                    values: Arc::new(
+                        trial
+                            .constraint_values
+                            .iter()
+                            .copied()
+                            .map(Number)
+                            .collect(),
+                    ),
+                },
+            })
+        })
+        .collect();
     // ── assemble TrialRow in trial_id order ──────────────────────────
     let mut rows: Vec<TrialRow> = Vec::with_capacity(trial_order.len());
     for trial_id in trial_order {
@@ -340,6 +474,7 @@ pub fn parse_single_study_rows(
     };
 
     Ok(RdbStudyRows {
+        records,
         meta,
         rows,
         param_names,
@@ -481,6 +616,7 @@ pub(crate) fn study_rows_to_dataframe(load: RdbStudyRows) -> (StudyMeta, DataFra
         user_attr_string_names,
         max_constraints,
         extras,
+        ..
     } = load;
 
     let mut df = DataFrame::from_trials(

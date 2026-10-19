@@ -334,6 +334,25 @@ impl TunnyApp {
                 .unwrap_or_default();
             return;
         }
+        let root_revision = self
+            .app_state
+            .artifact_scan_ticket
+            .as_ref()
+            .map(|t| {
+                if t.root == base_dir {
+                    t.root_revision
+                } else {
+                    t.root_revision.saturating_add(1)
+                }
+            })
+            .unwrap_or(1);
+        self.app_state.artifact_scan_ticket = Some(tdashboard_io::artifacts::ArtifactScanTicket {
+            source: self.app_state.journal_studies.as_ref().map(|j| j.source),
+            source_generation: self.app_state.source_generation,
+            root_revision,
+            scan: self.latest_artifact_scan_id,
+            root: base_dir.clone(),
+        });
         crate::io::artifacts::scan_artifacts_dir(
             base_dir,
             self.app_state.journal_path.clone(),
@@ -345,18 +364,6 @@ impl TunnyApp {
     /// Processes messages non-blockingly and updates AppState.
     pub fn poll_messages(&mut self, ctx: &egui::Context) {
         while let Ok(msg) = self.rx.try_recv() {
-            let msg = match msg {
-                AppMessage::StorageResult {
-                    source_generation,
-                    result,
-                } => {
-                    if source_generation != self.app_state.source_generation {
-                        continue;
-                    }
-                    *result
-                }
-                other => other,
-            };
             let msg = match msg {
                 AppMessage::JournalScanned {
                     source,
@@ -426,6 +433,28 @@ impl TunnyApp {
             {
                 continue;
             }
+            if let AppMessage::ArtifactsDirScanned {
+                artifacts_dir,
+                scan_id,
+                ..
+            } = &msg
+            {
+                if self
+                    .app_state
+                    .artifact_scan_ticket
+                    .as_ref()
+                    .is_some_and(|ticket| {
+                        !ticket.matches(
+                            self.app_state.journal_studies.as_ref().map(|j| j.source),
+                            self.app_state.source_generation,
+                            artifacts_dir,
+                            *scan_id,
+                        )
+                    })
+                {
+                    continue;
+                }
+            }
             if matches!(&msg, AppMessage::ArtifactsDirScanned { .. })
                 && self
                     .app_state
@@ -445,10 +474,12 @@ impl TunnyApp {
             // Limit streaming-load batches to one per frame so each batch's DataFrame
             // rebuild cost isn't concentrated into a single frame (avoids render stalls).
             // Remaining batches stay in the channel and are processed on the next frame.
-            let is_study_chunk = matches!(
-                &msg,
-                AppMessage::StudyChunkLoaded { .. } | AppMessage::JournalBatch { .. }
-            );
+            let is_study_chunk = match &msg {
+                AppMessage::JournalBatch { .. } => true,
+                #[cfg(test)]
+                AppMessage::StudyChunkLoaded { .. } => true,
+                _ => false,
+            };
             // A study finished loading (streamed to its last batch, or activated
             // directly from the shared store). This is where an in-flight reload
             // gets its captured view state re-applied.
@@ -469,9 +500,14 @@ impl TunnyApp {
                     .is_some_and(|j| j.selected == Some(key.stored_id)),
                 _ => false,
             };
-            let is_study_activated = journal_selection_completed
-                || matches!(&msg, AppMessage::StudySelected { .. })
-                || matches!(&msg, AppMessage::StudyChunkLoaded { is_final: true, .. });
+            let is_study_activated = journal_selection_completed;
+            #[cfg(test)]
+            let is_study_activated = is_study_activated
+                || matches!(
+                    &msg,
+                    AppMessage::StudySelected { .. }
+                        | AppMessage::StudyChunkLoaded { is_final: true, .. }
+                );
             // Async compute completion/failure messages only update the global
             // widget_states. Since each canvas item holds independent WidgetStates
             // (commit 73883d8), the completion state (computing/result/cache) must be
@@ -848,28 +884,17 @@ fn dispatch_scan(
     app_state: &mut AppState,
     reload: bool,
 ) -> Result<(), String> {
-    if let Some(url) = crate::io::rdb::path_as_rdb_url(&path) {
-        crate::io::study_worker::dispatch_scan_rdb(url, source_generation, tx);
-    } else if crate::io::flat_csv::is_csv_path(&path) {
-        crate::io::study_worker::dispatch_scan_csv(path, source_generation, tx);
-    } else if crate::io::sqlite::is_sqlite_path(&path) {
-        crate::io::study_worker::dispatch_scan_sqlite(path, source_generation, tx);
-    } else {
-        if !reload || app_state.journal_studies.is_none() {
-            match crate::state::journal_studies::JournalStudies::new(source_generation) {
-                Ok(journal) => app_state.journal_studies = Some(journal),
-                Err(e) => return Err(e.to_string()),
-            }
+    if !reload || app_state.journal_studies.is_none() {
+        match crate::state::journal_studies::JournalStudies::new(source_generation) {
+            Ok(journal) => app_state.journal_studies = Some(journal),
+            Err(e) => return Err(e.to_string()),
         }
-        let journal = app_state.journal_studies.as_mut().unwrap();
-        journal.invalidate_loaders(source_generation);
-        let source = journal.source;
-        // The legacy worker still publishes CSV/DB snapshots during acquisition.
-        // Keep scanning behind those writes until #251 removes that boundary.
-        crate::io::study_worker::dispatch_scan_journal(path, source, source_generation, tx);
-        return Ok(());
     }
-    app_state.journal_studies = None;
+    let journal = app_state.journal_studies.as_mut().unwrap();
+    journal.invalidate_loaders(source_generation);
+    journal.path = Some(path.clone());
+    let source = journal.source;
+    crate::io::study_worker::dispatch_scan_journal(path, source, source_generation, tx);
     Ok(())
 }
 
@@ -882,6 +907,13 @@ impl TunnyApp {
     ) {
         let tx = self.sender();
         if let Some(journal) = self.app_state.journal_studies.as_mut() {
+            if journal
+                .path
+                .as_deref()
+                .is_some_and(crate::io::flat_csv::is_csv_path)
+            {
+                journal.csv_metadata = Some(meta.clone());
+            }
             match journal.request(meta.study_id, comparison, force, tx) {
                 Ok(Some(activation)) => {
                     MessageHandler::handle(
@@ -906,19 +938,9 @@ impl TunnyApp {
                     self.is_loading = false;
                 }
             }
-        } else if comparison {
-            crate::io::study_worker::dispatch_load_comparison_study(
-                meta,
-                force,
-                self.app_state.source_generation,
-                tx,
-            );
         } else {
-            crate::io::study_worker::dispatch_select_study(
-                meta,
-                self.app_state.source_generation,
-                tx,
-            );
+            self.load_error = Some("No storage is currently open.".into());
+            self.is_loading = false;
         }
     }
 }

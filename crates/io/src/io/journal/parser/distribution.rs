@@ -8,7 +8,7 @@ use serde_json::Value;
 /// role in converting the stored value. The one exception is Categorical, whose stored value is
 /// an index into the `choices` array.
 #[derive(Debug)]
-pub(crate) enum Distribution {
+pub enum Distribution {
     Float {
         low: f64,
         high: f64,
@@ -25,9 +25,9 @@ pub(crate) enum Distribution {
 }
 
 impl Distribution {
-    pub(crate) fn record_metadata(
+    pub fn record_metadata(
         &self,
-        metadata: &mut crate::dataframe::DistributionMetadata,
+        metadata: &mut crate::decoded::DistributionMetadata,
         name: &str,
         internal: Option<f64>,
         external: Option<&Value>,
@@ -55,7 +55,7 @@ impl Distribution {
         }
     }
     /// Parses the journal's distribution JSON (including the case where it's double-serialized as a string).
-    pub(crate) fn from_json(json: &Value) -> Self {
+    pub fn from_json(json: &Value) -> Self {
         if let Some(serialized) = json.as_str() {
             if let Ok(parsed) = serde_json::from_str::<Value>(serialized) {
                 return Distribution::from_json(&parsed);
@@ -106,7 +106,7 @@ impl Distribution {
     /// Used to make the surrogate optimization's search range match the true variable range.
     /// The low/high of a log-scale distribution are already in display (real-number) space, so they're returned as is.
     /// Returns None for Categorical / Uniform, or when the values are missing or degenerate (high <= low).
-    pub(crate) fn bounds(&self) -> Option<(f64, f64)> {
+    pub fn bounds(&self) -> Option<(f64, f64)> {
         match self {
             Distribution::Float { low, high, .. } => {
                 if low.is_finite() && high.is_finite() && high > low {
@@ -131,7 +131,7 @@ impl Distribution {
     /// distributions, and the value is the real value even when a step is set), Float is the
     /// identity and Int only rounds to absorb floating-point error.
     /// Categorical is an index, so it's rounded and returned as-is (the label is resolved via `categorical_label`).
-    pub(crate) fn to_display_f64(&self, internal: f64) -> f64 {
+    pub fn to_display_f64(&self, internal: f64) -> f64 {
         match self {
             Distribution::Float { .. } | Distribution::Uniform => internal,
             Distribution::Int { .. } | Distribution::Categorical { .. } => internal.round(),
@@ -139,7 +139,7 @@ impl Distribution {
     }
 
     /// Converts a Categorical's stored value (an index) into the corresponding choice's label string.
-    pub(crate) fn categorical_label(&self, internal: f64) -> Option<String> {
+    pub fn categorical_label(&self, internal: f64) -> Option<String> {
         let Distribution::Categorical { choices } = self else {
             return None;
         };

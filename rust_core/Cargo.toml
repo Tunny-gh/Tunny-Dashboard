@@ -10,6 +10,7 @@ license = "MIT"
 crate-type = ["rlib"]
 
 [dependencies]
+tdashboard-io = { path = "../crates/io" }
 tdashboard-study = { path = "../crates/study" }
 delaunator = "1.1"
 faer = "0.24.0"
@@ -27,15 +28,14 @@ linfa = "0.8"
 linfa-clustering = "0.8"
 ndarray = "0.16"
 arc-swap = "1"
-rusqlite = { version = "0.40.1", features = ["bundled"] }
-postgres = "0.19"
-mysql = { version = "28", default-features = false, features = ["minimal"] }
 quick-xml = "0.38"
 ureq = { version = "2", default-features = false }
 base64 = "0.22"
 regex = "1"
 
 [dev-dependencies]
+rusqlite = { version = "0.40.1", features = ["bundled"] }
+tdashboard-io = { path = "../crates/io", features = ["test-support"] }
 criterion = { version = "0.5", features = ["html_reports"] }
 tempfile = "3"
 

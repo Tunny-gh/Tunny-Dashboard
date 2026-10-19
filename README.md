@@ -65,13 +65,16 @@ directions and parameter ranges; it does not support Reload.
 
 ```
 tunny-dashboard/
+├── crates/
+│   ├── study/          # All-state Study model and caller-owned management
+│   └── io/             # Formats, owned load/update batches, writers, artifact resolution
 ├── rust_core/          # Core library (headless analytics)
 │   ├── src/
 │   │   ├── clustering/     # k-means, hierarchical, PCA, SOM
 │   │   ├── contour/        # Observed contour interpolation
 │   │   ├── data/           # DataFrame operations
 │   │   ├── gh/             # Grasshopper (.ghx) → Rhino.Compute execution
-│   │   ├── io/             # Journal / SQLite / PostgreSQL / MySQL / CSV / artifacts
+│   │   ├── io/             # Temporary projection facades and legacy export/statistics
 │   │   ├── mcdm/           # TOPSIS, VIKOR, PROMETHEE I·II, entropy weights
 │   │   ├── process/        # Generic external-tool objective (command integration)
 │   │   ├── runner/         # Self-contained optimization loop (no Python/Optuna)
@@ -85,7 +88,7 @@ tunny-dashboard/
 │   └── Cargo.toml
 ├── egui-app/           # Desktop application (egui UI)
 │   ├── src/
-│   │   ├── io/         # File dialogs, storage readers, export
+│   │   ├── io/         # File dialogs, I/O dispatch, export composition
 │   │   ├── state/      # Application state & message handling
 │   │   ├── theme/      # Light/dark color palette & colormaps
 │   │   ├── ui/         # Panels, canvas, widgets, help system
