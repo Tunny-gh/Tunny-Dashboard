@@ -10,7 +10,7 @@ use std::error::Error as StdError;
 use postgres::fallible_iterator::FallibleIterator;
 use postgres::types::private::BytesMut;
 use postgres::types::{to_sql_checked, FromSql, IsNull, Kind, ToSql, Type};
-use postgres::{Client, NoTls, Row};
+use postgres::{Client, GenericClient, IsolationLevel, NoTls, Row, Transaction};
 
 use super::backend::{OptunaBackend, SqlParam, SqlValue};
 
@@ -67,7 +67,27 @@ impl PostgresBackend {
             .map_err(|e| format!("Failed to connect to PostgreSQL: {e}"))?;
         Ok(Self { client })
     }
+
+    pub(crate) fn with_study_read<T>(
+        &mut self,
+        read: impl FnOnce(&mut dyn OptunaBackend) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let mut transaction = self
+            .client
+            .build_transaction()
+            .isolation_level(IsolationLevel::RepeatableRead)
+            .read_only(true)
+            .start()
+            .map_err(|e| format!("Failed to begin PostgreSQL study read: {e}"))?;
+        let result = read(&mut PostgresReadSession(&mut transaction))?;
+        transaction
+            .commit()
+            .map_err(|e| format!("Failed to finish PostgreSQL study read: {e}"))?;
+        Ok(result)
+    }
 }
+
+struct PostgresReadSession<'a, 'b>(&'a mut Transaction<'b>);
 
 /// Converts canonical `?` placeholders to PostgreSQL's native `$1, $2, ...`.
 /// A simple substitution that assumes no `?` appears inside string literals in
@@ -177,31 +197,63 @@ impl OptunaBackend for PostgresBackend {
         params: &[SqlParam],
         on_row: &mut dyn FnMut(&[SqlValue]) -> Result<(), String>,
     ) -> Result<(), String> {
-        let converted = convert_placeholders(sql);
-        let owned_params: Vec<Box<dyn ToSql + Sync>> =
-            params.iter().map(to_postgres_param).collect();
-        let refs: Vec<&(dyn ToSql + Sync)> = owned_params.iter().map(AsRef::as_ref).collect();
-        // `query_raw` streams rows via a server-side cursor (unlike `query`, it
-        // does not buffer all `Row`s at once). Since `RowIter` is a
-        // `FallibleIterator`, `.next()` returns `Result<Option<Row>>`.
-        let mut row_iter = self
-            .client
-            .query_raw(&converted, refs)
-            .map_err(|e| format!("Failed to execute query: {e}"))?;
-        let mut buf: Vec<SqlValue> = Vec::new();
-        while let Some(row) = row_iter
-            .next()
-            .map_err(|e| format!("Failed to read query results: {e}"))?
-        {
-            buf.clear();
-            for i in 0..row.len() {
-                buf.push(column_to_sql_value(&row, i)?);
-            }
-            on_row(&buf)?;
-        }
-        Ok(())
+        query_for_each(&mut self.client, sql, params, on_row)
     }
     // `table_exists` uses the default implementation as-is (`information_schema` + `current_schema()`).
+}
+
+impl OptunaBackend for PostgresReadSession<'_, '_> {
+    fn query_for_each(
+        &mut self,
+        sql: &str,
+        params: &[SqlParam],
+        on_row: &mut dyn FnMut(&[SqlValue]) -> Result<(), String>,
+    ) -> Result<(), String> {
+        query_for_each(self.0, sql, params, on_row)
+    }
+}
+
+fn query_for_each(
+    client: &mut impl GenericClient,
+    sql: &str,
+    params: &[SqlParam],
+    on_row: &mut dyn FnMut(&[SqlValue]) -> Result<(), String>,
+) -> Result<(), String> {
+    let result = read_query(client, sql, params, on_row);
+    #[cfg(test)]
+    if result.is_ok() {
+        super::server_snapshot_tests::after_query(sql);
+    }
+    result
+}
+
+fn read_query(
+    client: &mut impl GenericClient,
+    sql: &str,
+    params: &[SqlParam],
+    on_row: &mut dyn FnMut(&[SqlValue]) -> Result<(), String>,
+) -> Result<(), String> {
+    let converted = convert_placeholders(sql);
+    let owned_params: Vec<Box<dyn ToSql + Sync>> = params.iter().map(to_postgres_param).collect();
+    let refs: Vec<&(dyn ToSql + Sync)> = owned_params.iter().map(AsRef::as_ref).collect();
+    // `query_raw` streams rows via a server-side cursor (unlike `query`, it
+    // does not buffer all `Row`s at once). Since `RowIter` is a
+    // `FallibleIterator`, `.next()` returns `Result<Option<Row>>`.
+    let mut row_iter = client
+        .query_raw(&converted, refs)
+        .map_err(|e| format!("Failed to execute query: {e}"))?;
+    let mut buf: Vec<SqlValue> = Vec::new();
+    while let Some(row) = row_iter
+        .next()
+        .map_err(|e| format!("Failed to read query results: {e}"))?
+    {
+        buf.clear();
+        for i in 0..row.len() {
+            buf.push(column_to_sql_value(&row, i)?);
+        }
+        on_row(&buf)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
