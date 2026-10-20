@@ -5,7 +5,7 @@
 //! converting `mysql::Value` to `SqlValue`.
 
 use mysql::prelude::Queryable;
-use mysql::{Conn, Opts, Value};
+use mysql::{AccessMode, Conn, IsolationLevel, Opts, Transaction, TxOpts, Value};
 
 use super::backend::{OptunaBackend, SqlParam, SqlValue};
 
@@ -34,7 +34,30 @@ impl MysqlBackend {
         let conn = Conn::new(opts).map_err(|e| format!("Failed to connect to MySQL: {e}"))?;
         Ok(Self { conn })
     }
+
+    pub(crate) fn with_study_read<T>(
+        &mut self,
+        read: impl FnOnce(&mut dyn OptunaBackend) -> Result<T, String>,
+    ) -> Result<T, String> {
+        // Establish the InnoDB read view on the first ordinary data read. The
+        // locked driver's explicit consistent-snapshot startup unwraps errors.
+        let mut transaction = self
+            .conn
+            .start_transaction(
+                TxOpts::default()
+                    .set_isolation_level(Some(IsolationLevel::RepeatableRead))
+                    .set_access_mode(Some(AccessMode::ReadOnly)),
+            )
+            .map_err(|e| format!("Failed to begin MySQL study read: {e}"))?;
+        let result = read(&mut MysqlReadSession(&mut transaction))?;
+        transaction
+            .commit()
+            .map_err(|e| format!("Failed to finish MySQL study read: {e}"))?;
+        Ok(result)
+    }
 }
+
+struct MysqlReadSession<'a, 'b>(&'a mut Transaction<'b>);
 
 fn to_mysql_value(param: &SqlParam) -> Value {
     match param {
@@ -76,20 +99,7 @@ impl OptunaBackend for MysqlBackend {
         params: &[SqlParam],
         on_row: &mut dyn FnMut(&[SqlValue]) -> Result<(), String>,
     ) -> Result<(), String> {
-        let bound_params: Vec<Value> = params.iter().map(to_mysql_value).collect();
-        // `exec_iter` streams rows from the server (does not buffer all rows at once).
-        let result = self
-            .conn
-            .exec_iter(sql, bound_params)
-            .map_err(|e| format!("Failed to execute query: {e}"))?;
-        let mut buf: Vec<SqlValue> = Vec::new();
-        for row_result in result {
-            let row = row_result.map_err(|e| format!("Failed to read query results: {e}"))?;
-            buf.clear();
-            buf.extend(row.unwrap().into_iter().map(mysql_value_to_sql_value));
-            on_row(&buf)?;
-        }
-        Ok(())
+        query_for_each(&mut self.conn, sql, params, on_row)
     }
 
     fn current_schema_expr(&self) -> &'static str {
@@ -99,6 +109,60 @@ impl OptunaBackend for MysqlBackend {
     fn text_cast(&self, expr: &str) -> String {
         format!("CAST({expr} AS CHAR)")
     }
+}
+
+impl OptunaBackend for MysqlReadSession<'_, '_> {
+    fn query_for_each(
+        &mut self,
+        sql: &str,
+        params: &[SqlParam],
+        on_row: &mut dyn FnMut(&[SqlValue]) -> Result<(), String>,
+    ) -> Result<(), String> {
+        query_for_each(self.0, sql, params, on_row)
+    }
+
+    fn current_schema_expr(&self) -> &'static str {
+        "DATABASE()"
+    }
+
+    fn text_cast(&self, expr: &str) -> String {
+        format!("CAST({expr} AS CHAR)")
+    }
+}
+
+fn query_for_each(
+    conn: &mut impl Queryable,
+    sql: &str,
+    params: &[SqlParam],
+    on_row: &mut dyn FnMut(&[SqlValue]) -> Result<(), String>,
+) -> Result<(), String> {
+    let result = read_query(conn, sql, params, on_row);
+    #[cfg(test)]
+    if result.is_ok() {
+        super::server_snapshot_tests::after_query(sql);
+    }
+    result
+}
+
+fn read_query(
+    conn: &mut impl Queryable,
+    sql: &str,
+    params: &[SqlParam],
+    on_row: &mut dyn FnMut(&[SqlValue]) -> Result<(), String>,
+) -> Result<(), String> {
+    let bound_params: Vec<Value> = params.iter().map(to_mysql_value).collect();
+    // `exec_iter` streams rows from the server (does not buffer all rows at once).
+    let result = conn
+        .exec_iter(sql, bound_params)
+        .map_err(|e| format!("Failed to execute query: {e}"))?;
+    let mut buf: Vec<SqlValue> = Vec::new();
+    for row_result in result {
+        let row = row_result.map_err(|e| format!("Failed to read query results: {e}"))?;
+        buf.clear();
+        buf.extend(row.unwrap().into_iter().map(mysql_value_to_sql_value));
+        on_row(&buf)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

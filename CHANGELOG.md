@@ -21,6 +21,12 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- PostgreSQL and MySQL Study loading now reads related metadata, trial data and
+  supplementary information in one read-only repeatable-read transaction, avoiding
+  mixed results during concurrent updates. Acquisition ends before DataFrame
+  conversion or analysis; MySQL snapshot validation covers ordinary Optuna-created
+  InnoDB tables.
+
 - SQLite Study loading now reads metadata, trial data and supplementary information
   from one database snapshot, avoiding mixed results when a writer commits during
   acquisition. The read transaction ends before DataFrame conversion or analysis.

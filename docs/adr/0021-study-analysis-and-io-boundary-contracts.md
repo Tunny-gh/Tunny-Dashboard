@@ -427,11 +427,40 @@ and WAL checkpoint retention; the
 records the tested configuration and limits. PostgreSQL/MySQL/MariaDB are
 explicitly excluded from this correction and remain unverified.
 
-Selected mechanisms to validate in [#260](https://github.com/Tunny-gh/Tunny-Dashboard/issues/260):
-SQLite explicit deferred read transaction on the existing read-only connection
-(snapshot established by first read); PostgreSQL read-only REPEATABLE READ;
-MySQL/MariaDB read-only REPEATABLE READ with a consistent snapshot on supported
-transactional tables. Related queries and type conversion finish before session
+For the server prerequisite agreed on 2026-10-19, retain the configuration and
+consistency gate before accepting the affected D3/#251 read paths. Investigate
+PostgreSQL and MySQL acquisition separately from extraction; any correction is a
+separate prerequisite PR. This does not change #251's extraction scope or Done
+requirements. MariaDB is excluded from this investigation and its snapshot
+guarantee; this exclusion does not remove existing runtime paths or establish a
+broader support policy. The bounded validation targets are PostgreSQL 18 and
+MySQL 8.4 with InnoDB tables, not a minimum-version policy or evidence for other
+versions or engines. Limit the correction to ordinary Optuna-created schemas;
+do not add special-engine support, engine probes, rejection policies or warnings.
+Optuna does not explicitly force InnoDB in its table declarations: ordinary
+MySQL 8.4 creation uses the server's InnoDB default. This is not a claim that every
+Optuna-created database necessarily uses InnoDB.
+
+Use PostgreSQL read-only REPEATABLE READ. For MySQL, use read-only REPEATABLE READ
+with its snapshot established by the first ordinary InnoDB data read, rather than
+requiring `START TRANSACTION WITH CONSISTENT SNAPSHOT`. This retains a consistent
+view across the acquisition while accepting first-read rather than transaction-
+start snapshot timing. It avoids the locked `mysql` 28.0.3 driver's explicit
+consistent-snapshot startup path, which unwraps a query error and can panic.
+SQLite retains its explicit deferred read transaction on the existing read-only
+connection, with its snapshot established by the first read.
+
+Both server URL APIs use one owned-rows acquisition: the rows API owns the
+connection/read session, and the DataFrame API projects only after that acquisition
+ends. Generic backend parsers remain caller-session query decoders. The
+[server validation report](../reports/2026-10-19_server-study-snapshot-validation.md)
+records deterministic checks on PostgreSQL 18.6 and MySQL 8.4.11 with genuine
+Optuna 5.0.0-created fixtures. Writer progress and acquisition-limited snapshot/
+metadata-lock release were observed; this is not an all-version guarantee or a
+measurement of long-reader bloat, undo growth or latency. MariaDB remains outside
+this evidence.
+
+Related queries and type conversion finish before session
 end. Success ends the read transaction before returning owned data; query,
 callback, cancellation or conversion failure rolls back/drops the session and
 returns no invalid batch. Do not borrow transaction-backed cursors into a batch.
@@ -439,9 +468,10 @@ returns no invalid batch. Do not borrow transaction-backed cursors into a batch.
 Do not automatically retry a failed read in this refactor: surface the existing
 error and preserve accepted manager state; an existing poll or explicit reload
 can initiate another request. No fallback to mixed reads while claiming a
-snapshot. SQLite WAL versus rollback-journal waits/checkpoint retention, server
-versions/engines/permissions and transaction cleanup are #260's configuration
-gate, not assumptions. If a required configuration cannot meet the selected
+snapshot. SQLite WAL versus rollback-journal waits/checkpoint retention are
+recorded by #260's SQLite validation; server versions/engines/permissions and
+transaction cleanup remain a separate prerequisite configuration gate, not
+assumptions. If a required configuration cannot meet the selected
 mechanism, review that concrete finding before its I/O path ships; it does not
 change #250's domain API. The selected mechanisms do not imply an implemented
 all-backend guarantee, writer-wide business transaction, simultaneous multi-Study
@@ -466,6 +496,12 @@ Journal uses ordered replay of acquired bytes; no all-format external lock.
 - **I/O calls analysis to finish loading/reporting.** Rejected: entry composition
   preserves independent libraries while sharing neutral Study data and explicit
   rendered bytes/CSV values.
+- **Require MySQL snapshot establishment at transaction start.** Not chosen:
+  first-read establishment satisfies coherent Study acquisition using the existing
+  driver's ordinary transaction API, without its explicit-snapshot panic path or
+  a dependency change. A writer commit between transaction start and the first
+  data read may therefore appear in the acquired view; no transaction-start
+  cutoff is promised.
 
 ## Consequences
 

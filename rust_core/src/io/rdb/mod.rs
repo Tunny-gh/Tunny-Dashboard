@@ -13,6 +13,9 @@ mod postgres_backend;
 mod sqlite_backend;
 mod url;
 
+#[cfg(test)]
+mod server_snapshot_tests;
+
 pub(crate) use generic::study_rows_to_dataframe;
 
 use crate::data::dataframe::DataFrame;
@@ -55,19 +58,31 @@ pub fn scan_study_list_url(url: &RdbUrl) -> Result<Vec<StudyMeta>, String> {
 
 /// URL variant: reads all COMPLETE trials of the given study and returns the
 /// finalized metadata and row data. See `parse_single_study_rows` for details.
+/// Related queries share a read-only REPEATABLE READ transaction. The session
+/// and connection end before returning owned rows. MySQL requires ordinary
+/// transactional Optuna tables (validated with InnoDB); its first data read
+/// establishes the snapshot. No automatic retry or mixed-read fallback is used.
 pub fn parse_single_study_rows_url(url: &RdbUrl, study_id: u32) -> Result<RdbStudyRows, String> {
-    let mut backend = connect(url)?;
-    parse_single_study_rows(backend.as_mut(), study_id)
+    check_tls_precondition(&url.url)?;
+    match url.kind {
+        RdbKind::Postgres => PostgresBackend::connect(&url.url)?
+            .with_study_read(|session| parse_single_study_rows(session, study_id)),
+        RdbKind::Mysql => MysqlBackend::connect(&url.url)?
+            .with_study_read(|session| parse_single_study_rows(session, study_id)),
+    }
 }
 
 /// URL variant: reads all COMPLETE trials of the given study and returns
 /// (finalized metadata, `DataFrame`, `StudyExtras`). See `parse_single_study` for details.
+/// Reuses the owned rows acquisition; its transaction and connection have ended
+/// before DataFrame projection starts.
 pub fn parse_single_study_url(
     url: &RdbUrl,
     study_id: u32,
 ) -> Result<(StudyMeta, DataFrame, StudyExtras), String> {
-    let mut backend = connect(url)?;
-    parse_single_study(backend.as_mut(), study_id)
+    Ok(study_rows_to_dataframe(parse_single_study_rows_url(
+        url, study_id,
+    )?))
 }
 
 /// A reusable connection session for public fingerprint queries.
