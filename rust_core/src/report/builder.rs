@@ -104,31 +104,29 @@ pub fn build_study_report(
     let (state_counts, fail_count, wall_clock) = state_summary(extras, n);
 
     // Pareto front (only meaningful for multi-objective). For constrained
-    // studies, non-dominated sorting uses only feasible rows (matching
-    // Optuna's constrained-optimization semantics). Only when there are no
-    // feasible rows at all do we fall back to the non-dominated set over
-    // all rows as objective-only candidates, never as a verified feasible front.
+    // studies, prefer finite verified feasible rows. If none exist, use finite
+    // rows as objective-only candidates, never as a verified feasible front.
+    // Filter before sorting: excluded infinities must not dominate candidates.
     let feas = df.feasibility();
     let front_rows: Vec<usize> = if is_multi && n > 0 {
         let feasible_rows: Vec<usize> = (0..n)
             .filter(|&r| valid_row[r] && feas.is_feasible(r))
             .collect();
-        if feas.has_constraints() && !feasible_rows.is_empty() {
-            let sub: Vec<Vec<f64>> = feasible_rows
-                .iter()
-                .map(|&r| objectives[r].clone())
-                .collect();
-            let sub_ranks = nd_sort(&sub, &is_minimize);
+        let candidate_rows = if feas.has_constraints() && !feasible_rows.is_empty() {
             feasible_rows
-                .iter()
-                .zip(&sub_ranks)
-                .filter(|&(_, &rank)| rank == 0)
-                .map(|(&r, _)| r)
-                .collect()
         } else {
-            let ranks = nd_sort(&objectives, &is_minimize);
-            (0..n).filter(|&r| ranks[r] == 0 && valid_row[r]).collect()
-        }
+            (0..n).filter(|&r| valid_row[r]).collect()
+        };
+        let sub: Vec<Vec<f64>> = candidate_rows
+            .iter()
+            .map(|&r| objectives[r].clone())
+            .collect();
+        let ranks = nd_sort(&sub, &is_minimize);
+        candidate_rows
+            .into_iter()
+            .zip(ranks)
+            .filter_map(|(row, rank)| (rank == 0).then_some(row))
+            .collect()
     } else {
         Vec::new()
     };

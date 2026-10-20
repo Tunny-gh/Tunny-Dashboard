@@ -236,8 +236,8 @@ fn render_pareto_table_block(
     );
     render_trial_table(s, lang, pareto_table, obj_names, has_constraints);
 
-    // The front is computed only from feasible rows, so a violating trial
-    // appears in the table only during the "no feasible solution exists"
+    // The front prefers finite feasible rows, so a violating trial
+    // appears in the table only during the "no finite feasible row exists"
     // fallback. The count is already tallied by the builder from the full
     // pre-cap front.
     if pareto_table

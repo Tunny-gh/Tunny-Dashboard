@@ -21,6 +21,11 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- Reports select finite objective rows before computing nondominance, so
+  recorded infinities cannot eliminate finite front candidates. Constrained
+  reports use clearly labeled objective-only candidates when no finite verified
+  feasible rows exist, without changing recorded observations or feasible counts.
+
 - Journal loading now preserves recorded numeric infinity and NaN in objectives,
   intermediate values and user attributes instead of conflating them with JSON
   null. CSV numeric user attributes retain nonfinite observations through the
