@@ -105,6 +105,9 @@ Builds an optimized release binary. The executable will be at:
 # Build only the core library
 cargo build -p tunny-core
 
+# Build only storage/format I/O (no numerical native-library dependency)
+cargo build -p tdashboard-io
+
 # Build only the desktop app
 cargo build -p tunny-desktop
 

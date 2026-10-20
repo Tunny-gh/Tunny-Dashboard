@@ -1,21 +1,21 @@
-//! Import of DesignExplorer-format CSV (1 row = 1 trial), egui-app side bridge.
-//!
-//! Calls rust_core's [`tunny_core::flat_csv::parse_flat_csv`] to register a single
-//! Study into the shared store. Unresolved `img` paths are kept for session-root
-//! resolution after activation.
+//! DesignExplorer CSV path checks and session-root composition. Format decoding
+//! and safe resolution live in I/O; the entry applies owned batches to managers.
 
 use std::collections::HashMap;
-use std::path::{Component, Path};
+use std::path::Path;
 
 use crate::io::artifacts::ArtifactEntry;
+#[cfg(test)]
 use crate::state::app_state::StudyMeta;
 
 /// Successful import: metadata and unresolved img paths associated with trial IDs.
+#[cfg(test)]
 pub type CsvLoadResult = (StudyMeta, Vec<(u32, String)>);
 
-/// Reads a CSV and registers a single Study into the shared store.
+/// Legacy fixture metadata helper; it does not install a Study.
 ///
 /// Paths are resolved after activation against the effective session root.
+#[cfg(test)]
 pub fn load_csv(path: &Path) -> Result<CsvLoadResult, String> {
     let data = std::fs::read(path).map_err(|e| e.to_string())?;
     let study_name = path
@@ -25,9 +25,6 @@ pub fn load_csv(path: &Path) -> Result<CsvLoadResult, String> {
         .to_string();
 
     let result = tunny_core::flat_csv::parse_flat_csv(&data, &study_name)?;
-
-    // Register into the shared store as a single Study (study_id = 0).
-    tunny_core::dataframe::store_dataframes(vec![result.dataframe]);
 
     let meta = crate::io::journal::convert_study_meta(result.meta);
 
@@ -40,41 +37,15 @@ pub fn build_artifact_map(
     base_dir: &Path,
     images: &[(u32, String)],
 ) -> HashMap<u32, Vec<ArtifactEntry>> {
-    let mut map: HashMap<u32, Vec<ArtifactEntry>> = HashMap::new();
-    for (trial_id, filename) in images {
-        // Keep the existing root-relative rules. File names containing an
-        // absolute path (RootDir / Windows Prefix) or a parent directory reference
-        // (`..`) are excluded without resolving.
-        if !is_safe_relative_filename(filename) {
-            continue;
-        }
-        let path = base_dir.join(filename);
-        if !path.is_file() {
-            continue;
-        }
-        // Leave mimetype as an empty string and let the type be determined from the
-        // extension (ArtifactEntry::file_type).
-        map.entry(*trial_id).or_default().push(ArtifactEntry {
-            path,
-            filename: filename.clone(),
-            mimetype: String::new(),
-        });
-    }
-    map
+    tdashboard_io::artifacts::resolve_csv_images(base_dir, images)
 }
 
 /// Determines whether the `img` column's file name is a safe relative path that stays
 /// within the artifact root. Returns `false` if it contains an absolute path
 /// (`RootDir` / Windows `Prefix`) or a parent directory reference (`ParentDir` = `..`),
 /// preventing parent-directory references (directory traversal).
-fn is_safe_relative_filename(filename: &str) -> bool {
-    Path::new(filename).components().all(|c| {
-        !matches!(
-            c,
-            Component::ParentDir | Component::RootDir | Component::Prefix(_)
-        )
-    })
-}
+#[cfg(test)]
+use tdashboard_io::artifacts::is_safe_relative_filename;
 
 /// Determines whether the path is the flat CSV format (extension `.csv`).
 pub fn is_csv_path(path: &Path) -> bool {

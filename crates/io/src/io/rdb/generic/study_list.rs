@@ -34,7 +34,7 @@ pub(super) fn fetch_metric_names(
     backend: &mut dyn OptunaBackend,
     study_id: i64,
 ) -> Result<Vec<String>, String> {
-    // `key` is a reserved word in MySQL/MariaDB, so as with other queries it is
+    // `key` is a reserved word in MySQL, so as with other queries it is
     // referenced qualified by table name (an alias-qualified reference like
     // `tsa.key` is fine, but unqualified would be a syntax error).
     let rows = backend

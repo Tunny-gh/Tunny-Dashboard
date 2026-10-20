@@ -471,13 +471,10 @@ fn d2_replaced_sqlite_callbacks_cannot_overwrite_a_completed_journal_load() {
     drop(connection);
     let journal_path = dir.path().join("new.log");
     std::fs::write(&journal_path, "{\"op_code\":0,\"study_name\":\"new\",\"directions\":[1]}\n{\"op_code\":4,\"study_id\":0,\"distributions\":{},\"state\":1,\"values\":[3]}\n").unwrap();
-    for callback in ["chunk", "selected", "comparison", "error"] {
+    for callback in ["batch", "finish", "comparison", "error"] {
         let mut app = artifact_test_app(None);
         app.open_path(db.clone());
         poll_until(&mut app, |a| a.app_state.all_studies.len() == 2);
-        if callback == "selected" {
-            select_artifact_study(&mut app, 0);
-        }
         let mut meta = app
             .app_state
             .all_studies
@@ -488,28 +485,34 @@ fn d2_replaced_sqlite_callbacks_cannot_overwrite_a_completed_journal_load() {
         if callback == "error" {
             meta.study_id = 999;
         }
-        let old_generation = app.app_state.source_generation;
+        let old_source = app.app_state.journal_studies.as_ref().unwrap().source;
         let delivery = app.tx.clone();
         let (intercept, results) = make_channel();
         app.tx = intercept;
         app.select_study(meta, callback == "comparison", callback == "comparison");
-        let held = results
+        let mut held = results
             .recv_timeout(std::time::Duration::from_secs(10))
             .unwrap();
-        let AppMessage::StorageResult {
-            source_generation,
-            result,
-        } = &held
-        else {
-            panic!("storage callback lacks source identity");
+        if callback == "finish" {
+            delivery.send(held).unwrap();
+            app.poll_messages(&egui::Context::default());
+            held = results
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .unwrap();
+        }
+        let header = match &held {
+            AppMessage::JournalBatch { header, .. }
+                if callback != "error" && callback != "finish" =>
+            {
+                header
+            }
+            AppMessage::JournalFinished { header, result } => {
+                assert_eq!(result.is_err(), callback == "error");
+                header
+            }
+            _ => panic!("storage callback lacks an owned update ticket"),
         };
-        assert_eq!(*source_generation, old_generation);
-        assert!(match callback {
-            "chunk" => matches!(result.as_ref(), AppMessage::StudyChunkLoaded { .. }),
-            "selected" => matches!(result.as_ref(), AppMessage::StudySelected { .. }),
-            "comparison" => matches!(result.as_ref(), AppMessage::ComparisonStudyLoaded { .. }),
-            _ => matches!(result.as_ref(), AppMessage::Error(_)),
-        });
+        assert_eq!(header.ticket.study().source, old_source);
         app.tx = delivery.clone();
         app.open_path(journal_path.clone());
         poll_until(&mut app, |a| {
@@ -550,6 +553,181 @@ fn d2_replaced_sqlite_callbacks_cannot_overwrite_a_completed_journal_load() {
         assert!(app.app_state.comparison_studies.is_empty());
         assert!(!app.is_loading);
         assert!(app.load_error.is_none());
+    }
+}
+
+#[test]
+fn d3_csv_and_sqlite_use_owned_managers_for_selection_and_reload() {
+    let _guard = test_store_guard();
+    let directory = tempfile::tempdir().unwrap();
+    let csv = directory.path().join("input.csv");
+    std::fs::write(&csv, "in:x,out:f,score\n1,10,inf\n2,20,-inf\n").unwrap();
+    let mut app = artifact_test_app(None);
+    app.open_path(csv);
+    poll_until(&mut app, |a| a.app_state.all_studies.len() == 1);
+    let mut meta = app.app_state.all_studies[0].clone();
+    meta.directions = vec![crate::state::app_state::Direction::Maximize];
+    app.app_state.csv_import_settings = None;
+    app.select_study(meta, false, false);
+    poll_until(&mut app, |a| {
+        !a.is_loading && a.app_state.journal_display.is_some()
+    });
+    let old_stamp = app.app_state.journal_display.unwrap();
+    let csv_input = app.app_state.journal_studies.as_ref().unwrap().managers[&0]
+        .acquire()
+        .unwrap();
+    assert_eq!(
+        csv_input.data().metadata().objectives[0].direction,
+        tdashboard_study::Direction::Maximize
+    );
+    assert!(
+        matches!(csv_input.data().trials()[0].user_attributes["score"].as_ref(),tdashboard_study::AttributeValue::Number(tdashboard_study::Number(n)) if *n == f64::INFINITY)
+    );
+    tunny_core::dataframe::swap_snapshot(
+        0,
+        std::sync::Arc::new(tunny_core::dataframe::DataFrame::empty()),
+    );
+    let meta = app.app_state.all_studies[0].clone();
+    app.select_study(meta, false, false);
+    assert_eq!(app.app_state.journal_display.unwrap(), old_stamp);
+    assert_eq!(
+        app.app_state
+            .current_study
+            .as_ref()
+            .unwrap()
+            .view
+            .df
+            .get_numeric_column("score")
+            .unwrap(),
+        &[f64::INFINITY, f64::NEG_INFINITY]
+    );
+
+    let path = directory.path().join("study.db");
+    let writer = rusqlite::Connection::open(&path).unwrap();
+    writer.execute_batch(r#"
+        CREATE TABLE studies(study_id INTEGER,study_name TEXT);
+        CREATE TABLE study_directions(study_id INTEGER,objective INTEGER,direction TEXT);
+        CREATE TABLE study_system_attributes(study_id INTEGER,key TEXT,value_json TEXT);
+        CREATE TABLE trials(trial_id INTEGER,number INTEGER,study_id INTEGER,state TEXT,datetime_start TEXT,datetime_complete TEXT);
+        CREATE TABLE trial_values(trial_id INTEGER,objective INTEGER,value REAL,value_type TEXT);
+        CREATE TABLE trial_params(trial_id INTEGER,param_name TEXT,param_value REAL,distribution_json TEXT);
+        CREATE TABLE trial_user_attributes(trial_id INTEGER,key TEXT,value_json TEXT);
+        CREATE TABLE trial_system_attributes(trial_id INTEGER,key TEXT,value_json TEXT);
+        INSERT INTO studies VALUES(0,'sqlite'); INSERT INTO study_directions VALUES(0,0,'MINIMIZE');
+        INSERT INTO trials VALUES(10,0,0,'COMPLETE',NULL,NULL),(20,4,0,'RUNNING',NULL,NULL);
+        INSERT INTO trial_values VALUES(10,0,10,'FINITE'),(20,0,20,'FINITE');
+        INSERT INTO trial_user_attributes VALUES(10,'tag','1.5'),(20,'running','{"v":true}');
+    "#).unwrap();
+    app.open_path(path);
+    poll_until(&mut app, |a| {
+        !a.is_loading
+            && a.app_state
+                .current_study
+                .as_ref()
+                .is_some_and(|s| s.meta.name == "sqlite")
+    });
+    let before = app.app_state.journal_display.unwrap();
+    assert_ne!(before.input.study.source, old_stamp.input.study.source);
+    let input = app.app_state.journal_studies.as_ref().unwrap().managers[&0]
+        .acquire()
+        .unwrap();
+    assert_eq!(input.data().trials().len(), 2);
+    assert_eq!(
+        input.data().trials()[1].objectives[&tdashboard_study::ObjectiveIndex(0)].0,
+        20.0
+    );
+    assert!(input.data().trials()[1]
+        .user_attributes
+        .contains_key("running"));
+    writer
+        .execute(
+            "UPDATE trial_user_attributes SET value_json='Infinity' WHERE trial_id=10",
+            [],
+        )
+        .unwrap();
+    app.reload_current();
+    poll_until(&mut app, |a| !a.is_loading && a.pending_reload.is_none());
+    let after = app.app_state.journal_display.unwrap();
+    assert_eq!(before.input.study, after.input.study);
+    assert!(after.input.generation > before.input.generation);
+    assert_eq!(
+        app.app_state
+            .current_study
+            .as_ref()
+            .unwrap()
+            .view
+            .df
+            .get_numeric_column("tag")
+            .unwrap(),
+        &[f64::INFINITY]
+    );
+    assert_eq!(
+        input.data().trials()[0].user_attributes["tag"].as_ref(),
+        &serde_json::json!(1.5)
+    );
+    assert_eq!(
+        csv_input.data().trials()[1].user_attributes["score"].as_ref(),
+        &tdashboard_study::AttributeValue::from(f64::NEG_INFINITY)
+    );
+}
+
+#[test]
+#[ignore = "requires the disposable genuine Optuna server fixtures"]
+fn d3_live_servers_use_the_owned_gui_handoff_and_reload() {
+    let _guard = test_store_guard();
+    for family in ["POSTGRES", "MYSQL"] {
+        let url = std::env::var(format!("TUNNY_SNAPSHOT_{family}_URL"))
+            .expect("disposable server required");
+        let mut app = artifact_test_app(None);
+        app.open_path(url.into());
+        poll_until(&mut app, |a| a.app_state.all_studies.len() == 32);
+        let meta = app
+            .app_state
+            .all_studies
+            .iter()
+            .find(|s| s.name == "tunny-server-snapshot-20")
+            .unwrap()
+            .clone();
+        let id = meta.study_id;
+        app.select_study(meta, false, false);
+        poll_until(&mut app, |a| {
+            !a.is_loading && a.app_state.current_study.is_some()
+        });
+        let before = app.app_state.journal_display.unwrap();
+        let input = app.app_state.journal_studies.as_ref().unwrap().managers[&id]
+            .acquire()
+            .unwrap();
+        assert_eq!(input.data().trials().len(), 2);
+        assert!(input.data().trials()[1].parameters.contains_key("x"));
+        assert!(input.data().trials()[1].user_attributes.contains_key("tag"));
+        tunny_core::dataframe::swap_snapshot(
+            id,
+            std::sync::Arc::new(tunny_core::dataframe::DataFrame::empty()),
+        );
+        let meta = app.app_state.current_study.as_ref().unwrap().meta.clone();
+        app.select_study(meta, false, false);
+        assert_eq!(
+            app.app_state
+                .current_study
+                .as_ref()
+                .unwrap()
+                .view
+                .row_count(),
+            1
+        );
+        assert_eq!(app.app_state.journal_display.unwrap(), before);
+        app.reload_current();
+        poll_until(&mut app, |a| !a.is_loading && a.pending_reload.is_none());
+        assert!(app.app_state.journal_display.unwrap().input.generation > before.input.generation);
+        assert_eq!(
+            app.app_state
+                .current_study
+                .as_ref()
+                .unwrap()
+                .view
+                .row_count(),
+            1
+        );
     }
 }
 

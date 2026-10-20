@@ -64,6 +64,98 @@ impl ParserState {
         }
     }
 
+    pub(super) fn process_record(&mut self, op: u8, record: &crate::optuna_json::Record) {
+        let id = if op == 4 {
+            Some(self.next_trial_id)
+        } else {
+            get_u64(&record.json, "trial_id").and_then(|n| u32::try_from(n).ok())
+        };
+        self.process_op(op, &record.json);
+        let Some(trial) = id.and_then(|id| self.trial_builders.get_mut(&id)) else {
+            return;
+        };
+        let json = record.root();
+        if op == 4 || op == 6 {
+            if let Some(values) = json.get("values").and_then(Value::as_array) {
+                trial.values = Some(
+                    values
+                        .iter()
+                        .map(|v| record.number(v).unwrap_or(f64::NAN))
+                        .collect(),
+                );
+            } else if let Some(value) = json.get("value").and_then(|v| record.number(v)) {
+                trial.values = Some(vec![value]);
+            }
+        }
+        if op == 7 {
+            if let Some(value) = json
+                .get("intermediate_value")
+                .filter(|v| v.as_f64().is_none())
+                .and_then(|v| record.number(v))
+            {
+                trial
+                    .intermediate_values
+                    .push((get_u64(json, "step").unwrap_or(0), value));
+            }
+        }
+        let attrs = json
+            .get(if op == 4 { "user_attrs" } else { "user_attr" })
+            .and_then(Value::as_object);
+        if let Some(attrs) = attrs.filter(|_| op == 4 || op == 8) {
+            for (key, value) in attrs {
+                let attribute = record.attribute(value);
+                if let tdashboard_study::AttributeValue::Number(n) = &attribute {
+                    trial.user_attrs_numeric.insert(key.clone(), n.0);
+                    trial.user_attrs_string.remove(key);
+                }
+                trial
+                    .attributes
+                    .insert(key.clone(), std::sync::Arc::new(attribute));
+            }
+        }
+        if op == 4 || op == 9 {
+            if let Some(values) = json
+                .get(if op == 4 {
+                    "system_attrs"
+                } else {
+                    "system_attr"
+                })
+                .and_then(|v| v.get("constraints"))
+            {
+                trial.has_constraints = true;
+                trial.constraint_values = values
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .map(|v| record.number(v).unwrap_or(f64::NAN))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+            }
+        }
+        if op == 5 {
+            if let (Some(name), Some(value)) = (
+                get_str(json, "param_name"),
+                json.get("param_value_internal")
+                    .filter(|v| v.as_f64().is_none())
+                    .and_then(|v| record.number(v)),
+            ) {
+                trial.param_display.insert(name.to_string(), value);
+            }
+        }
+        if op == 4 {
+            if let Some(params) = json.get("params").and_then(Value::as_object) {
+                for (name, value) in params {
+                    if value.as_f64().is_none() {
+                        if let Some(number) = record.number(value) {
+                            trial.param_display.insert(name.clone(), number);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn process_create_study(&mut self, json: &Value) {
         let name = get_str(json, "study_name").unwrap_or("").to_string();
         // A journal file may contain multiple create_study entries for the same study
@@ -146,7 +238,7 @@ impl ParserState {
 
             let mut param_display: HashMap<String, f64> = HashMap::new();
             let mut param_category_label: HashMap<String, String> = HashMap::new();
-            let mut distribution_metadata = crate::dataframe::DistributionMetadata::default();
+            let mut distribution_metadata = crate::decoded::DistributionMetadata::default();
 
             let dist_obj = json
                 .get("distributions")
@@ -248,6 +340,10 @@ impl ParserState {
             self.trial_builders.insert(
                 trial_id,
                 TrialBuilder {
+                    attributes: user_attrs_json
+                        .iter()
+                        .map(|(k, v)| (k.clone(), std::sync::Arc::new(v.clone().into())))
+                        .collect(),
                     study_id,
                     trial_number,
                     state,
@@ -269,6 +365,7 @@ impl ParserState {
             self.trial_builders.insert(
                 trial_id,
                 TrialBuilder {
+                    attributes: Default::default(),
                     study_id,
                     trial_number,
                     state: 0,
@@ -384,6 +481,9 @@ impl ParserState {
         };
 
         for (key, value) in attrs {
+            trial
+                .attributes
+                .insert(key.clone(), std::sync::Arc::new(value.clone().into()));
             crate::io::user_attrs::insert_user_attr(
                 key,
                 value.clone(),

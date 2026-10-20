@@ -1,6 +1,10 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
+#[cfg(test)]
 use std::sync::mpsc::SyncSender;
 
+#[cfg(test)]
 use crate::state::messages::AppMessage;
 
 /// Determines whether a path is an Optuna SQLite storage (extension db/sqlite/sqlite3,
@@ -18,6 +22,7 @@ pub fn is_sqlite_path(path: &Path) -> bool {
 ///
 /// Unlike journal, no raw byte buffer cache is needed (Phase 2 re-queries directly
 /// from `path`), so the return value is just `AppMessage`.
+#[cfg(test)]
 pub fn scan_sqlite_task(path: PathBuf) -> AppMessage {
     match tunny_core::sqlite::scan_study_list(&path) {
         Ok(studies) => {
@@ -43,12 +48,12 @@ pub fn scan_sqlite_task(path: PathBuf) -> AppMessage {
 /// into one message with `is_first = is_final = true`, `MessageHandler::handle_study_chunk`
 /// is shared with journal, making UI state such as the param filter sliders and
 /// Pareto rank computation exactly the same as the journal path.
+#[cfg(test)]
 pub fn load_single_study_task(path: &Path, study_id: u32, tx: &SyncSender<AppMessage>) -> bool {
     match tunny_core::sqlite::parse_single_study_rows(path, study_id) {
         Ok(rows) => {
             // Store the extra info for all trials (all states) into the shared store,
             // keyed by the actual study_id.
-            tunny_core::dataframe::store_extras_for(study_id, rows.extras);
             let _ = tx.send(AppMessage::StudyChunkLoaded {
                 study_id,
                 has_constraints: rows.meta.has_constraints,

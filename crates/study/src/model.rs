@@ -18,6 +18,50 @@ pub struct SourceInstanceId {
     serial: u64,
 }
 
+/// Source attributes have one authority, including non-JSON numeric CSV cells.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AttributeValue {
+    Json(Value),
+    Number(Number),
+    Array(Vec<AttributeValue>),
+    Object(BTreeMap<String, AttributeValue>),
+}
+impl From<Value> for AttributeValue {
+    fn from(value: Value) -> Self {
+        Self::Json(value)
+    }
+}
+impl From<f64> for AttributeValue {
+    fn from(value: f64) -> Self {
+        Self::Number(Number(value))
+    }
+}
+impl PartialEq<Value> for AttributeValue {
+    fn eq(&self, other: &Value) -> bool {
+        matches!(self, Self::Json(value) if value == other)
+    }
+}
+impl AttributeValue {
+    pub fn is_null(&self) -> bool {
+        matches!(self, Self::Json(Value::Null))
+    }
+    /// JSON presentation cannot encode nonfinite numbers. The authoritative
+    /// observation stays intact; existing JSON renderers retain their null policy.
+    pub fn json_view(&self) -> Value {
+        match self {
+            Self::Json(value) => value.clone(),
+            Self::Number(number) => Value::from(number.0),
+            Self::Array(values) => Value::Array(values.iter().map(Self::json_view).collect()),
+            Self::Object(values) => Value::Object(
+                values
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.json_view()))
+                    .collect(),
+            ),
+        }
+    }
+}
+
 /// Only the namespace counter is process-wide; it holds no domain data.
 #[derive(Debug)]
 pub struct IdentityAllocator {
@@ -210,7 +254,7 @@ pub struct TrialRecord {
     pub state: TrialState,
     pub parameters: Arc<BTreeMap<String, ParameterObservation>>,
     pub objectives: Arc<BTreeMap<ObjectiveIndex, Number>>,
-    pub user_attributes: Arc<BTreeMap<String, Arc<Value>>>,
+    pub user_attributes: Arc<BTreeMap<String, Arc<AttributeValue>>>,
     pub constraints: ConstraintObservation,
     pub datetime_start: Option<Number>,
     pub datetime_complete: Option<Number>,

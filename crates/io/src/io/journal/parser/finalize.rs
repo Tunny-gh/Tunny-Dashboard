@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
-use crate::data::extras::{StudyExtras, TrialExtra, TrialState};
-use crate::dataframe::{DataFrame, TrialRow};
+use crate::decoded::{DecodedTable as DataFrame, TrialRow};
+use crate::extras::{StudyExtras, TrialExtra, TrialState};
 
 use super::builders::TrialBuilder;
 use super::state::ParserState;

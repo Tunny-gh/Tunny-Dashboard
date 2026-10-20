@@ -1,4 +1,4 @@
-//! MySQL / MariaDB (`mysql` crate) implementation.
+//! MySQL (`mysql` crate) implementation.
 //!
 //! Implements the `OptunaBackend` trait on top of `mysql::Conn`. `?` is the
 //! native placeholder, so no conversion is needed. This file only handles
@@ -9,7 +9,7 @@ use mysql::{AccessMode, Conn, IsolationLevel, Opts, Transaction, TxOpts, Value};
 
 use super::backend::{OptunaBackend, SqlParam, SqlValue};
 
-/// An `OptunaBackend` implementation connected to MySQL/MariaDB.
+/// An `OptunaBackend` implementation connected to MySQL.
 pub struct MysqlBackend {
     conn: Conn,
 }

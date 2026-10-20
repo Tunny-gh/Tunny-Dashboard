@@ -2,6 +2,7 @@ use crate::state::app_state::{AppState, Direction, StudyContext, StudyView};
 use crate::state::messages::AppMessage;
 use crate::state::results::ConvergenceHistory;
 use crate::ui::widget_states::WidgetStates;
+#[cfg(test)]
 use tunny_core::dataframe::{DataFrame, TrialRow as CoreTrialRow};
 
 /// Handler that processes messages from background tasks.
@@ -17,9 +18,6 @@ impl MessageHandler {
         load_error: &mut Option<String>,
     ) {
         match msg {
-            AppMessage::StorageResult { .. } => {
-                unreachable!("Storage delivery is checked by the entry adapter")
-            }
             AppMessage::JournalBatch {
                 header,
                 batch,
@@ -105,6 +103,7 @@ impl MessageHandler {
                 app_state.journal_path = Some(path);
                 *is_loading = false;
             }
+            #[cfg(test)]
             AppMessage::StudySelected {
                 meta,
                 study_id,
@@ -143,6 +142,7 @@ impl MessageHandler {
                 widget_states.reset_infeasible_flags();
                 *is_loading = false;
             }
+            #[cfg(test)]
             AppMessage::StudyChunkLoaded {
                 study_id,
                 meta,
@@ -310,6 +310,7 @@ impl MessageHandler {
                 widget_states.pdp_chart.computing = false;
             }
 
+            #[cfg(test)]
             AppMessage::ComparisonStudyLoaded { context } => {
                 // Keep the 3 parallel Vecs (studies / colors / hv_histories) aligned in the same order.
                 let idx = app_state.comparison_studies.len();
@@ -340,6 +341,7 @@ impl MessageHandler {
                 app_state.artifact_revision = app_state.artifact_revision.wrapping_add(1);
                 app_state.artifacts_dir = Some(artifacts_dir);
             }
+            #[cfg(test)]
             AppMessage::CsvArtifacts {
                 source_path,
                 source_generation,
@@ -361,6 +363,7 @@ impl MessageHandler {
                 app_state.artifacts_dir = Some(root);
                 app_state.csv_images = Some(images);
             }
+            #[cfg(test)]
             AppMessage::ComparisonStudyLoadFailed(err) => {
                 *load_error = Some(err);
             }

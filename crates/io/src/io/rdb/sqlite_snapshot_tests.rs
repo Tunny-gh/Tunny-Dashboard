@@ -206,16 +206,7 @@ impl Route {
                     crate::io::sqlite::parse_single_study(&fixture.path(), 1).unwrap();
                 json!({
                     "meta": format!("{meta:?}"), "extras": format!("{extras:?}"),
-                    "rows": frame.row_count(),
-                    "columns": frame.column_names().into_iter().map(|name| json!({
-                        "numeric": frame.get_numeric_column(&name),
-                        "text": frame.get_string_column(&name), "name": name,
-                    })).collect::<Vec<_>>(),
-                    "attributes": (0..frame.row_count()).map(|row|
-                        frame.user_attr_names().map(|name| (name.to_string(),
-                            json!(frame.user_attr_value(name, row))))
-                            .collect::<serde_json::Map<_, _>>()
-                    ).collect::<Vec<_>>(),
+                    "contents": frame,
                 })
             }
         }

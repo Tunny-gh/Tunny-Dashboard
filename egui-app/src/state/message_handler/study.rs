@@ -97,6 +97,34 @@ impl MessageHandler {
         if let Some(context) = comparison_context {
             Self::complete_journal_comparison(key, Some(context), app_state);
         }
+        if selected {
+            if let Some(path) = app_state
+                .journal_path
+                .clone()
+                .filter(|p| crate::io::flat_csv::is_csv_path(p))
+            {
+                let images: Vec<_> = input
+                    .data()
+                    .trials()
+                    .iter()
+                    .flat_map(|t| {
+                        t.artifacts
+                            .iter()
+                            .map(|a| (t.key.stored_id, a.reference.clone()))
+                    })
+                    .collect();
+                let root = app_state.explicit_artifact_root.clone().unwrap_or_else(|| {
+                    path.parent()
+                        .unwrap_or(std::path::Path::new("."))
+                        .to_path_buf()
+                });
+                app_state.artifact_map =
+                    tdashboard_io::artifacts::resolve_csv_images(&root, &images);
+                app_state.artifacts_dir = Some(root);
+                app_state.csv_images = Some(images);
+                app_state.artifact_revision = app_state.artifact_revision.wrapping_add(1);
+            }
+        }
     }
     pub(super) fn complete_journal_comparison(
         key: tdashboard_study::StudyKey,
@@ -131,6 +159,7 @@ impl MessageHandler {
     /// cumulative best) and stores it in `app_state.best_trial_history`. Left
     /// as None for multi-objective Studies (the convergence card is hidden,
     /// and the HV history instead handles the multi-objective trend).
+    #[cfg(test)]
     pub(super) fn refresh_best_trial_history(app_state: &mut AppState) {
         let Some(ctx) = app_state.current_study.as_ref() else {
             app_state.best_trial_history = None;
@@ -168,6 +197,7 @@ impl MessageHandler {
     ///   **not computed during streaming**; it's computed once, definitively,
     ///   on the `is_final` batch (rank 0 is shown while loading).
     #[allow(clippy::too_many_arguments)]
+    #[cfg(test)]
     pub(super) fn handle_study_chunk(
         study_id: u32,
         meta: crate::state::app_state::StudyMeta,

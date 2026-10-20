@@ -86,7 +86,7 @@ Optuna 5 feature parity or a constraint/timestamp semantics migration.
 Every generated MySQL table, including Optuna's version/heartbeat tables, was
 observed as InnoDB. Optuna does not explicitly force that engine in its models;
 this is ordinary MySQL 8.4 default creation, not proof for altered defaults or
-mixed engines. No MariaDB validation or support claim is made.
+mixed engines.
 
 The isolated fixture venv was
 `C:\Users\dev\AppData\Local\Temp\opencode\tunny-server-snapshot-20261019`.
@@ -280,7 +280,7 @@ the task resources; no credential files were created in the workspace.
 - [mysql 28.0.3 startup source](https://github.com/blackbeam/rust-mysql-simple/blob/v28.0.3/src/conn/mod.rs).
 
 Evidence is bounded to the exact tested versions/configurations, ordinary
-Optuna-created tables and current decoder coverage. MariaDB, altered/mixed engines,
+Optuna-created tables and current decoder coverage. Altered/mixed engines,
 older server compatibility, new Optuna features, concurrent schema changes and
 cross-Study simultaneous snapshots are not validated. The generic query APIs do
 not gain an automatic snapshot guarantee. D3 extraction remains a separate task.

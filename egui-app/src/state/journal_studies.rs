@@ -1,4 +1,4 @@
-//! Caller-owned Journal collection for D2. #251 replaces acquisition delivery;
+//! Caller-owned loaded-Study collection. All formats emit owned I/O batches;
 //! #252 replaces projections; #253 removes legacy presentation-store mirrors.
 use super::app_state::StudyContext;
 use super::messages::AppMessage;
@@ -11,6 +11,8 @@ pub struct JournalStudies {
     pub source: SourceInstanceId,
     pub scan: u64,
     pub bytes: Option<Arc<Vec<u8>>>,
+    pub path: Option<std::path::PathBuf>,
+    pub csv_metadata: Option<super::app_state::StudyMeta>,
     pub managers: HashMap<u32, StudyManager>,
     pub selected: Option<u32>,
     /// Acquisition bytes used by each attempt. A storage reload leaves unrelated
@@ -35,6 +37,8 @@ impl JournalStudies {
             source,
             scan,
             bytes: None,
+            path: None,
+            csv_metadata: None,
             managers: HashMap::new(),
             selected: None,
             requested_scans: HashMap::new(),
@@ -100,6 +104,27 @@ impl JournalStudies {
             .bytes
             .clone()
             .ok_or("No journal is loaded yet. Please open a journal first.")?;
+        let source = if let Some(path) = &self.path {
+            if let Some(url) = crate::io::rdb::path_as_rdb_url(path) {
+                tdashboard_io::storage::ReadSource::Rdb(url)
+            } else if crate::io::sqlite::is_sqlite_path(path) {
+                tdashboard_io::storage::ReadSource::Sqlite(path.clone())
+            } else if crate::io::flat_csv::is_csv_path(path) {
+                tdashboard_io::storage::ReadSource::Csv {
+                    bytes: bytes.clone(),
+                    name: path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("csv")
+                        .to_string(),
+                }
+            } else {
+                tdashboard_io::storage::ReadSource::Journal(bytes.clone())
+            }
+        } else {
+            tdashboard_io::storage::ReadSource::Journal(bytes.clone())
+        };
+        let csv_metadata = self.csv_metadata.clone();
         let key = StudyKey {
             source: self.source,
             stored_id: id,
@@ -160,7 +185,26 @@ impl JournalStudies {
             self.reserve_comparison(key);
         }
         std::thread::spawn(move || {
-            let mut deliver = |batch| {
+            let mut deliver = |mut batch| {
+                if let (Some(meta), tdashboard_study::StudyBatch::Replace { metadata, .. }) =
+                    (&csv_metadata, &mut batch)
+                {
+                    metadata
+                        .objectives
+                        .iter_mut()
+                        .zip(&meta.directions)
+                        .for_each(|(o, d)| {
+                            o.direction = match d {
+                                super::app_state::Direction::Minimize => Direction::Minimize,
+                                super::app_state::Direction::Maximize => Direction::Maximize,
+                            };
+                        });
+                    metadata.declared_bounds = meta
+                        .param_bounds
+                        .iter()
+                        .map(|(k, (l, h))| (k.clone(), (Number(*l), Number(*h))))
+                        .collect();
+                }
                 let (reply, ack) = mpsc::sync_channel(1);
                 tx.send(AppMessage::JournalBatch {
                     header,
@@ -172,17 +216,7 @@ impl JournalStudies {
                 header = receipt.next_header(ticket);
                 Ok(())
             };
-            let result = if comparison {
-                tunny_core::journal_parser::study::read_full(&bytes, ticket.study())
-                    .and_then(&mut deliver)
-            } else {
-                tunny_core::journal_parser::study::read_batches(
-                    &bytes,
-                    ticket.study(),
-                    1000,
-                    &mut deliver,
-                )
-            };
+            let result = source.read(ticket.study(), !comparison, &mut deliver);
             let _ = tx.send(AppMessage::JournalFinished { header, result });
         });
         Ok(None)

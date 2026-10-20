@@ -1,7 +1,33 @@
 use super::*;
 use crate::dataframe::DataFrame;
+use crate::journal::line_u32_field;
 use serde_json::Value;
-use std::collections::HashMap;
+
+// Legacy table-store fixtures install their own derived views explicitly. The
+// production parser only returns owned contents.
+fn parse_journal(data: &[u8]) -> Result<super::ParseResult, String> {
+    let result = super::parse_journal(data)?;
+    crate::dataframe::store_dataframes(
+        result
+            .contents
+            .iter()
+            .map(|(_, df, _)| df.clone())
+            .collect(),
+    );
+    crate::dataframe::store_extras(result.contents.iter().map(|(_, _, e)| e.clone()).collect());
+    Ok(result)
+}
+fn parse_single_study_streaming(
+    data: &[u8],
+    id: u32,
+    size: usize,
+    sink: impl FnMut(super::StudyStreamBatch),
+) -> Result<(), String> {
+    super::parse_single_study_streaming(data, id, size, sink)?;
+    let (_, _, extras) = super::parse_single_study(data, id)?;
+    crate::dataframe::store_extras_for(id, extras);
+    Ok(())
+}
 
 #[test]
 fn distribution_metadata_survives_inline_events_streaming_and_filtering() {
@@ -109,7 +135,11 @@ fn objective_nonfinite_positions_survive_op4_and_op6_and_are_excluded_from_repor
             for df in [&initial, &streamed] {
                 assert_eq!(df.objective_col_names(), &["obj0", "obj1"]);
                 let first = df.get_numeric_column("obj0").unwrap();
-                assert!(first[0].is_nan());
+                match invalid {
+                    "Infinity" => assert_eq!(first[0], f64::INFINITY),
+                    "-Infinity" => assert_eq!(first[0], f64::NEG_INFINITY),
+                    _ => assert!(first[0].is_nan()),
+                }
                 assert_eq!(first[1], 7.0);
                 assert_eq!(df.get_numeric_column("obj1").unwrap(), &[5.0, 8.0]);
                 let report = build_study_report(
@@ -132,21 +162,28 @@ fn objective_nonfinite_positions_survive_op4_and_op6_and_are_excluded_from_repor
                 else {
                     panic!("objective dimension must remain two");
                 };
-                assert_eq!(*pareto_size, 1);
+                // Preserve the report's existing raw-infinity policy, also used
+                // by RDB input. Fixing its pre-filter nondominance is not D3.
+                let expected_front = usize::from(invalid != "-Infinity");
+                assert_eq!(*pareto_size, expected_front);
                 assert_eq!(*complete_count, 1);
-                assert_eq!(pareto_table.len(), 1);
-                assert_eq!(pareto_table[0].trial_number, 1);
-                assert_eq!(pareto_table[0].objectives, vec![7.0, 8.0]);
+                assert_eq!(pareto_table.len(), expected_front);
+                for trial in pareto_table {
+                    assert_eq!(trial.trial_number, 1);
+                    assert_eq!(trial.objectives, vec![7.0, 8.0]);
+                }
                 assert_eq!(scatter.len(), 1);
                 assert_eq!(scatter[0].trial_number, 1);
                 let json = serde_json::to_value(&report).unwrap();
                 let outcome = &json["outcome"]["MultiObj"];
                 assert_eq!(outcome["objective_count"], 2);
                 assert_eq!(outcome["complete_count"], 1);
-                assert_eq!(
-                    outcome["pareto_table"][0]["objectives"],
-                    serde_json::json!([7.0, 8.0])
-                );
+                if expected_front > 0 {
+                    assert_eq!(
+                        outcome["pareto_table"][0]["objectives"],
+                        serde_json::json!([7.0, 8.0])
+                    );
+                }
                 for output in [
                     render_html(&report, ReportLang::En),
                     render_markdown(&report, ReportLang::En),
@@ -1147,31 +1184,6 @@ fn distribution_categorical_label() {
     assert_eq!(dist.categorical_label(1.0), Some("b".to_string()));
     assert_eq!(dist.categorical_label(0.0), Some("a".to_string()));
     assert_eq!(dist.categorical_label(2.0), Some("c".to_string()));
-}
-
-#[test]
-fn trial_builder_constraint_values_stored() {
-    let trial = TrialBuilder {
-        study_id: 0,
-        trial_number: 0,
-        state: 1,
-        values: None,
-        param_display: HashMap::new(),
-        distribution_metadata: Default::default(),
-        param_category_label: HashMap::new(),
-        user_attrs_numeric: HashMap::new(),
-        user_attrs_string: HashMap::new(),
-        user_attrs_json: HashMap::new(),
-        constraint_values: vec![-1.0, -0.5, 0.0],
-        has_constraints: true,
-        datetime_start: None,
-        datetime_complete: None,
-        intermediate_values: Vec::new(),
-    };
-    assert_eq!(trial.constraint_values.len(), 3);
-    assert!(trial.constraint_values.iter().all(|&value| value <= 0.0));
-    let sum: f64 = trial.constraint_values.iter().sum();
-    assert!((sum - (-1.5)).abs() < 1e-10);
 }
 
 #[test]

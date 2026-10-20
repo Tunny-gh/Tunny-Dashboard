@@ -21,6 +21,14 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- Journal loading now preserves recorded numeric infinity and NaN in objectives,
+  intermediate values and user attributes instead of conflating them with JSON
+  null. CSV numeric user attributes retain nonfinite observations through the
+  owned Study handoff; numerical analyses keep their existing finite-input policies.
+- Late Journal metric names replace objective labels without losing streaming
+  column layout, and repeated objective labels retain separate indexed values.
+  CSV artifact resolution uses the shared root-containment check.
+
 - PostgreSQL and MySQL Study loading now reads related metadata, trial data and
   supplementary information in one read-only repeatable-read transaction, avoiding
   mixed results during concurrent updates. Acquisition ends before DataFrame

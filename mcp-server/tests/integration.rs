@@ -73,6 +73,79 @@ fn notif(method: &str) -> String {
 }
 
 #[test]
+#[ignore = "requires the disposable genuine Optuna server fixtures"]
+fn d3_live_servers_keep_stdio_ingestion_pagination_and_masked_reports() {
+    use serde_json::json;
+    for family in ["POSTGRES", "MYSQL"] {
+        let storage = std::env::var(format!("TUNNY_SNAPSHOT_{family}_URL"))
+            .expect("disposable server required");
+        let study = tdashboard_io::storage::scan_studies(&storage)
+            .unwrap()
+            .into_iter()
+            .find(|s| s.name == "tunny-server-snapshot-20")
+            .unwrap();
+        let mut child = Command::new(env!("CARGO_BIN_EXE_tunny-mcp"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut input = child.stdin.take().unwrap();
+        for (id, name, offset) in [
+            (1, "study_summary", 0),
+            (2, "study_report", 0),
+            (3, "trials", 0),
+            (4, "trials", 1),
+        ] {
+            writeln!(input,"{}",req(id,"tools/call",json!({"name":name,"arguments":{
+                "storage":storage,"study_id":study.study_id,"format":"json","offset":offset,"limit":1
+            }}))).unwrap();
+        }
+        drop(input);
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success());
+        let text = String::from_utf8(output.stdout).unwrap();
+        let password = storage
+            .split("://")
+            .nth(1)
+            .unwrap()
+            .split('@')
+            .next()
+            .unwrap()
+            .split(':')
+            .nth(1)
+            .unwrap();
+        assert!(
+            !text.contains(password),
+            "credential must not appear in protocol output"
+        );
+        let responses: Vec<Value> = text
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(responses.len(), 4);
+        let payload = |index: usize| -> Value {
+            assert_eq!(responses[index]["result"]["isError"], false);
+            serde_json::from_str(
+                responses[index]["result"]["content"][0]["text"]
+                    .as_str()
+                    .unwrap(),
+            )
+            .unwrap()
+        };
+        assert_eq!(payload(0)["overview"]["total_trials"], 2);
+        assert_eq!(payload(1)["overview"]["complete_trials"], 1);
+        assert!(payload(1)["source"]["storage_display"]
+            .as_str()
+            .unwrap()
+            .contains("***"));
+        assert_eq!(payload(2)["total_complete_trials"], 1);
+        assert_eq!(payload(2)["returned"], 1);
+        assert_eq!(payload(3)["returned"], 0);
+    }
+}
+
+#[test]
 fn categorical_importance_is_explicit_in_mcp_summary_and_report() {
     use serde_json::json;
     for mixed in [false, true] {

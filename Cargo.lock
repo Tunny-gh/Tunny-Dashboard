@@ -5688,6 +5688,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "tdashboard-io"
+version = "0.1.0"
+dependencies = [
+ "mysql",
+ "postgres",
+ "rayon",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tdashboard-study",
+ "tempfile",
+]
+
+[[package]]
 name = "tdashboard-study"
 version = "0.1.0"
 dependencies = [
@@ -6022,9 +6037,7 @@ dependencies = [
  "faer",
  "linfa",
  "linfa-clustering",
- "mysql",
  "ndarray",
- "postgres",
  "quick-xml 0.38.4",
  "rand 0.9.5",
  "rand_chacha 0.9.0",
@@ -6034,6 +6047,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "tdashboard-io",
  "tdashboard-study",
  "tempfile",
  "ureq",
@@ -6057,6 +6071,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "tdashboard-io",
  "tdashboard-study",
  "tempfile",
  "tunny-core",
@@ -6069,6 +6084,8 @@ version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
+ "tdashboard-io",
+ "tdashboard-study",
  "tunny-core",
 ]
 

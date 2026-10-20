@@ -1,6 +1,7 @@
+#[cfg(test)]
+use crate::state::app_state::StudyContext;
 use crate::state::app_state::{
-    ClusterResult, HeatmapMatrix, McdmResult, SensitivityResult, SobolResult, StudyContext,
-    StudyMeta,
+    ClusterResult, HeatmapMatrix, McdmResult, SensitivityResult, SobolResult, StudyMeta,
 };
 use crate::state::results::{ConvergenceHistory, EntropyResult};
 use crate::ui::widgets::cluster_scatter::ClusterCacheKey;
@@ -206,11 +207,6 @@ pub struct SurrogateCompareUiResult {
 // ============================================================
 
 pub enum AppMessage {
-    /// Legacy storage callbacks retain their caller's acquisition identity.
-    StorageResult {
-        source_generation: u64,
-        result: Box<AppMessage>,
-    },
     JournalScanned {
         source: tdashboard_study::SourceInstanceId,
         scan: u64,
@@ -233,6 +229,7 @@ pub enum AppMessage {
         studies: Vec<StudyMeta>,
         path: std::path::PathBuf,
     },
+    #[cfg(test)]
     StudySelected {
         meta: StudyMeta,
         /// Shared store reference key. The UI side obtains Arc<DataFrame> via snapshot(study_id).
@@ -246,6 +243,7 @@ pub enum AppMessage {
     /// DataFrame per batch to update rendering (avoids freezing during load).
     /// The Pareto rank is computed and finalized only once, on the
     /// `is_final` batch.
+    #[cfg(test)]
     StudyChunkLoaded {
         study_id: u32,
         /// Cumulative StudyMeta up to this point.
@@ -337,6 +335,7 @@ pub enum AppMessage {
 
     // ── TASK-2112: new variants ────────────────────────────────────
     /// REQ-006: comparison Study load completed
+    #[cfg(test)]
     ComparisonStudyLoaded {
         context: Box<StudyContext>,
     },
@@ -347,11 +346,13 @@ pub enum AppMessage {
         scan_id: u64,
     },
     /// Unresolved DesignExplorer img paths from the source that produced them.
+    #[cfg(test)]
     CsvArtifacts {
         source_path: std::path::PathBuf,
         source_generation: u64,
         images: Vec<(u32, String)>,
     },
+    #[cfg(test)]
     ComparisonStudyLoadFailed(String),
     /// Observed Contour grid generation has completed (interpolation of observed points).
     ObservedContourDone(ObservedContourResult),

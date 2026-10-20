@@ -149,6 +149,10 @@ impl DataFrame {
     /// Objective identity is independent of same-named parameter columns.
     pub fn objective_column(&self, name: &str) -> Option<&[f64]> {
         let position = self.objective_col_names.iter().position(|n| n == name)?;
+        self.objective_column_at(position)
+    }
+
+    pub fn objective_column_at(&self, position: usize) -> Option<&[f64]> {
         self.numeric_cols
             .get(*self.objective_col_indices.get(position)?)
             .map(|(_, v)| v.as_slice())
@@ -433,8 +437,6 @@ impl DataFrame {
         // Sets for membership checks against existing column names (replaces the old `iter().any()`).
         let mut param_name_set: std::collections::HashSet<String> =
             self.param_col_names.iter().cloned().collect();
-        let mut objective_name_set: std::collections::HashSet<String> =
-            self.objective_col_names.iter().cloned().collect();
         let mut uan_name_set: std::collections::HashSet<String> =
             self.user_attr_numeric_col_names.iter().cloned().collect();
         let mut uas_name_set: std::collections::HashSet<String> =
@@ -559,15 +561,20 @@ impl DataFrame {
             let values = new_rows
                 .iter()
                 .map(move |r| r.objective_values.get(i).copied().unwrap_or(f64::NAN));
-            if objective_name_set.contains(name) {
-                extend_numeric(&mut self.numeric_cols, &mut numeric_pending, name, values);
+            if let Some(&index) = self.objective_col_indices.get(i) {
+                let old_name = &self.numeric_cols[index].0;
+                if let Some(queue) = numeric_pending.get_mut(old_name) {
+                    queue.retain(|pending| *pending != index);
+                }
+                self.numeric_cols[index].0 = name.clone();
+                self.objective_col_names[i] = name.clone();
+                self.numeric_cols[index].1.extend(values);
             } else {
                 let mut vals = vec![f64::NAN; old_n];
                 vals.extend(values);
                 self.objective_col_indices.push(self.numeric_cols.len());
                 self.numeric_cols.push((name.clone(), vals));
                 self.objective_col_names.push(name.clone());
-                objective_name_set.insert(name.clone());
             }
         }
 
@@ -838,6 +845,42 @@ impl DataFrame {
         let feas = self.feasibility();
         let mask: Vec<bool> = (0..self.row_count).map(|i| feas.is_feasible(i)).collect();
         self.filter_rows(&mask)
+    }
+
+    /// Update objective roles without changing discovered parameter/attribute layout.
+    pub(crate) fn rename_objectives(&mut self, names: &[String]) {
+        if names.len() < self.objective_col_indices.len() {
+            let obsolete: std::collections::HashSet<_> =
+                self.objective_col_indices.drain(names.len()..).collect();
+            let mut positions = vec![0; self.numeric_cols.len()];
+            let mut old = 0;
+            let mut next = 0;
+            self.numeric_cols.retain(|_| {
+                let keep = !obsolete.contains(&old);
+                positions[old] = next;
+                old += 1;
+                if keep {
+                    next += 1;
+                }
+                keep
+            });
+            for index in self
+                .param_numeric_indices
+                .values_mut()
+                .chain(self.objective_col_indices.iter_mut())
+                .chain(self.user_attr_numeric_col_indices.iter_mut())
+            {
+                *index = positions[*index];
+            }
+        }
+        for (index, name) in self.objective_col_indices.iter().zip(names) {
+            self.numeric_cols[*index].0 = name.clone();
+        }
+        self.objective_col_names = names
+            .iter()
+            .take(self.objective_col_indices.len())
+            .cloned()
+            .collect();
     }
 
     /// Retain a derived column layout without retaining any trial values.

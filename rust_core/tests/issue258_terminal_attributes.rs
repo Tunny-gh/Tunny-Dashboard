@@ -66,7 +66,11 @@ fn bulk(bytes: &[u8], sid: u32) -> Value {
 fn streamed(bytes: &[u8], sid: u32, size: usize) -> Value {
     let mut df = DataFrame::empty();
     let mut batches = Vec::new();
+    let mut extras = None;
     parser::parse_single_study_streaming(bytes, sid, size, |batch| {
+        if batch.is_final {
+            extras = Some(batch.extras.clone());
+        }
         let mut summary = json!({"new_rows": batch.new_rows.len(), "final": batch.is_final,
             "replacement": batch.replacement.is_some(),
             "meta_constrained": batch.meta.has_constraints, "width": batch.max_constraints,
@@ -79,7 +83,7 @@ fn streamed(bytes: &[u8], sid: u32, size: usize) -> Value {
         batches.push(summary);
     })
     .unwrap();
-    let extras = tunny_core::dataframe::extras_snapshot(sid).unwrap();
+    let extras = extras.unwrap();
     json!({"view": view(&df, &extras), "batches": batches})
 }
 
@@ -128,7 +132,7 @@ fn owned(bytes: &[u8], sid: u32, size: Option<usize>) -> Value {
         "meta_attrs": projection.meta.user_attr_names,
         "domain": input.data().trials().iter().map(|t| json!({
             "id": t.key.stored_id, "number": t.number.0, "state": format!("{:?}", t.state),
-            "attrs": t.user_attributes.iter().map(|(k,v)| (k.clone(), (**v).clone()))
+            "attrs": t.user_attributes.iter().map(|(k,v)| (k.clone(), v.json_view()))
                 .collect::<serde_json::Map<_, _>>(),
             "constraint_present": t.constraints.present,
             "constraints": numbers(t.constraints.values.iter().map(|n| n.0)),
@@ -179,7 +183,7 @@ fn supported_before_terminal_and_inline_controls_agree() {
     );
     assert_eq!(
         growth["domain"][1]["constraints"],
-        json!(["-1", "NaN", "NaN", "NaN", "NaN"])
+        json!(["-1", "NaN", "NaN", "inf", "-inf"])
     );
     assert_eq!(owned(FIXTURE, 7, Some(1))["view"]["rows"][0]["id"], 11);
     assert_eq!(owned(FIXTURE, 7, None)["view"]["rows"][0]["id"], 10);
@@ -240,7 +244,12 @@ fn recorded_terminal_attributes_agree_across_readers() {
     println!("artifact scanner: trial=12 ids=[image]; owned reader: ids=[]");
     let parsed = parser::parse_journal(FIXTURE).unwrap();
     assert_eq!(parsed.studies.len(), 9);
-    let installed = tunny_core::dataframe::snapshot(1).unwrap();
+    let installed = &parsed
+        .contents
+        .iter()
+        .find(|(m, _, _)| m.study_id == 1)
+        .unwrap()
+        .1;
     assert_eq!(
         installed.user_attr_value("payload", 0),
         Some(&json!({"new":[1,"x",false]}))

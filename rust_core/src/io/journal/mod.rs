@@ -13,14 +13,7 @@ pub mod writer;
 /// equals the trial_id of the next trial to be created. `writer` seeds its
 /// trial_id counter with this value when appending to an existing journal.
 pub fn count_created_trials(data: &[u8]) -> u32 {
-    let text = String::from_utf8_lossy(data);
-    let mut count = 0u32;
-    for line in text.lines() {
-        if line_u32_field(line.trim_start(), "op_code") == Some(4) {
-            count += 1;
-        }
-    }
-    count
+    tdashboard_io::journal::count_created_trials(data)
 }
 
 /// Quickly extract the value of `"key": <non-negative integer>` from a line without full JSON parsing.
@@ -30,50 +23,9 @@ pub fn count_created_trials(data: &[u8]) -> u32 {
 /// Only accepts keys in the exact form `"key"` (surrounded by matching double quotes),
 /// and scans without per-line heap allocation such as `format!`. Returns `None` if the
 /// value doesn't fit in a u32 or isn't numeric.
+#[cfg(test)]
 pub(crate) fn line_u32_field(line: &str, key: &str) -> Option<u32> {
-    let bytes = line.as_bytes();
-    for (key_start, _) in line.match_indices(key) {
-        // Only accept an exact-match key surrounded by double quotes
-        // (so "study_id" doesn't accidentally match a substring like "study_idx").
-        if key_start == 0 || bytes[key_start - 1] != b'"' {
-            continue;
-        }
-        let after_key = key_start + key.len();
-        if bytes.get(after_key) != Some(&b'"') {
-            continue;
-        }
-        let rest = line[after_key + 1..].trim_start();
-        let Some(rest) = rest.strip_prefix(':') else {
-            continue;
-        };
-        let digits = rest.trim_start();
-        let end = digits
-            .find(|c: char| !c.is_ascii_digit())
-            .unwrap_or(digits.len());
-        if end == 0 {
-            return None;
-        }
-        return digits[..end].parse().ok();
-    }
-    None
-}
-
-/// Extracts the `"constraints"` array from an op9 (`SET_TRIAL_SYSTEM_ATTR`)
-/// record's `system_attr` object (invalid positions preserved as NaN). Shared by the
-/// full parser and the live-diff parser.
-pub(crate) fn constraints_from_system_attr(json: &serde_json::Value) -> Option<Vec<f64>> {
-    let value = json.get("system_attr")?.get("constraints")?;
-    Some(
-        value
-            .as_array()
-            .map(|values| {
-                values
-                    .iter()
-                    .map(|v| v.as_f64().unwrap_or(f64::NAN))
-                    .collect()
-            })
-            .unwrap_or_default(),
-    )
+    tdashboard_io::journal::line_u32_field(line, key)
 }
 
 #[cfg(test)]
