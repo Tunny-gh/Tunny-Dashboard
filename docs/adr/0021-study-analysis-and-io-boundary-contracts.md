@@ -411,6 +411,12 @@ is not an analysis cache budget. Preserve ADR-0011/0012/0018 behavior.
 
 ### Database acquisition sessions
 
+Server database support for this library is limited to PostgreSQL and MySQL.
+MariaDB is outside the library's scope and unsupported, not a deferred validation
+target or prerequisite gate. Shared protocol or driver behavior does not imply
+support. This support boundary does not require runtime connection discrimination,
+engine probes or rejection logic.
+
 Keep backend mechanics private to I/O. The common domain handoff is owned
 `StudyBatch` data, not a DB connection, transaction lifetime, SQL row or isolation
 enum. Internally use a scoped callback/read-session interface so every query
@@ -437,16 +443,14 @@ keeps the correction local without adding server transaction hooks or duplicate
 conversion logic. The user accepted acquisition-limited DELETE writer contention
 and WAL checkpoint retention; the
 [SQLite validation report](../reports/2026-10-19_sqlite-study-snapshot-investigation.md)
-records the tested configuration and limits. PostgreSQL/MySQL/MariaDB are
-explicitly excluded from this correction and remain unverified.
+records the tested configuration and limits. PostgreSQL and MySQL were excluded
+from this SQLite-only correction; their separate validation is recorded below.
 
 For the server prerequisite agreed on 2026-10-19, retain the configuration and
 consistency gate before accepting the affected D3/#251 read paths. Investigate
 PostgreSQL and MySQL acquisition separately from extraction; any correction is a
 separate prerequisite PR. This does not change #251's extraction scope or Done
-requirements. MariaDB is excluded from this investigation and its snapshot
-guarantee; this exclusion does not remove existing runtime paths or establish a
-broader support policy. The bounded validation targets are PostgreSQL 18 and
+requirements. The bounded validation targets are PostgreSQL 18 and
 MySQL 8.4 with InnoDB tables, not a minimum-version policy or evidence for other
 versions or engines. Limit the correction to ordinary Optuna-created schemas;
 do not add special-engine support, engine probes, rejection policies or warnings.
@@ -470,8 +474,7 @@ ends. Generic backend parsers remain caller-session query decoders. The
 records deterministic checks on PostgreSQL 18.6 and MySQL 8.4.11 with genuine
 Optuna 5.0.0-created fixtures. Writer progress and acquisition-limited snapshot/
 metadata-lock release were observed; this is not an all-version guarantee or a
-measurement of long-reader bloat, undo growth or latency. MariaDB remains outside
-this evidence.
+measurement of long-reader bloat, undo growth or latency.
 
 Related queries and type conversion finish before session
 end. Success ends the read transaction before returning owned data; query,

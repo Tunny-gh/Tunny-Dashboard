@@ -210,7 +210,10 @@ and error. Writers committed while the controlled reader was retained. No
 large-database latency/RSS, vacuum/undo growth, starvation or no-wait guarantee is
 measured. Production timeouts/retries are unchanged; fixture writers use bounded
 connect/read/write/statement timeouts and handshakes use 30-second deadlines.
-MariaDB, special/mixed engines and other server versions remain unverified.
+Special/mixed engines and other server versions remain unverified. MariaDB is
+outside this library's scope and unsupported, not a future verification gate.
+See [ADR-0021](../adr/0021-study-analysis-and-io-boundary-contracts.md#database-acquisition-sessions)
+for the current support contract.
 
 ### Resource cleanup
 

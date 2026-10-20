@@ -13,6 +13,12 @@ PostgreSQL, MySQL and MariaDB were explicitly excluded by the user and remain
 unverified; their nonverification does not block the agreed SQLite scope. This
 report does not close the original broader all-family Issue.
 
+Support-boundary clarification (2026-10-20): the server-family references in this
+report preserve the historical SQLite investigation scope, not the current
+library support contract. Server database support is limited to PostgreSQL and
+MySQL; MariaDB is outside the library's scope and unsupported, not a future
+verification gate. See [ADR-0021](../adr/0021-study-analysis-and-io-boundary-contracts.md#database-acquisition-sessions).
+
 Policies remain in [ADR-0020](../adr/0020-commit-study-updates-by-validated-batch.md)
 and [ADR-0021](../adr/0021-study-analysis-and-io-boundary-contracts.md#database-acquisition-sessions).
 ADR-0021 now clarifies the approved concrete SQLite API boundary; no redundant
