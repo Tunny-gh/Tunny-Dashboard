@@ -113,9 +113,9 @@ pub(super) fn render_outcome(s: &mut String, lang: ReportLang, report: &StudyRep
             );
             render_trial_table(s, lang, pareto_table, obj_names, has_constraints);
 
-            // The front is computed from feasible rows only, so an
+            // The front prefers finite feasible rows, so an
             // infeasible trial appears in the table only in the fallback
-            // case where there are no feasible solutions at all. The count
+            // case where there are no finite feasible rows. The count
             // is already aggregated by the builder over the full
             // pre-cap front.
             if pareto_table

@@ -248,6 +248,208 @@ fn single_objective_key_findings_present() {
 // =============================================================================
 
 #[test]
+fn finite_front_excludes_nonfinite_rows_before_nondominance() {
+    use OptimizationDirection::{Maximize, Minimize};
+    for directions in [
+        [Minimize, Minimize],
+        [Maximize, Maximize],
+        [Minimize, Maximize],
+    ] {
+        let mut meta = meta_multi();
+        meta.directions = directions.to_vec();
+        let orient = |values: [f64; 2]| -> Vec<f64> {
+            values
+                .iter()
+                .zip(&directions)
+                .map(|(&v, d)| if matches!(d, Maximize) { -v } else { v })
+                .collect()
+        };
+        let rows = vec![
+            row(91, &[], &orient([f64::NEG_INFINITY, f64::NEG_INFINITY])),
+            row(37, &[], &orient([1.0, 4.0])),
+            row(82, &[], &[f64::NAN, 0.0]),
+            row(12, &[], &orient([4.0, 1.0])),
+            row(63, &[], &orient([5.0, 5.0])),
+            row(24, &[], &orient([f64::INFINITY, f64::INFINITY])),
+        ];
+        let df = DataFrame::from_trials(&rows, &[], &meta.objective_names, &[], &[], 0);
+        let report = build_study_report(&meta, &df, None, &source(), &opts());
+        let Outcome::MultiObj {
+            pareto_size,
+            pareto_table,
+            scatter,
+            ..
+        } = &report.outcome
+        else {
+            panic!("multi-objective expected")
+        };
+        assert_eq!(*pareto_size, 2, "directions: {directions:?}");
+        let mut numbers: Vec<_> = pareto_table.iter().map(|t| t.trial_number).collect();
+        numbers.sort_unstable();
+        assert_eq!(numbers, vec![12, 37]);
+        for trial in pareto_table {
+            let original = rows
+                .iter()
+                .find(|r| r.trial_number == trial.trial_number)
+                .unwrap();
+            assert_eq!(trial.objectives, original.objective_values);
+        }
+        assert_eq!(scatter.iter().filter(|p| p.on_front).count(), 2);
+        for (j, name) in meta.objective_names.iter().enumerate() {
+            let values = df.get_numeric_column(name).unwrap();
+            for (r, original) in rows.iter().enumerate() {
+                assert_eq!(values[r].to_bits(), original.objective_values[j].to_bits());
+            }
+        }
+    }
+}
+
+#[test]
+fn constrained_finite_front_preserves_feasibility_and_fallback_counts() {
+    use crate::dataframe::FeasibilityState::{Feasible, Infeasible, Unverified};
+
+    for (nonfinite_feasible, finite_feasible) in [(false, false), (true, false), (true, true)] {
+        let mut meta = meta_multi();
+        meta.has_constraints = true;
+        let mut rows = vec![
+            row(91, &[], &[f64::NEG_INFINITY, f64::NEG_INFINITY]),
+            row(37, &[], &[1.0, 4.0]),
+            row(12, &[], &[4.0, 1.0]),
+            row(63, &[], &[5.0, 5.0]),
+        ];
+        rows[0].constraint_values = vec![if nonfinite_feasible { -1.0 } else { 1.0 }];
+        rows[1].constraint_values = vec![1.0];
+        rows[3].constraint_values = vec![1.0];
+        if finite_feasible {
+            let mut feasible = row(76, &[], &[9.0, 9.0]);
+            feasible.constraint_values = vec![-1.0];
+            rows.push(feasible);
+        }
+        let df = DataFrame::from_trials(&rows, &[], &meta.objective_names, &[], &[], 0);
+        let report = build_study_report(&meta, &df, None, &source(), &opts());
+        let Outcome::MultiObj {
+            pareto_size,
+            pareto_table,
+            pareto_infeasible_count,
+            scatter,
+            ..
+        } = &report.outcome
+        else {
+            panic!("multi-objective expected")
+        };
+        assert_eq!(*pareto_size, usize::from(finite_feasible));
+        let mut numbers: Vec<_> = pareto_table.iter().map(|t| t.trial_number).collect();
+        numbers.sort_unstable();
+        assert_eq!(
+            numbers,
+            if finite_feasible {
+                vec![76]
+            } else {
+                vec![12, 37]
+            }
+        );
+        assert_eq!(*pareto_infeasible_count, usize::from(!finite_feasible));
+        assert_eq!(
+            scatter.iter().filter(|p| p.on_front).count(),
+            usize::from(finite_feasible)
+        );
+        assert_eq!(
+            df.feasibility().state(0),
+            if nonfinite_feasible {
+                Feasible
+            } else {
+                Infeasible
+            }
+        );
+        assert_eq!(df.feasibility().state(2), Unverified);
+        assert_eq!(df.get_numeric_column("obj0").unwrap()[0], f64::NEG_INFINITY);
+        let feasible_finding = report
+            .key_findings
+            .iter()
+            .find(|f| f.kind == FindingKind::Feasibility)
+            .unwrap();
+        assert_eq!(
+            feasible_finding.metrics["feasible"],
+            (usize::from(nonfinite_feasible) + usize::from(finite_feasible)) as f64
+        );
+        let front_finding = report
+            .key_findings
+            .iter()
+            .find(|f| f.kind == FindingKind::ParetoSummary)
+            .unwrap();
+        assert_eq!(
+            front_finding.metrics["front_size"],
+            usize::from(finite_feasible) as f64
+        );
+        for text in [
+            crate::report::render_html(&report, ReportLang::En),
+            render_markdown(&report, ReportLang::En),
+        ] {
+            assert_eq!(
+                text.contains("Objective-only candidates (not a verified feasible Pareto front)"),
+                !finite_feasible
+            );
+            if !finite_feasible {
+                assert!(text.contains("no trial with all objectives finite is verified Feasible"));
+                assert!(!text.contains("no trial is verified Feasible"));
+                assert!(text.contains("1 of these trials have confirmed constraint violations"));
+                assert!(text.contains("Feasibility unverified"));
+                assert!(report.mcdm.is_none());
+                assert_eq!(
+                    pareto_table
+                        .iter()
+                        .find(|t| t.trial_number == 12)
+                        .unwrap()
+                        .feasibility,
+                    Unverified
+                );
+                assert_eq!(
+                    pareto_table
+                        .iter()
+                        .find(|t| t.trial_number == 37)
+                        .unwrap()
+                        .feasibility,
+                    Infeasible
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn nonfinite_only_reports_have_no_front_candidates() {
+    for constrained in [false, true] {
+        let mut meta = meta_multi();
+        meta.has_constraints = constrained;
+        let mut rows = vec![
+            row(91, &[], &[f64::NEG_INFINITY, 0.0]),
+            row(37, &[], &[0.0, f64::INFINITY]),
+            row(12, &[], &[f64::NAN, 1.0]),
+        ];
+        if constrained {
+            for r in &mut rows {
+                r.constraint_values = vec![-1.0];
+            }
+        }
+        let df = DataFrame::from_trials(&rows, &[], &meta.objective_names, &[], &[], 0);
+        let report = build_study_report(&meta, &df, None, &source(), &opts());
+        let Outcome::MultiObj {
+            pareto_size,
+            pareto_table,
+            scatter,
+            ..
+        } = &report.outcome
+        else {
+            panic!("multi-objective expected")
+        };
+        assert_eq!(*pareto_size, 0);
+        assert!(pareto_table.is_empty());
+        assert!(scatter.is_empty());
+        assert!(report.mcdm.is_none());
+    }
+}
+
+#[test]
 fn multi_objective_pareto_and_mcdm_consensus() {
     let report = build_study_report(&meta_multi(), &df_multi(), None, &source(), &opts());
 

@@ -41,19 +41,19 @@ impl Span {
     }
 }
 
-/// Constraint fallback note (states that, since no trial is feasible, the
-/// Pareto front fell back to objective-space non-domination across all
-/// trials). Wording is shared by both the Markdown and HTML renderers
+/// Constraint fallback note for objective-only nondominance among finite rows
+/// when no all-objectives-finite verified feasible row exists.
+/// Wording is shared by both the Markdown and HTML renderers
 /// (escaping is the caller's responsibility).
 pub(crate) fn infeasible_fallback_note(lang: ReportLang, n_infeasible: usize) -> String {
     match lang {
         ReportLang::En => format!(
-            "Note: no trial is verified Feasible. Objective-only candidates \
-             are nondominated in objective space, not a verified feasible Pareto front; \
+            "Note: no trial with all objectives finite is verified Feasible. Objective-only candidates \
+             are nondominated among finite rows in objective space, not a verified feasible Pareto front; \
              {n_infeasible} of these trials have confirmed constraint violations."
         ),
         ReportLang::Ja => format!(
-            "注記: Feasible と確認された trial はありません。目的空間の候補は制約充足を確認したパレート前面ではありません。うち {n_infeasible} 件は制約違反が確認されています。"
+            "注記: 全目的値が有限で Feasible と確認された trial はありません。目的空間の候補は全目的値が有限の trial 間で非劣ですが、制約充足を確認したパレート前面ではありません。うち {n_infeasible} 件は制約違反が確認されています。"
         ),
     }
 }

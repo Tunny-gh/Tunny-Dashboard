@@ -86,22 +86,38 @@ This group ordering is a presentation policy, not an assertion that uncertainty
 is worse than confirmed constraint violation. Scatter plots display unverified
 trials as a distinct third category labeled exactly `Feasibility unverified`.
 
-### Report fallback with zero verified feasible trials
+### Report fallback with zero finite verified feasible rows
 
-When a constrained study has zero verified **Feasible** trials, preserve the
-report's objective-only nondominated fallback candidates. Clearly label them as
-**objective-only candidates**, not as a verified feasible Pareto front, and show
-each candidate trial's three-state feasibility label.
+When a constrained report has zero rows that are both all-objectives-finite and
+verified **Feasible**, use the report's objective-only nondominated fallback
+candidates, even if verified **Feasible** trials with nonfinite objectives exist.
+Clearly label them as **objective-only candidates**, not as a verified feasible
+Pareto front, and show each candidate trial's three-state feasibility label.
 
-Fallback candidates are excluded from verified feasible trial counts and
-verified feasible Pareto-front counts. Both counts remain zero in this case;
-objective-only nondominance does not establish constraint feasibility or
+Fallback selection does not change any trial's actual feasibility or the
+study-wide verified feasible trial count. Fallback candidates do not inflate
+verified feasible trial counts or verified feasible Pareto-front counts; the
+report's verified feasible Pareto-front count remains zero in this case. When
+the study has zero verified **Feasible** trials, both counts remain zero.
+Objective-only nondominance does not establish constraint feasibility or
 membership in the constrained Pareto front.
+
+For report front selection ([Issue #270](https://github.com/Tunny-gh/Tunny-Dashboard/issues/270)),
+select rows with all objectives finite **before** computing nondominance, both
+for the unconstrained front and for the constrained objective-only fallback.
+This defines the report-specific target population: nondominance is evaluated
+among those finite rows, not claimed over all recorded trials. Computing
+nondominance first and then excluding nonfinite rows is not equivalent: a
+negative-infinity observation can dominate finite candidates and then be
+excluded itself, leaving no candidates. Original nonfinite observations remain
+preserved under [ADR-0021](0021-study-analysis-and-io-boundary-contracts.md#logical-all-state-model);
+this is report-specific row selection, not a change to the common Pareto
+algorithm or the canonical Pareto front definition.
 
 This decision establishes terminology, the three-state distinction,
 mixed-evaluation classification precedence, study detection, expected-count
-inference, Pareto ordering and presentation, and the zero-feasible report
-fallback policy.
+inference, Pareto ordering and presentation, and the report fallback policy
+when no all-objectives-finite verified feasible rows exist.
 
 ## Alternatives
 
@@ -126,10 +142,11 @@ the constrained Pareto front. Their stable input order avoids constraint-based
 comparisons on unverified evaluations without changing the existing within-group
 algorithms for verified states.
 
-Reports retain useful objective-only candidates when no verified feasible trials
-exist, while labeling each candidate's feasibility and keeping verified counts
-separate. This avoids presenting fallback candidates as a feasible front without
-removing the existing objective-only fallback.
+Reports retain useful objective-only candidates when no all-objectives-finite
+verified feasible rows exist, while labeling each candidate's actual feasibility
+and preserving study-wide verified feasible trial counts, including trials with
+nonfinite objectives. This avoids presenting fallback candidates as a feasible
+front without removing the existing objective-only fallback.
 
 Expected-count inference is limited to observed array positions: wholly
 unobserved trailing constraints cannot be inferred. A complete evaluation under

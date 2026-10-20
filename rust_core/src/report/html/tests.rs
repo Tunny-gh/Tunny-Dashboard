@@ -405,7 +405,7 @@ fn all_infeasible_falls_back_and_marks_violations() {
     );
     // The fallback note is emitted.
     assert!(
-        html.contains("no trial is verified Feasible"),
+        html.contains("no trial with all objectives finite is verified Feasible"),
         "Pareto 表直下のフォールバック注記"
     );
     // The best trial in the extremes table also carries a violation mark.
@@ -426,7 +426,7 @@ fn all_infeasible_falls_back_and_marks_violations() {
     let md = render_markdown(&report, ReportLang::En);
     assert!(md.contains("max observed finite constraint"));
     assert!(md.contains("0.4 (infeasible)"));
-    assert!(md.contains("no trial is verified Feasible"));
+    assert!(md.contains("no trial with all objectives finite is verified Feasible"));
     // Extremes table: both objectives are minimize, so best is #0 (obj0=1.0) / #2 (obj1=1.0).
     assert!(md.contains("#0 (infeasible)"), "極値表の違反マーク: {md}");
     let md_ja = render_markdown(&report, ReportLang::Ja);

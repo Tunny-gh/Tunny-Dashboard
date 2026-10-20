@@ -162,12 +162,9 @@ fn objective_nonfinite_positions_survive_op4_and_op6_and_are_excluded_from_repor
                 else {
                     panic!("objective dimension must remain two");
                 };
-                // Preserve the report's existing raw-infinity policy, also used
-                // by RDB input. Fixing its pre-filter nondominance is not D3.
-                let expected_front = usize::from(invalid != "-Infinity");
-                assert_eq!(*pareto_size, expected_front);
+                assert_eq!(*pareto_size, 1);
                 assert_eq!(*complete_count, 1);
-                assert_eq!(pareto_table.len(), expected_front);
+                assert_eq!(pareto_table.len(), 1);
                 for trial in pareto_table {
                     assert_eq!(trial.trial_number, 1);
                     assert_eq!(trial.objectives, vec![7.0, 8.0]);
@@ -178,12 +175,10 @@ fn objective_nonfinite_positions_survive_op4_and_op6_and_are_excluded_from_repor
                 let outcome = &json["outcome"]["MultiObj"];
                 assert_eq!(outcome["objective_count"], 2);
                 assert_eq!(outcome["complete_count"], 1);
-                if expected_front > 0 {
-                    assert_eq!(
-                        outcome["pareto_table"][0]["objectives"],
-                        serde_json::json!([7.0, 8.0])
-                    );
-                }
+                assert_eq!(
+                    outcome["pareto_table"][0]["objectives"],
+                    serde_json::json!([7.0, 8.0])
+                );
                 for output in [
                     render_html(&report, ReportLang::En),
                     render_markdown(&report, ReportLang::En),
