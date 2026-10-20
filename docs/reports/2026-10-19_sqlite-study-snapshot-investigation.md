@@ -9,15 +9,9 @@ retention, and approved the minimal consolidated production path (Q5 A).
 The correction and regressions are implemented locally. No commit, push or PR
 has been made; fresh independent review is still pending. The security audit
 could not execute because `cargo-audit` is not installed (details below).
-PostgreSQL, MySQL and MariaDB were explicitly excluded by the user and remain
+PostgreSQL and MySQL were explicitly excluded by the user and remain
 unverified; their nonverification does not block the agreed SQLite scope. This
 report does not close the original broader all-family Issue.
-
-Support-boundary clarification (2026-10-20): the server-family references in this
-report preserve the historical SQLite investigation scope, not the current
-library support contract. Server database support is limited to PostgreSQL and
-MySQL; MariaDB is outside the library's scope and unsupported, not a future
-verification gate. See [ADR-0021](../adr/0021-study-analysis-and-io-boundary-contracts.md#database-acquisition-sessions).
 
 Policies remain in [ADR-0020](../adr/0020-commit-study-updates-by-validated-batch.md)
 and [ADR-0021](../adr/0021-study-analysis-and-io-boundary-contracts.md#database-acquisition-sessions).
@@ -224,5 +218,5 @@ git diff --check
 The original investigation's first checkpoint assertion failed because a repeated
 identical mutation generated no WAL frames; fresh fixtures corrected that setup
 before the recorded evidence. The experimental guard is no longer present.
-PostgreSQL/MySQL/MariaDB, fingerprints, scans, cross-Study snapshots and writer
+PostgreSQL/MySQL, fingerprints, scans, cross-Study snapshots and writer
 business-transaction redesign remain outside this correction.

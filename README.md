@@ -18,9 +18,6 @@ Supported storage sources:
 - **DesignExplorer-format CSV** import (one trial per row, `in:<name>` parameters,
   `out:<name>` objectives, and optional `img` relative artifact paths)
 
-Server database support is limited to PostgreSQL and MySQL. MariaDB is outside
-this library's scope and is not supported.
-
 Journal and RDB imports retain the JSON types of Optuna Trial User Attributes,
 including arrays, objects, booleans, and null. DesignExplorer-format CSV import does not infer
 JSON types from text.

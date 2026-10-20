@@ -412,10 +412,6 @@ is not an analysis cache budget. Preserve ADR-0011/0012/0018 behavior.
 ### Database acquisition sessions
 
 Server database support for this library is limited to PostgreSQL and MySQL.
-MariaDB is outside the library's scope and unsupported, not a deferred validation
-target or prerequisite gate. Shared protocol or driver behavior does not imply
-support. This support boundary does not require runtime connection discrimination,
-engine probes or rejection logic.
 
 Keep backend mechanics private to I/O. The common domain handoff is owned
 `StudyBatch` data, not a DB connection, transaction lifetime, SQL row or isolation

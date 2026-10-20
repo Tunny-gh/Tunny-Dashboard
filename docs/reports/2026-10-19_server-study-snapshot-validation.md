@@ -86,9 +86,7 @@ Optuna 5 feature parity or a constraint/timestamp semantics migration.
 Every generated MySQL table, including Optuna's version/heartbeat tables, was
 observed as InnoDB. Optuna does not explicitly force that engine in its models;
 this is ordinary MySQL 8.4 default creation, not proof for altered defaults or
-mixed engines. MariaDB is outside this library's scope and unsupported, not a
-future validation target. See [ADR-0021](../adr/0021-study-analysis-and-io-boundary-contracts.md#database-acquisition-sessions)
-for the current support contract.
+mixed engines.
 
 The isolated fixture venv was
 `C:\Users\dev\AppData\Local\Temp\opencode\tunny-server-snapshot-20261019`.
