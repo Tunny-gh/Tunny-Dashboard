@@ -1,4 +1,2 @@
 pub mod dataframe;
-pub mod extras;
-pub mod filter;
-pub(crate) mod finite_rows;
+pub use tdashboard_analysis::data::{extras, filter};

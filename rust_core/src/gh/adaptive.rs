@@ -638,7 +638,7 @@ mod tests {
             for model in &trained {
                 assert!(model.model_selection.is_none());
                 assert_eq!(model.model_kind, kind);
-                assert!(model.constraint_models.is_empty());
+                assert!(model.constraint_names.is_empty());
             }
             assert_eq!(progress.snapshot().total, 100);
             assert_eq!(

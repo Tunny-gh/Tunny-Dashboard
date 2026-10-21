@@ -5,12 +5,12 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-use crate::data::extras::TrialState;
 use crate::gh::compute::{GhEvaluation, GhEvaluator};
 use crate::gh::problem::GhProblem;
 use crate::io::journal::parser::OptimizationDirection;
 use crate::io::journal::writer::{JournalWriter, ParamDistribution};
 use crate::surrogate_opt::FitProgress;
+use tdashboard_io::extras::TrialState;
 
 use super::validate::{
     constrained_penalty_fitness, denormalize, validate_evaluation, FAIL_PENALTY,

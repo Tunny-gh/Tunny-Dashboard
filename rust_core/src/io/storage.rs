@@ -55,7 +55,7 @@ pub fn load_study(
         &manager.acquire().ok_or("No acquired Study")?,
     );
     Ok((
-        projection.meta,
+        crate::journal_parser::io_meta(projection.meta),
         projection.dataframe,
         projection.extras,
         display,

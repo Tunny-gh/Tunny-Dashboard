@@ -543,6 +543,52 @@ pub struct WidgetStates {
 }
 
 impl WidgetStates {
+    /// Detach old computed payloads without changing controls or cancelling jobs.
+    /// Pending job slots retain their own keys and clear their busy flags on return.
+    pub(crate) fn invalidate_analysis_input(&mut self) {
+        // Jobs may finish on their retained old input, but are not busy work for
+        // the newly displayed input. No cancellation request is introduced.
+        self.convergence.computing = false;
+        self.importance.computing = false;
+        self.sensitivity_heatmap.computing = false;
+        self.pdp_chart.computing = false;
+        self.pdp_2d.computing = false;
+        self.observed_contour.computing = false;
+        self.cluster_scatter.computing = false;
+        self.cluster_scatter_3d.computing = false;
+        self.trial_table.cluster.computing = false;
+        self.artifact_gallery.cluster_computing = false;
+        self.mcdm_chart.controls.computing = false;
+        self.scatter_chart.controls.computing = false;
+        self.mcdm_scatter_3d.controls.computing = false;
+        self.trial_table.mcdm.controls.computing = false;
+        self.artifact_gallery.mcdm.computing = false;
+        self.surrogate_opt.fitting = false;
+        self.surrogate_opt.fit_progress = None;
+        self.surrogate_opt.optimizing = false;
+        self.surrogate_opt.suggesting = false;
+        self.surrogate_opt.multi_suggesting = false;
+        self.robustness.fitting = false;
+        self.response_surface.fitting = false;
+        self.surrogate_compare.computing = false;
+        self.pdp_chart.cache.clear();
+        self.pdp_chart.result = None;
+        self.pdp_2d.result = None;
+        self.observed_contour.result = None;
+        self.observed_contour.error_message = None;
+        self.surrogate_opt.trained = None;
+        self.surrogate_opt.multi_trained = None;
+        self.surrogate_opt.result = None;
+        self.surrogate_opt.multi_result = None;
+        self.surrogate_opt.suggest_result = None;
+        self.surrogate_opt.multi_suggest_result = None;
+        self.surrogate_opt.error_message = None;
+        self.robustness.invalidate_input();
+        self.response_surface.invalidate_input();
+        self.surrogate_compare.result = None;
+        self.surrogate_compare.error = None;
+    }
+
     /// Resets the show_infeasible flag to true for all charts on Study switch.
     pub fn reset_infeasible_flags(&mut self) {
         self.pareto_3d.show_infeasible = true;

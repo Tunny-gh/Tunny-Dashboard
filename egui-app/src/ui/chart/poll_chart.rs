@@ -1,25 +1,24 @@
-use std::sync::mpsc;
-
-use crate::state::app_state::{AppState, Direction};
+use crate::state::analysis_job::{spawn as spawn_analysis, DeliverySlot as AnalysisKind};
+use crate::state::app_state::AppState;
+#[cfg(test)]
+use crate::state::app_state::Direction;
 use crate::state::layout_state::ChartId;
 use crate::state::messages::{AppMessage, ClusterChartSource, McdmChartSource};
 use crate::ui::widget_states::WidgetStates;
-use crate::ui::widgets::cluster_scatter::build_cluster_matrix;
+use std::sync::mpsc;
+use tdashboard_analysis::preparation::{FeatureSpace, Preparation};
 
 mod cluster;
 mod compute;
 mod mcdm;
 mod surrogate;
-
 #[cfg(test)]
 mod tests;
-
 use cluster::*;
+pub(crate) use compute::numeric_param_names;
 use compute::*;
 use mcdm::*;
 use surrogate::*;
-
-pub(crate) use compute::numeric_param_names;
 
 pub(crate) fn poll_chart_work(
     app_state: &mut AppState,
@@ -30,39 +29,12 @@ pub(crate) fn poll_chart_work(
     if app_state.current_study.is_none() {
         return;
     }
-
-    match chart_id {
-        ChartId::ParetoScatter2D
-        | ChartId::ParetoScatter3D
-        | ChartId::OptimizationHistory
-        | ChartId::ParallelCoordinates
-        | ChartId::ScatterMatrix
-        | ChartId::SliceChart
-        | ChartId::Histogram
-        | ChartId::BoxPlot
-        | ChartId::ViolinPlot
-        | ChartId::CorrelationMatrix
-        | ChartId::RadarComparison
-        | ChartId::ComparisonTable
-        | ChartId::PcaBiplot
-        | ChartId::SomMap
-        | ChartId::Dendrogram
-        | ChartId::IntermediateValues
-        | ChartId::Timeline
-        | ChartId::EdfPlot
-        | ChartId::RankPlot2D
-        | ChartId::RankPlot3D => return,
-        _ => {}
-    }
-
-    // Dispatches to a named helper per ChartId. Each helper may assume current_study is
-    // Some (guaranteed by the early return above).
     match chart_id {
         ChartId::ConvergenceIndicators => poll_convergence_indicators(app_state, widgets, tx),
         ChartId::ImportanceChart => poll_importance_chart(app_state, widgets, tx),
         ChartId::SensitivityHeatmap => poll_sensitivity_heatmap(app_state, widgets, tx),
         ChartId::PdpChart => poll_pdp_chart(app_state, widgets, tx),
-        ChartId::PdpChart2D => poll_pdp_chart_2d(widgets, tx),
+        ChartId::PdpChart2D => poll_pdp_chart_2d(app_state, widgets, tx),
         ChartId::ClusterScatter => poll_cluster_scatter(app_state, widgets, tx),
         ChartId::ClusterScatter3D => poll_cluster_scatter_3d(app_state, widgets, tx),
         ChartId::McdmRankChart | ChartId::McdmScatterChart | ChartId::McdmScatterChart3D => {
@@ -78,171 +50,79 @@ pub(crate) fn poll_chart_work(
     }
 }
 
-/// Asynchronously computes the progression of convergence indicators (Hypervolume, etc.). The baseline
-/// Study and comparison Studies are computed together so they can be normalized against a common set of reference points.
 fn poll_convergence_indicators(
     app_state: &AppState,
     widgets: &mut WidgetStates,
     tx: &mpsc::SyncSender<AppMessage>,
 ) {
-    let ctx = app_state.current_study.as_ref().unwrap();
-    let obj_names = &ctx.meta.objective_names;
-    let directions = &ctx.meta.directions;
-
     if app_state.study_streaming
         || app_state.convergence_history.is_some()
         || widgets.convergence.computing
     {
         return;
     }
-
-    let is_minimize: Vec<bool> = directions
-        .iter()
-        .map(|d| matches!(d, Direction::Minimize))
-        .collect();
-
-    // Downsample to limit computation cost (up to 50 points).
-    const TARGET_POINTS: usize = 50;
-    let n_trials = ctx.view.row_count();
-    let step = (n_trials / TARGET_POINTS).max(1);
-    let obj_cols = ctx.view.numeric_columns(obj_names);
-    // Keep every sampled trial slot for the index-based x axis. NaN placeholders
-    // exclude non-feasible observations from fronts and the shared reference set.
-    let feasibility = ctx.view.feasibility();
-    let sampled_indices: Vec<usize> = (0..n_trials).step_by(step).collect();
-    let sampled_ids: Vec<u32> = sampled_indices
-        .iter()
-        .map(|&i| ctx.view.trial_ids.get(i).copied().unwrap_or(i as u32))
-        .collect();
-    let sampled_objs: Vec<Vec<f64>> = sampled_indices
-        .iter()
-        .map(|&i| {
-            if !feasibility.is_feasible(i) {
-                return vec![f64::NAN; obj_names.len()];
-            }
-            obj_cols
-                .iter()
-                .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
-                .collect()
-        })
-        .collect();
-
-    // Downsample independently for each comparison Study.
-    let mut comp_ids: Vec<Vec<u32>> = Vec::new();
-    let mut comp_objs: Vec<Vec<Vec<f64>>> = Vec::new();
-    let mut comp_steps: Vec<usize> = Vec::new();
-    for study in &app_state.comparison_studies {
-        let comp_obj_names = &study.meta.objective_names;
-        let cn = study.view.row_count();
-        let cs = (cn / TARGET_POINTS).max(1);
-        let comp_obj_cols = study.view.numeric_columns(comp_obj_names);
-        let comp_feasibility = study.view.feasibility();
-        let cidxs: Vec<usize> = (0..cn).step_by(cs).collect();
-        let cids: Vec<u32> = cidxs
-            .iter()
-            .map(|&i| study.view.trial_ids.get(i).copied().unwrap_or(i as u32))
-            .collect();
-        let cobjs: Vec<Vec<f64>> = cidxs
-            .iter()
-            .map(|&i| {
-                if !comp_feasibility.is_feasible(i) {
-                    return vec![f64::NAN; comp_obj_names.len()];
-                }
-                comp_obj_cols
-                    .iter()
-                    .map(|col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
-                    .collect()
-            })
-            .collect();
-        comp_ids.push(cids);
-        comp_objs.push(cobjs);
-        comp_steps.push(cs);
-    }
-
-    // Convert the user-specified reference point (original objective values) into normalized space before passing it in.
-    // A specification whose dimensionality doesn't match the objective count is ignored (treated as None), deferring to automatic computation.
-    let ref_override_norm: Option<Vec<f64>> = app_state
-        .hv_ref_point_override
-        .as_ref()
-        .filter(|r| r.len() == obj_names.len())
-        .map(|r| crate::state::ref_point_to_normalized(r, &is_minimize));
-    let is_minimize_for_back = is_minimize.clone();
     let indicator = app_state.convergence_indicator;
-    let source_df = ctx.view.df.clone();
-
+    let reference = app_state.hv_ref_point_override.clone();
+    // D5 removes this legacy presentation-target guard. Numerical inputs below
+    // are exclusively the prepared series, not this view snapshot.
+    let presentation_target = app_state.current_study.as_ref().unwrap().view.df.clone();
     widgets.convergence.computing = true;
-    let tx = tx.clone();
-    crate::app::spawn_task(tx, move || {
-        use crate::state::results::ConvergenceHistory;
-        use tunny_core::indicators::SeriesInput;
-
-        // Compute all series (baseline + comparisons) together and normalize with a common reference set.
-        let mut series = vec![SeriesInput {
-            trial_ids: &sampled_ids,
-            objectives: &sampled_objs,
-        }];
-        for i in 0..comp_ids.len() {
-            series.push(SeriesInput {
-                trial_ids: &comp_ids[i],
-                objectives: &comp_objs[i],
-            });
-        }
-        let hist = tunny_core::indicators::compute_indicator_histories(
-            &series,
-            &is_minimize,
-            indicator,
-            ref_override_norm.as_deref(),
-        );
-
-        let base = if let Some(h) = hist.first() {
-            ConvergenceHistory {
-                trial_ids: h.trial_ids.clone(),
-                values: h.values.clone(),
-                sample_step: step,
-                // Convert the reference point back to the original objective-value units for display.
-                ref_point: crate::state::ref_point_to_original(&h.ref_point, &is_minimize_for_back),
-            }
-        } else {
-            ConvergenceHistory {
-                trial_ids: Vec::new(),
-                values: Vec::new(),
-                sample_step: step,
-                ref_point: Vec::new(),
-            }
-        };
-
-        let comparisons: Vec<ConvergenceHistory> = comp_steps
-            .iter()
-            .enumerate()
-            .map(|(i, &cs)| {
-                if let Some(h) = hist.get(i + 1) {
-                    ConvergenceHistory {
-                        trial_ids: h.trial_ids.clone(),
-                        values: h.values.clone(),
-                        sample_step: cs,
-                        ref_point: Vec::new(),
-                    }
+    spawn_analysis(
+        app_state,
+        tx.clone(),
+        AnalysisKind::Convergence,
+        (format!("{indicator:?}"), reference.clone()),
+        Preparation::Convergence { target_points: 50 },
+        move |prepared| {
+            use crate::state::results::ConvergenceHistory;
+            use tunny_core::indicators::SeriesInput;
+            let series = prepared.data().series();
+            let input = &prepared.tables()[0];
+            let flags: Vec<_> = input
+                .meta
+                .directions
+                .iter()
+                .map(|d| matches!(d, tdashboard_study::Direction::Minimize))
+                .collect();
+            let reference = reference
+                .as_ref()
+                .filter(|r| r.len() == input.meta.objective_names.len())
+                .map(|r| crate::state::ref_point_to_normalized(r, &flags));
+            let views: Vec<_> = series
+                .iter()
+                .map(|s| SeriesInput {
+                    trial_ids: &s.trial_ids,
+                    objectives: &s.objectives,
+                })
+                .collect();
+            let hist = tunny_core::indicators::compute_indicator_histories(
+                &views,
+                &flags,
+                indicator,
+                reference.as_deref(),
+            );
+            let history = |i: usize| ConvergenceHistory {
+                trial_ids: hist.get(i).map(|h| h.trial_ids.clone()).unwrap_or_default(),
+                values: hist.get(i).map(|h| h.values.clone()).unwrap_or_default(),
+                sample_step: series[i].step,
+                ref_point: if i == 0 {
+                    hist.first()
+                        .map(|h| crate::state::ref_point_to_original(&h.ref_point, &flags))
+                        .unwrap_or_default()
                 } else {
-                    ConvergenceHistory {
-                        trial_ids: Vec::new(),
-                        values: Vec::new(),
-                        sample_step: cs,
-                        ref_point: Vec::new(),
-                    }
-                }
-            })
-            .collect();
-
-        AppMessage::IndicatorHistoryDone {
-            source_df,
-            indicator,
-            base,
-            comparisons,
-        }
-    });
+                    vec![]
+                },
+            };
+            AppMessage::IndicatorHistoryDone {
+                source_df: presentation_target,
+                indicator,
+                base: history(0),
+                comparisons: (1..series.len()).map(history).collect(),
+            }
+        },
+    );
 }
 
-/// Dispatches asynchronous computation of parameter importance (sensitivity analysis).
 fn poll_importance_chart(
     app_state: &AppState,
     widgets: &mut WidgetStates,
@@ -258,8 +138,7 @@ fn poll_importance_chart(
     use crate::ui::widgets::importance_chart::{
         core_sensitivity_metric, ImportanceMetric, SOBOL_SAMPLE_COUNT,
     };
-
-    let already_cached = if metric.is_sobol() {
+    let cached = if metric.is_sobol() {
         app_state
             .sobol_cache
             .contains_key(&(obj_idx, feasible_only))
@@ -268,148 +147,136 @@ fn poll_importance_chart(
             .importance_cache
             .contains_key(&(metric.cache_id(), obj_idx, feasible_only))
     };
-
-    if already_cached {
+    if cached {
+        crate::state::analysis_job::supersede(app_state, AnalysisKind::Importance);
         widgets.importance.computing = false;
         return;
     }
-
-    let ctx = app_state.current_study.as_ref().unwrap();
-    // Directly use the shared store's DataFrame via Arc::clone (no need to rebuild trial_rows).
-    // When feasible_only is set, use a copy containing only feasible solutions.
-    let df = sensitivity_df(ctx, feasible_only);
-    let tx = tx.clone();
-    match metric {
-        ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => {
-            crate::app::spawn_task(
-                tx,
-                move || match tunny_core::sensitivity::compute_sobol_from_df(
-                    &df,
-                    SOBOL_SAMPLE_COUNT,
-                ) {
-                    Some(r) => AppMessage::SobolDone {
-                        key: (obj_idx, feasible_only),
-                        result: SobolResult {
-                            param_names: r.param_names,
-                            first_order: r.first_order,
-                            total_effect: r.total_effect,
-                            r_squared: r.r_squared,
-                        },
-                    },
-                    None => AppMessage::SensitivityError("Sobol computation failed".into()),
-                },
-            );
-        }
-        ImportanceMetric::Ard => {
-            // ARD trains a GP-FITC and derives importance from its length scales
-            // (not a DataFrame metric, so it takes a dedicated path like Sobol).
+    let selection = Preparation::Sensitivity {
+        method: heatmap_method(metric),
+        objective: Some(obj_idx),
+        feasible_only,
+        samples: SOBOL_SAMPLE_COUNT,
+    };
+    spawn_analysis(
+        app_state,
+        tx.clone(),
+        AnalysisKind::Importance,
+        (metric.cache_id(), obj_idx, feasible_only),
+        selection,
+        move |prepared| {
+            let df = &prepared.data().sensitivity().df;
             let key = (metric.cache_id(), obj_idx, feasible_only);
-            crate::app::spawn_task(tx, move || {
-                match tunny_core::surrogate_opt::compute_ard_importance_from_df(&df, obj_idx) {
-                    Some(r) => AppMessage::SensitivityDone {
+            match metric {
+                ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => {
+                    match tunny_core::sensitivity::compute_sobol_from_df(df, SOBOL_SAMPLE_COUNT) {
+                        Some(r) => AppMessage::SobolDone {
+                            key: (obj_idx, feasible_only),
+                            result: SobolResult {
+                                param_names: r.param_names,
+                                first_order: r.first_order,
+                                total_effect: r.total_effect,
+                                r_squared: r.r_squared,
+                            },
+                        },
+                        None => AppMessage::SensitivityError("Sobol computation failed".into()),
+                    }
+                }
+                ImportanceMetric::Ard => {
+                    match tunny_core::surrogate_opt::compute_ard_importance_from_df(df, obj_idx) {
+                        Some(r) => AppMessage::SensitivityDone {
+                            key,
+                            result: SensitivityResult {
+                                param_names: r.param_names,
+                                unsupported_categorical: vec![],
+                                spearman: vec![],
+                                ridge: vec![],
+                                rf_anova: None,
+                                mdi: None,
+                                shap: None,
+                                permutation: None,
+                                ard: Some(ArdResult {
+                                    importances: r.importances,
+                                    r_squared: r.r_squared,
+                                }),
+                            },
+                        },
+                        None => AppMessage::SensitivityError(
+                            "ARD importance requires a GP fit (need more trials)".into(),
+                        ),
+                    }
+                }
+                _ => {
+                    let core = core_sensitivity_metric(metric)
+                        .expect("A non-Sobol/ARD metric has a core method");
+                    let Some(r) = tunny_core::sensitivity::compute_sensitivity_single_obj(
+                        df,
+                        vec![core],
+                        obj_idx,
+                    )
+                    .pop() else {
+                        return AppMessage::SensitivityError(
+                            "Sensitivity computation failed".into(),
+                        );
+                    };
+                    let n = r.spearman.len();
+                    let spearman = if n > 0 {
+                        vec![(0..n)
+                            .map(|i| {
+                                r.spearman
+                                    .get(i)
+                                    .and_then(|r| r.first())
+                                    .copied()
+                                    .unwrap_or(0.0)
+                            })
+                            .collect()]
+                    } else {
+                        vec![]
+                    };
+                    AppMessage::SensitivityDone {
                         key,
                         result: SensitivityResult {
                             param_names: r.param_names,
-                            unsupported_categorical: vec![],
-                            spearman: vec![],
-                            ridge: vec![],
-                            rf_anova: None,
-                            mdi: None,
-                            shap: None,
-                            permutation: None,
-                            ard: Some(ArdResult {
-                                importances: r.importances,
-                                r_squared: r.r_squared,
+                            unsupported_categorical: r.unsupported_categorical,
+                            spearman,
+                            ridge: r
+                                .ridge
+                                .into_iter()
+                                .map(|r| RidgeResult {
+                                    beta: r.beta,
+                                    r_squared: r.r_squared,
+                                })
+                                .collect(),
+                            rf_anova: r.rf_anova.map(|r| RfAnovaResult {
+                                importances: r.0.importances,
+                                r_squared: r.0.r_squared,
                             }),
+                            mdi: r.mdi.map(|r| MdiResult {
+                                importances: r.0.importances,
+                                r_squared: r.0.r_squared,
+                            }),
+                            shap: r.shap.map(|r| ShapResult {
+                                importances: r.0.importances,
+                                r_squared: r.0.r_squared,
+                            }),
+                            permutation: r.permutation.map(|r| PermutationResult {
+                                importances: r.0.importances,
+                                r_squared: r.0.r_squared,
+                            }),
+                            ard: None,
                         },
-                    },
-                    None => AppMessage::SensitivityError(
-                        "ARD importance requires a GP fit (need more trials)".into(),
-                    ),
-                }
-            });
-        }
-        _ => {
-            let Some(core_metric) = core_sensitivity_metric(metric) else {
-                return;
-            };
-            let key = (metric.cache_id(), obj_idx, feasible_only);
-            crate::app::spawn_task(tx, move || {
-                let mut results = tunny_core::sensitivity::compute_sensitivity_single_obj(
-                    &df,
-                    vec![core_metric],
-                    obj_idx,
-                );
-                let r = match results.pop() {
-                    Some(r) => r,
-                    None => {
-                        return AppMessage::SensitivityError(
-                            "Sensitivity computation failed".into(),
-                        )
                     }
-                };
-                let n_params = r.spearman.len();
-                let spearman: Vec<Vec<f64>> = if n_params > 0 {
-                    vec![(0..n_params)
-                        .map(|pi| {
-                            r.spearman
-                                .get(pi)
-                                .and_then(|row| row.first())
-                                .copied()
-                                .unwrap_or(0.0)
-                        })
-                        .collect()]
-                } else {
-                    vec![]
-                };
-                AppMessage::SensitivityDone {
-                    key,
-                    result: SensitivityResult {
-                        param_names: r.param_names,
-                        unsupported_categorical: r.unsupported_categorical,
-                        spearman,
-                        ridge: r
-                            .ridge
-                            .into_iter()
-                            .map(|x| RidgeResult {
-                                beta: x.beta,
-                                r_squared: x.r_squared,
-                            })
-                            .collect(),
-                        rf_anova: r.rf_anova.map(|x| RfAnovaResult {
-                            importances: x.0.importances,
-                            r_squared: x.0.r_squared,
-                        }),
-                        mdi: r.mdi.map(|x| MdiResult {
-                            importances: x.0.importances,
-                            r_squared: x.0.r_squared,
-                        }),
-                        shap: r.shap.map(|x| ShapResult {
-                            importances: x.0.importances,
-                            r_squared: x.0.r_squared,
-                        }),
-                        permutation: r.permutation.map(|x| PermutationResult {
-                            importances: x.0.importances,
-                            r_squared: x.0.r_squared,
-                        }),
-                        ard: None,
-                    },
                 }
-            });
-        }
-    }
+            }
+        },
+    );
 }
 
-/// Dispatches asynchronous computation of the sensitivity heatmap (all parameters x all objectives).
 fn poll_sensitivity_heatmap(
     app_state: &AppState,
     widgets: &mut WidgetStates,
     tx: &mpsc::SyncSender<AppMessage>,
 ) {
-    // Asynchronously computes the all-parameter x all-objective sensitivity matrix for the selected method.
-    // Compute requests are queued in widgets.sensitivity_heatmap.pending_compute (via the Run button, or
-    // auto-triggered for low-cost methods), and results are collected per method into
-    // app_state.sensitivity_heatmap_cache.
     let Some((metric, feasible_only)) = widgets.sensitivity_heatmap.pending_compute.take() else {
         return;
     };
@@ -417,19 +284,26 @@ fn poll_sensitivity_heatmap(
         .sensitivity_heatmap_cache
         .contains_key(&(metric.cache_id(), feasible_only))
     {
+        crate::state::analysis_job::supersede(app_state, AnalysisKind::Heatmap);
         widgets.sensitivity_heatmap.computing = false;
         return;
     }
-    let ctx = app_state.current_study.as_ref().unwrap();
-    let df = sensitivity_df(ctx, feasible_only);
     widgets.sensitivity_heatmap.computing = true;
-    let tx = tx.clone();
-    crate::app::spawn_task(tx, move || {
-        compute_sensitivity_heatmap(metric, feasible_only, &df)
-    });
+    spawn_analysis(
+        app_state,
+        tx.clone(),
+        AnalysisKind::Heatmap,
+        (metric.cache_id(), feasible_only),
+        Preparation::Sensitivity {
+            method: heatmap_method(metric),
+            objective: None,
+            feasible_only,
+            samples: crate::ui::widgets::importance_chart::SOBOL_SAMPLE_COUNT,
+        },
+        move |p| compute_sensitivity_heatmap(metric, feasible_only, &p.data().sensitivity().df),
+    );
 }
 
-/// Dispatches asynchronous computation of PDP (1D).
 fn poll_pdp_chart(
     app_state: &AppState,
     widgets: &mut WidgetStates,
@@ -438,131 +312,171 @@ fn poll_pdp_chart(
     let Some(req) = widgets.pdp_chart.pending_compute.take() else {
         return;
     };
-    let ctx = app_state.current_study.as_ref().unwrap();
-    let Some(target_param_idx) = ctx.meta.param_names.iter().position(|p| p == &req.param) else {
+    let key = crate::ui::widgets::pdp_chart::cache_key(
+        &req.param,
+        &req.objective,
+        &req.model_type,
+        req.feasible_only,
+    );
+    if let Some(cached) = widgets.pdp_chart.cache.get(&key) {
+        crate::state::analysis_job::supersede(app_state, AnalysisKind::Pdp1d);
+        widgets.pdp_chart.result = Some(cached.clone());
+        widgets.pdp_chart.computing = false;
         return;
-    };
-    let (x_matrix, y) = build_xy_for_objective(ctx, &req.objective, req.feasible_only);
-    let param_names_owned = ctx.meta.param_names.clone();
+    }
     let (param, objective, model_type) = (req.param, req.objective, req.model_type);
     let (n_grid, feasible_only) = (req.n_grid, req.feasible_only);
     widgets.pdp_chart.computing = true;
-    let tx = tx.clone();
-    crate::app::spawn_task(tx, move || {
-        use crate::state::messages::PdpResult1d;
-        let r = tunny_core::pdp::compute_pdp_from_data(
-            x_matrix,
-            y,
-            param_names_owned,
-            &objective,
-            target_param_idx,
-            n_grid,
-            &model_type,
-        );
-        AppMessage::PdpDone {
-            param,
-            objective,
-            model_type,
+    spawn_analysis(
+        app_state,
+        tx.clone(),
+        AnalysisKind::Pdp1d,
+        (
+            param.clone(),
+            objective.clone(),
+            model_type.clone(),
             feasible_only,
-            result: PdpResult1d {
-                x_values: r.grid,
-                y_values: r.values,
-                y_upper: r.y_upper,
-                y_lower: r.y_lower,
-                ice_lines: vec![],
-                r2: Some(r.r_squared),
-                param_name: r.param_name,
-            },
-        }
-    });
+            n_grid,
+        ),
+        Preparation::Pdp {
+            params: vec![param.clone()],
+            objective: objective.clone(),
+            feasible_only,
+            two_dimensional: false,
+        },
+        move |p| {
+            let data = p.data().pdp();
+            let r = tunny_core::pdp::compute_pdp_from_data(
+                data.x.clone(),
+                data.y.clone(),
+                data.names.clone(),
+                &data.objective,
+                data.targets[0],
+                n_grid,
+                &model_type,
+            );
+            AppMessage::PdpDone {
+                param,
+                objective,
+                model_type,
+                feasible_only,
+                result: crate::state::messages::PdpResult1d {
+                    x_values: r.grid,
+                    y_values: r.values,
+                    y_upper: r.y_upper,
+                    y_lower: r.y_lower,
+                    ice_lines: vec![],
+                    r2: Some(r.r_squared),
+                    param_name: r.param_name,
+                },
+            }
+        },
+    );
 }
 
-/// Dispatches asynchronous computation of PDP (2D).
-fn poll_pdp_chart_2d(widgets: &mut WidgetStates, tx: &mpsc::SyncSender<AppMessage>) {
+fn poll_pdp_chart_2d(
+    app_state: &AppState,
+    widgets: &mut WidgetStates,
+    tx: &mpsc::SyncSender<AppMessage>,
+) {
     let Some(req) = widgets.pdp_2d.pending_compute.take() else {
         return;
     };
     widgets.pdp_2d.computing = true;
-    let tx = tx.clone();
-    crate::app::spawn_task(tx, move || {
-        let result = tunny_core::pdp::compute_pdp_2d(
-            &req.param1,
-            &req.param2,
-            &req.objective,
+    spawn_analysis(
+        app_state,
+        tx.clone(),
+        AnalysisKind::Pdp2d,
+        (
+            req.param1.clone(),
+            req.param2.clone(),
+            req.objective.clone(),
+            req.n_grid,
+            req.model_type.clone(),
+            req.feasible_only,
+        ),
+        Preparation::Pdp {
+            params: vec![req.param1, req.param2],
+            objective: req.objective,
+            feasible_only: req.feasible_only,
+            two_dimensional: true,
+        },
+        move |p| match tunny_core::pdp::compute_pdp_2d_from_data(
+            p.data().pdp(),
             req.n_grid,
             &req.model_type,
-            req.feasible_only,
-        );
-        match result {
-            Some(r) => {
-                use crate::state::messages::PdpResult2d;
-                AppMessage::Pdp2dDone(PdpResult2d {
-                    x_values: r.x_values,
-                    y_values: r.y_values,
-                    z_values: r.z_values,
-                    param1_name: r.param1_name,
-                    param2_name: r.param2_name,
-                    objective_name: r.objective_name,
-                    uncertainties: r.uncertainties,
-                })
-            }
+        ) {
+            Some(r) => AppMessage::Pdp2dDone(crate::state::messages::PdpResult2d {
+                x_values: r.x_values,
+                y_values: r.y_values,
+                z_values: r.z_values,
+                param1_name: r.param1_name,
+                param2_name: r.param2_name,
+                objective_name: r.objective_name,
+                uncertainties: r.uncertainties,
+            }),
             None => AppMessage::Error("PDP 2D computation failed".into()),
-        }
-    });
+        },
+    );
 }
 
-/// Dispatches the clustering computation for the cluster scatter plot (2D).
+fn dispatch_cluster(
+    app_state: &AppState,
+    req: crate::ui::widgets::cluster_scatter::ClusterComputeRequest,
+    source: ClusterChartSource,
+    tx: &mpsc::SyncSender<AppMessage>,
+) {
+    use crate::ui::widgets::cluster_scatter::{ClusterMatrix, ClusterSpace, KSelectionMode};
+    let space = match req.target_space {
+        ClusterSpace::Variable => FeatureSpace::Parameters,
+        ClusterSpace::Objective => FeatureSpace::Objectives,
+        ClusterSpace::Combined => FeatureSpace::Both,
+    };
+    let manual_k = (req.k_mode == KSelectionMode::Manual).then_some(req.k);
+    spawn_analysis(
+        app_state,
+        tx.clone(),
+        AnalysisKind::Cluster(source),
+        cluster_conditions(&req),
+        Preparation::Cluster { space, manual_k },
+        move |p| {
+            let data = p.data().features();
+            run_cluster_compute(
+                source,
+                req,
+                ClusterMatrix {
+                    flat_data: data.matrix.iter().flatten().copied().collect(),
+                    n_rows: data.rows.len(),
+                    n_cols: data.names.len(),
+                    total_trials: data.total_rows,
+                    target_indices: data.rows.clone(),
+                },
+            )
+        },
+    );
+}
 fn poll_cluster_scatter(
     app_state: &AppState,
     widgets: &mut WidgetStates,
     tx: &mpsc::SyncSender<AppMessage>,
 ) {
-    let ctx = app_state.current_study.as_ref().unwrap();
-    let param_names = &ctx.meta.param_names;
-    let obj_names = &ctx.meta.objective_names;
-    let Some(req) = widgets.cluster_scatter.pending_compute.take() else {
-        return;
-    };
-    match build_cluster_matrix(&ctx.view, param_names, obj_names, req.target_space) {
-        Ok(matrix) => {
-            let tx = tx.clone();
-            crate::app::spawn_task(tx, move || {
-                run_cluster_compute(ClusterChartSource::Scatter2D, req, matrix)
-            });
-        }
-        Err(err) => {
-            widgets.cluster_scatter.set_error(err);
+    if !app_state.study_streaming {
+        if let Some(req) = widgets.cluster_scatter.pending_compute.take() {
+            dispatch_cluster(app_state, req, ClusterChartSource::Scatter2D, tx);
         }
     }
 }
-
-/// Dispatches the clustering computation for the cluster scatter plot (3D).
 fn poll_cluster_scatter_3d(
     app_state: &AppState,
     widgets: &mut WidgetStates,
     tx: &mpsc::SyncSender<AppMessage>,
 ) {
-    let ctx = app_state.current_study.as_ref().unwrap();
-    let param_names = &ctx.meta.param_names;
-    let obj_names = &ctx.meta.objective_names;
-    let Some(req) = widgets.cluster_scatter_3d.pending_compute.take() else {
-        return;
-    };
-    match build_cluster_matrix(&ctx.view, param_names, obj_names, req.target_space) {
-        Ok(matrix) => {
-            let tx = tx.clone();
-            crate::app::spawn_task(tx, move || {
-                run_cluster_compute(ClusterChartSource::Scatter3D, req, matrix)
-            });
-        }
-        Err(err) => {
-            widgets.cluster_scatter_3d.set_error(err);
+    if !app_state.study_streaming {
+        if let Some(req) = widgets.cluster_scatter_3d.pending_compute.take() {
+            dispatch_cluster(app_state, req, ClusterChartSource::Scatter3D, tx);
         }
     }
 }
-
-/// Dispatches computation for MCDM-family charts (rank / 2D scatter / 3D scatter).
-/// Each chart has its own controls, but the dispatch logic is shared.
 fn poll_mcdm_charts(
     app_state: &AppState,
     widgets: &mut WidgetStates,
@@ -570,10 +484,6 @@ fn poll_mcdm_charts(
     tx: &mpsc::SyncSender<AppMessage>,
 ) {
     let ctx = app_state.current_study.as_ref().unwrap();
-    let obj_names = &ctx.meta.objective_names;
-    let directions = &ctx.meta.directions;
-
-    // Select only the target chart's controls and source, then run the same two steps.
     let (controls, source) = match chart_id {
         ChartId::McdmRankChart => (&mut widgets.mcdm_chart.controls, McdmChartSource::Rank),
         ChartId::McdmScatterChart => (
@@ -585,11 +495,24 @@ fn poll_mcdm_charts(
             McdmChartSource::Scatter3D,
         ),
     };
-    dispatch_mcdm_entropy(controls, ctx, obj_names, source, tx);
-    dispatch_mcdm_compute(controls, ctx, obj_names, directions, source, tx);
+    dispatch_mcdm_entropy(
+        app_state,
+        controls,
+        ctx,
+        &ctx.meta.objective_names,
+        source,
+        tx,
+    );
+    dispatch_mcdm_compute(
+        app_state,
+        controls,
+        ctx,
+        &ctx.meta.objective_names,
+        &ctx.meta.directions,
+        source,
+        tx,
+    );
 }
-
-/// Dispatches asynchronous computation for the Artifact Gallery (Cluster / MCDM modes).
 fn poll_artifact_gallery(
     app_state: &AppState,
     widgets: &mut WidgetStates,
@@ -597,155 +520,120 @@ fn poll_artifact_gallery(
 ) {
     use crate::ui::widgets::artifact_gallery::ArtifactViewMode;
     let ctx = app_state.current_study.as_ref().unwrap();
-    let param_names = &ctx.meta.param_names;
-    let obj_names = &ctx.meta.objective_names;
-    let directions = &ctx.meta.directions;
-
     match widgets.artifact_gallery.mode {
-        ArtifactViewMode::Cluster => {
+        ArtifactViewMode::Cluster if !app_state.study_streaming => {
             if let Some(req) = widgets.artifact_gallery.cluster_pending.take() {
-                match build_cluster_matrix(&ctx.view, param_names, obj_names, req.target_space) {
-                    Ok(matrix) => {
-                        let tx = tx.clone();
-                        crate::app::spawn_task(tx, move || {
-                            run_cluster_compute(ClusterChartSource::ArtifactGallery, req, matrix)
-                        });
-                    }
-                    Err(err) => {
-                        widgets.artifact_gallery.set_cluster_error(err);
-                    }
-                }
+                dispatch_cluster(app_state, req, ClusterChartSource::ArtifactGallery, tx);
             }
         }
         ArtifactViewMode::Mcdm => {
             let controls = &mut widgets.artifact_gallery.mcdm;
             dispatch_mcdm_entropy(
+                app_state,
                 controls,
                 ctx,
-                obj_names,
+                &ctx.meta.objective_names,
                 McdmChartSource::ArtifactGallery,
                 tx,
             );
             dispatch_mcdm_compute(
+                app_state,
                 controls,
                 ctx,
-                obj_names,
-                directions,
+                &ctx.meta.objective_names,
+                &ctx.meta.directions,
                 McdmChartSource::ArtifactGallery,
                 tx,
             );
         }
-        ArtifactViewMode::All => {}
+        _ => {}
     }
 }
-
-/// Dispatches asynchronous computation for the Observed Contour (contour interpolated from observed points).
 fn poll_observed_contour(
     app_state: &AppState,
     widgets: &mut WidgetStates,
     tx: &mpsc::SyncSender<AppMessage>,
 ) {
-    let ctx = app_state.current_study.as_ref().unwrap();
     let Some(req) = widgets.observed_contour.pending_compute.take() else {
         return;
     };
-    let (Some(x_col), Some(y_col), Some(v_col)) = (
-        ctx.view.numeric_column(&req.x),
-        ctx.view.numeric_column(&req.y),
-        ctx.view.numeric_column(&req.value),
-    ) else {
-        widgets.observed_contour.error_message = Some("Selected column not found".to_string());
-        widgets.observed_contour.computing = false;
-        return;
-    };
-    let feas = ctx.view.feasibility();
-    let n = ctx.view.row_count();
-    let mut points: Vec<[f64; 3]> = Vec::with_capacity(n);
-    let mut point_trial_ids: Vec<u32> = Vec::with_capacity(n);
-    for i in 0..n {
-        if req.feasible_only && !feas.is_feasible(i) {
-            continue;
-        }
-        let (Some(&px), Some(&py), Some(&pv)) = (x_col.get(i), y_col.get(i), v_col.get(i)) else {
-            continue;
-        };
-        if !px.is_finite() || !py.is_finite() || !pv.is_finite() {
-            continue;
-        }
-        points.push([px, py, pv]);
-        point_trial_ids.push(ctx.view.trial_ids.get(i).copied().unwrap_or(i as u32));
-    }
-    let (x_name, y_name, value_name) = (req.x, req.y, req.value);
-    let n_grid = req.n_grid;
-    let max_edge_ratio = req.max_edge_ratio;
-    let tx = tx.clone();
-    crate::app::spawn_task(tx, move || {
-        use crate::state::messages::ObservedContourResult;
-        if points.len() < 3 {
-            return AppMessage::ObservedContourFailed(
-                "Not enough finite points to interpolate (need >= 3).".to_string(),
+    spawn_analysis(
+        app_state,
+        tx.clone(),
+        AnalysisKind::Contour,
+        (
+            req.x.clone(),
+            req.y.clone(),
+            req.value.clone(),
+            req.n_grid,
+            req.max_edge_ratio,
+            req.feasible_only,
+        ),
+        Preparation::Contour {
+            x: req.x.clone(),
+            y: req.y.clone(),
+            value: req.value.clone(),
+            feasible_only: req.feasible_only,
+            n_grid: req.n_grid,
+        },
+        move |p| {
+            let data = p.data().contour();
+            let surface = tunny_core::contour::observed_surface_prepared(
+                &data.geometry,
+                req.n_grid,
+                req.max_edge_ratio,
             );
-        }
-        let surface = tunny_core::contour::observed_surface(&points, n_grid, max_edge_ratio);
-        if surface.x_values.is_empty() {
-            return AppMessage::ObservedContourFailed(
-                "Points are collinear or degenerate; cannot interpolate.".to_string(),
-            );
-        }
-        AppMessage::ObservedContourDone(ObservedContourResult {
-            x_name,
-            y_name,
-            value_name,
-            surface,
-            points,
-            point_trial_ids,
-        })
-    });
+            if surface.x_values.is_empty() {
+                return AppMessage::ObservedContourFailed(
+                    "Points are collinear or degenerate; cannot interpolate.".into(),
+                );
+            }
+            AppMessage::ObservedContourDone(crate::state::messages::ObservedContourResult {
+                x_name: req.x,
+                y_name: req.y,
+                value_name: req.value,
+                surface,
+                points: data.points.clone(),
+                point_trial_ids: data.trial_ids.clone(),
+            })
+        },
+    );
 }
-
 pub(crate) fn poll_trial_table_work(
     app_state: &mut AppState,
     widgets: &mut WidgetStates,
     tx: &mpsc::SyncSender<AppMessage>,
 ) {
     use crate::ui::widgets::trial_table::TrialTableMode;
-
-    if app_state.current_study.is_none() {
+    let Some(ctx) = app_state.current_study.as_ref() else {
         return;
-    }
-    let ctx = app_state.current_study.as_ref().unwrap();
-    let obj_names = &ctx.meta.objective_names;
-    let param_names = &ctx.meta.param_names;
-    let directions = &ctx.meta.directions;
-
+    };
     match widgets.trial_table.mode {
-        TrialTableMode::Cluster => {
+        TrialTableMode::Cluster if !app_state.study_streaming => {
             if let Some(req) = widgets.trial_table.cluster.pending_compute.take() {
-                match build_cluster_matrix(&ctx.view, param_names, obj_names, req.target_space) {
-                    Ok(matrix) => {
-                        let tx = tx.clone();
-                        crate::app::spawn_task(tx, move || {
-                            run_cluster_compute(ClusterChartSource::Table, req, matrix)
-                        });
-                    }
-                    Err(err) => {
-                        widgets.trial_table.cluster.set_error(err);
-                    }
-                }
+                dispatch_cluster(app_state, req, ClusterChartSource::Table, tx);
             }
         }
         TrialTableMode::Mcdm => {
             let controls = &mut widgets.trial_table.mcdm.controls;
-            dispatch_mcdm_entropy(controls, ctx, obj_names, McdmChartSource::Table, tx);
-            dispatch_mcdm_compute(
+            dispatch_mcdm_entropy(
+                app_state,
                 controls,
                 ctx,
-                obj_names,
-                directions,
+                &ctx.meta.objective_names,
+                McdmChartSource::Table,
+                tx,
+            );
+            dispatch_mcdm_compute(
+                app_state,
+                controls,
+                ctx,
+                &ctx.meta.objective_names,
+                &ctx.meta.directions,
                 McdmChartSource::Table,
                 tx,
             );
         }
-        TrialTableMode::All => {}
+        _ => {}
     }
 }

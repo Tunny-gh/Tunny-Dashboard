@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 
-use super::model::DataFrame;
+use super::DataFrame;
 use crate::data::extras::StudyExtras;
 
 // ============================================================
@@ -290,7 +290,7 @@ mod store_tests {
     use super::*;
 
     fn df_with_rows(n: usize) -> DataFrame {
-        use super::super::types::TrialRow;
+        use super::super::TrialRow;
         let rows: Vec<TrialRow> = (0..n)
             .map(|i| TrialRow {
                 trial_id: i as u32,

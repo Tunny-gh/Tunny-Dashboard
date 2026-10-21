@@ -10,6 +10,7 @@ pub mod scatter_3d;
 pub mod scatter_matrix;
 pub mod som_map;
 
+#[cfg(test)]
 use crate::state::types::StudyView;
 
 /// Resolves finite feature rows and their source row indices.
@@ -18,22 +19,13 @@ use crate::state::types::StudyView;
 /// Callers that map a per-row result of a clustering routine back onto trials need this:
 /// dropping the NaN rows shifts every later row's position, so the returned matrix can no
 /// longer be indexed with a `StudyView` row index.
+#[cfg(test)]
 pub(super) fn feature_matrix_with_rows(
     view: &StudyView,
     features: &[String],
 ) -> (Vec<usize>, Vec<Vec<f64>>) {
-    let Some(cols): Option<Vec<&[f64]>> = features.iter().map(|f| view.numeric_column(f)).collect()
-    else {
-        return (Vec::new(), Vec::new());
-    };
-    (0..view.row_count())
-        .filter_map(|r| {
-            cols.iter()
-                .map(|c| c.get(r).copied().filter(|v| v.is_finite()))
-                .collect::<Option<Vec<f64>>>()
-                .map(|row| (r, row))
-        })
-        .unzip()
+    let data = tdashboard_analysis::preparation::feature_rows(&view.df, features, false);
+    (data.rows, data.matrix)
 }
 
 /// Re-exported so the charts in this module keep reaching for the rotated-label math

@@ -2,10 +2,8 @@
 //! components of standardized PCA, overlaying the original variables' contributions
 //! (loadings) as arrows.
 //!
-//! The PCA computation itself is handled by `tunny_core::clustering::run_pca_standardized`,
-//! which reads the currently active Study's DataFrame directly (via `with_active_df`).
-//! As a sync widget it is called every time in the draw path, and the result is
-//! cached, keyed by (df's Arc identity, Study name, row count, target space), holding
+//! PCA takes the displayed immutable table explicitly. Its cache key includes the
+//! acquired input stamp and target space, holding
 //! just one entry. Draw artifacts such as colored point groups and loadings arrows
 //! additionally depend on the colormap and coloring objective, so they are cached
 //! together under a separate key.
@@ -83,7 +81,7 @@ pub struct PcaBiplotChart {
 struct PcaBiplotCache {
     /// Key for the PCA computation: (df identity, Study name, row count, target space
     /// discriminant).
-    pca_key: (usize, String, usize, u8),
+    pca_key: (Option<tdashboard_study::AcquiredStamp>, u8),
     result: PcaResult,
     /// Key for the draw artifacts: (colormap fingerprint, coloring objective).
     draw_key: (u64, Option<String>),
@@ -126,7 +124,7 @@ impl PcaBiplotChart {
         view: &StudyView,
         obj_names: &[String],
         cmap: &ColorMap,
-        study_name: &str,
+        _study_name: &str,
     ) {
         ui.horizontal(|ui| {
             egui::ComboBox::from_id_salt("pca_biplot_space")
@@ -158,17 +156,7 @@ impl PcaBiplotChart {
                 });
         });
 
-        // Key for the PCA computation: df's Arc identity + Study name + row count +
-        // target space (low-priority finding).
-        // Including identity avoids mixing up different data even when switching to
-        // another dataset with the same (Study name, row count, space).
-        let df_ptr = std::sync::Arc::as_ptr(&view.df) as usize;
-        let pca_key = (
-            df_ptr,
-            study_name.to_string(),
-            view.row_count(),
-            self.space.disc(),
-        );
+        let pca_key = (view.df.provenance(), self.space.disc());
         // Key for the draw artifacts: colormap + coloring objective (M-17).
         let draw_key = (
             super::rank_plot::cmap_fingerprint(cmap),
@@ -178,19 +166,20 @@ impl PcaBiplotChart {
         // The PCA computation is only recomputed when pca_key changes. Draw
         // artifacts are rebuilt, keeping the PCA computation, only when draw_key
         // changes.
-        let pca_valid = self.cache.as_ref().is_some_and(|c| c.pca_key == pca_key);
+        let pca_valid =
+            pca_key.0.is_some() && self.cache.as_ref().is_some_and(|c| c.pca_key == pca_key);
         if !pca_valid {
-            self.cache = tunny_core::clustering::run_pca_standardized(2, self.space.to_core()).map(
-                |result| {
-                    let draw = compute_pca_draw(&result, &self.color_objective, view, cmap);
-                    PcaBiplotCache {
-                        pca_key,
-                        result,
-                        draw_key,
-                        draw,
-                    }
-                },
-            );
+            self.cache =
+                tunny_core::clustering::run_pca_standardized(&view.df, 2, self.space.to_core())
+                    .map(|result| {
+                        let draw = compute_pca_draw(&result, &self.color_objective, view, cmap);
+                        PcaBiplotCache {
+                            pca_key,
+                            result,
+                            draw_key,
+                            draw,
+                        }
+                    });
         } else if self.cache.as_ref().is_some_and(|c| c.draw_key != draw_key) {
             if let Some(c) = self.cache.as_mut() {
                 c.draw = compute_pca_draw(&c.result, &self.color_objective, view, cmap);

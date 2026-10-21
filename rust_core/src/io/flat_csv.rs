@@ -2,7 +2,7 @@
 use crate::dataframe::DataFrame;
 #[cfg(test)]
 use crate::journal_parser::OptimizationDirection;
-use crate::journal_parser::{project_decoded, StudyMeta};
+use crate::journal_parser::{io_meta, new_key, project_batch, StudyMeta};
 pub struct FlatCsvParseResult {
     pub meta: StudyMeta,
     pub dataframe: DataFrame,
@@ -10,10 +10,13 @@ pub struct FlatCsvParseResult {
 }
 pub fn parse_flat_csv(data: &[u8], name: &str) -> Result<FlatCsvParseResult, String> {
     let parsed = tdashboard_io::flat_csv::parse_flat_csv(data, name)?;
+    let images = parsed.images.clone();
+    let key = new_key(parsed.meta.study_id)?;
+    let p = project_batch(key, parsed.into_batch(key))?;
     Ok(FlatCsvParseResult {
-        meta: parsed.meta,
-        dataframe: project_decoded(parsed.dataframe),
-        images: parsed.images,
+        meta: io_meta(p.meta),
+        dataframe: p.dataframe,
+        images,
     })
 }
 #[cfg(test)]

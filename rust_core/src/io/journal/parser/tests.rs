@@ -143,7 +143,7 @@ fn objective_nonfinite_positions_survive_op4_and_op6_and_are_excluded_from_repor
                 assert_eq!(first[1], 7.0);
                 assert_eq!(df.get_numeric_column("obj1").unwrap(), &[5.0, 8.0]);
                 let report = build_study_report(
-                    &meta,
+                    &super::analysis_meta(&meta),
                     df,
                     Some(&extras),
                     &ReportSource {

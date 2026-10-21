@@ -9,6 +9,7 @@ name = "tunny-mcp"
 path = "src/main.rs"
 
 [dependencies]
+tdashboard-analysis = { path = "../crates/analysis" }
 tdashboard-io = { path = "../crates/io" }
 tdashboard-study = { path = "../crates/study" }
 tunny-core = { path = "../rust_core" }

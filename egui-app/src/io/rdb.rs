@@ -48,21 +48,12 @@ pub fn scan_rdb_task(url: RdbUrl) -> AppMessage {
 /// single chunk via `StudyChunkLoaded` (same role as `io::sqlite::load_single_study_task`).
 #[cfg(test)]
 pub fn load_single_study_task(url: &RdbUrl, study_id: u32, tx: &SyncSender<AppMessage>) -> bool {
-    match tunny_core::rdb::parse_single_study_rows_url(url, study_id) {
-        Ok(rows) => {
-            let _ = tx.send(AppMessage::StudyChunkLoaded {
-                study_id,
-                has_constraints: rows.meta.has_constraints,
-                meta: crate::io::journal::convert_study_meta(rows.meta),
-                new_rows: rows.rows,
-                param_names: rows.param_names,
-                objective_names: rows.objective_names,
-                user_attr_numeric_names: rows.user_attr_numeric_names,
-                user_attr_string_names: rows.user_attr_string_names,
-                max_constraints: rows.max_constraints,
-                is_first: true,
-                is_final: true,
-            });
+    match crate::io::study::fixture_chunk(study_id, |key| {
+        tdashboard_io::rdb::parse_single_study_rows_url(url, study_id)
+            .map(|rows| rows.into_batch(key))
+    }) {
+        Ok(message) => {
+            let _ = tx.send(message);
             true
         }
         Err(e) => {

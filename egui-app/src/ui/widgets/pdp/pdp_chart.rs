@@ -257,6 +257,31 @@ impl PdpChart {
 }
 
 impl PdpChart {
+    fn queue_compute(&mut self, objective: &str) {
+        let key = cache_key(
+            &self.selected_param,
+            objective,
+            self.model_type.to_str(),
+            self.feasible_only,
+        );
+        if let Some(cached) = self.cache.get(&key) {
+            self.result = Some(cached.clone());
+        }
+        // Even reuse is an explicit selection: poll_chart must supersede any
+        // previous asynchronous adoption interest before returning a cache hit.
+        let n_grid = match self.model_type {
+            ModelType::Ridge => 50,
+            _ => 30,
+        };
+        self.pending_compute = Some(PdpComputeRequest {
+            param: self.selected_param.clone(),
+            objective: objective.into(),
+            n_grid,
+            model_type: self.model_type.to_str().into(),
+            feasible_only: self.feasible_only,
+        });
+    }
+
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
@@ -322,29 +347,7 @@ impl PdpChart {
                 .clicked()
             {
                 if let Some(obj_name) = obj_names.get(self.selected_objective) {
-                    // On a cache hit, fetch the result from the cache instead of recomputing
-                    let cache_key_str = cache_key(
-                        &self.selected_param,
-                        obj_name,
-                        self.model_type.to_str(),
-                        self.feasible_only,
-                    );
-                    if let Some(cached) = self.cache.get(&cache_key_str) {
-                        self.result = Some(cached.clone());
-                    } else {
-                        let n_grid = match self.model_type {
-                            ModelType::Ridge => 50,
-                            ModelType::RandomForest => 30,
-                            _ => 30, // GP methods are O(N²×grid); 30 keeps debug builds fast
-                        };
-                        self.pending_compute = Some(PdpComputeRequest {
-                            param: self.selected_param.clone(),
-                            objective: obj_name.clone(),
-                            n_grid,
-                            model_type: self.model_type.to_str().to_string(),
-                            feasible_only: self.feasible_only,
-                        });
-                    }
+                    self.queue_compute(obj_name);
                 }
             }
         });
@@ -480,6 +483,38 @@ impl PdpChart {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn d4_pdp_cache_reuse_still_queues_the_selection_for_adoption() {
+        let mut chart = PdpChart {
+            selected_param: "x".into(),
+            ..Default::default()
+        };
+        chart.insert_cache(
+            "x",
+            "y",
+            "ridge",
+            false,
+            PdpResult1d {
+                x_values: vec![0.0],
+                y_values: vec![0.8],
+                y_upper: None,
+                y_lower: None,
+                ice_lines: vec![],
+                r2: Some(0.8),
+                param_name: "x".into(),
+            },
+        );
+        chart.queue_compute("y");
+        assert_eq!(chart.result.as_ref().unwrap().y_values, [0.8]);
+        let request = chart
+            .pending_compute
+            .as_ref()
+            .expect("Cache reuse must reach poll_chart's supersession path");
+        assert_eq!(request.param, "x");
+        assert_eq!(request.objective, "y");
+        assert_eq!(request.model_type, "ridge");
+    }
 
     #[test]
     fn adopt_compute_state_propagates_result_and_clears_computing() {

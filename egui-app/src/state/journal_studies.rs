@@ -20,7 +20,10 @@ pub struct JournalStudies {
     requested_scans: HashMap<u32, u64>,
     /// Presentation handoff follows request order, not worker completion order.
     comparisons: VecDeque<ComparisonRequest>,
-    pub projections: HashMap<u32, tunny_core::journal_parser::study_projection::TableProjection>,
+    pub analysis: std::cell::RefCell<tdashboard_analysis::session::AnalysisSession>,
+    pub analysis_jobs: std::cell::RefCell<
+        HashMap<super::analysis_job::DeliverySlot, tdashboard_analysis::session::ResultKey>,
+    >,
 }
 
 #[derive(Debug)]
@@ -43,7 +46,8 @@ impl JournalStudies {
             selected: None,
             requested_scans: HashMap::new(),
             comparisons: VecDeque::new(),
-            projections: HashMap::new(),
+            analysis: Default::default(),
+            analysis_jobs: Default::default(),
         })
     }
     pub fn invalidate_loaders(&mut self, scan: u64) {

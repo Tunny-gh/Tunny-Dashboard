@@ -3,6 +3,83 @@ use super::*;
 use crate::state::app_state::StudyMeta;
 
 #[test]
+fn d4_adopted_analysis_deliveries_sync_current_canvas_success_and_panic() {
+    use crate::state::analysis_job::{spawn, DeliverySlot};
+    use crate::ui::widgets::importance_chart::ImportanceMetric;
+    use tdashboard_analysis::{preparation::Preparation, sensitivity::heatmap::HeatmapMethod};
+    for panic in [false, true] {
+        let mut app = artifact_test_app(None);
+        app.app_state = crate::state::analysis_job::tests::state(true).0;
+        let mut item = WidgetStates::default();
+        item.importance.computing = true;
+        app.canvas_widgets.insert(42, item);
+        app.widget_states.importance.computing = true;
+        spawn(
+            &app.app_state,
+            app.sender(),
+            DeliverySlot::Importance,
+            "current request",
+            Preparation::Sensitivity {
+                method: HeatmapMethod::Spearman,
+                objective: Some(0),
+                feasible_only: false,
+                samples: 32,
+            },
+            move |prepared| {
+                if panic {
+                    panic!("current keyed worker panic");
+                }
+                AppMessage::SensitivityDone {
+                    key: (ImportanceMetric::Spearman.cache_id(), 0, false),
+                    result: crate::state::results::SensitivityResult {
+                        param_names: prepared.data().sensitivity().df.param_col_names().to_vec(),
+                        unsupported_categorical: vec![],
+                        spearman: vec![vec![1.0]],
+                        ridge: vec![],
+                        rf_anova: None,
+                        mdi: None,
+                        shap: None,
+                        permutation: None,
+                        ard: None,
+                    },
+                }
+            },
+        );
+        let ctx = egui::Context::default();
+        let start = std::time::Instant::now();
+        loop {
+            app.poll_messages(&ctx);
+            let done = if panic {
+                app.load_error.is_some()
+            } else {
+                app.app_state.importance_cache.contains_key(&(
+                    ImportanceMetric::Spearman.cache_id(),
+                    0,
+                    false,
+                ))
+            };
+            if done {
+                break;
+            }
+            assert!(start.elapsed() < std::time::Duration::from_secs(30));
+            std::thread::yield_now();
+        }
+        assert!(!app.widget_states.importance.computing);
+        assert!(
+            !app.canvas_widgets[&42].importance.computing,
+            "The envelope must not bypass the existing canvas synchronization adapter"
+        );
+        if panic {
+            assert!(app
+                .load_error
+                .as_ref()
+                .unwrap()
+                .contains("current keyed worker panic"));
+        }
+    }
+}
+
+#[test]
 fn journal_late_attributes_correct_the_live_prefix_before_completion_and_reload() {
     let _guard = test_store_guard();
     use serde_json::json;

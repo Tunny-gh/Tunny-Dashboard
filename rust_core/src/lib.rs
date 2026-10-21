@@ -1,23 +1,13 @@
-pub mod clustering;
-pub mod contour;
-pub mod convergence;
+// D5-D7 remove these import facades as their presentation/execution callers migrate.
+pub use tdashboard_analysis::{
+    clustering, contour, convergence, math, mcdm, multi_objective, optimization, pdp, report,
+    sensitivity, statistics, surrogate_opt,
+};
 pub mod data;
-pub(crate) mod gaussian_process;
 pub mod gh;
 pub mod io;
-pub(crate) mod lgbm;
-pub(crate) mod lgbm_sys;
-pub mod math;
-pub mod mcdm;
-pub mod multi_objective;
-pub(crate) mod optimization;
-pub mod pdp;
 pub mod process;
-pub mod report;
 pub mod runner;
-pub mod sensitivity;
-pub mod statistics;
-pub mod surrogate_opt;
 
 pub use data::{dataframe, extras, filter};
 pub use io::journal::parser as journal_parser;
@@ -32,7 +22,6 @@ pub use report::{build_study_report, render_markdown, ReportLang, ReportOptions,
 
 #[cfg(test)]
 mod tests {
-    mod integration;
 
     #[test]
     fn lib_compiles() {

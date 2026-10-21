@@ -1,16 +1,11 @@
 use crate::state::types::StudyView;
 
-use super::settings::ClusterSpace;
-
 #[derive(Debug, Clone)]
 pub struct ClusterMatrix {
     pub flat_data: Vec<f64>,
-    /// Number of rows to cluster (Pareto front), i.e. the row count passed to k-means.
     pub n_rows: usize,
     pub n_cols: usize,
-    /// Total number of trials (including solutions outside the clustering target).
     pub total_trials: usize,
-    /// Mapping from matrix row index to original trial index (Pareto-front rows).
     pub target_indices: Vec<usize>,
 }
 
@@ -20,128 +15,51 @@ impl ClusterMatrix {
     }
 }
 
-fn build_cluster_matrix_data(
-    view: &StudyView,
-    param_names: &[String],
-    obj_names: &[String],
-    target_space: ClusterSpace,
-) -> ClusterMatrix {
-    let total_trials = view.row_count();
-    let n_cols = target_space.feature_count(param_names.len(), obj_names.len());
-
-    // The clustering target is limited to Pareto-front solutions (pareto_rank == 0).
-    // For Studies with constraints, rank 0 is already only feasible non-dominated
-    // solutions, so a separate feasibility check isn't needed.
-    let mut target_indices: Vec<usize> = (0..total_trials)
-        .filter(|&i| view.pareto_rank.get(i).copied().unwrap_or(u32::MAX) == 0)
-        .collect();
-
-    // Preserve constant-zero categorical columns without imputing missing numeric cells.
-    let param_value = |col: Option<&[f64]>, name: &str, row: usize| match col {
-        Some(values) => values.get(row).copied().unwrap_or(f64::NAN),
-        None if view.string_column(name).is_some() => 0.0,
-        None => f64::NAN,
-    };
-
-    // Build the feature matrix using only Pareto-front solutions
-    let flat_data: Vec<f64> = match target_space {
-        ClusterSpace::Objective => {
-            let cols = view.numeric_columns(obj_names);
-            target_indices
-                .iter()
-                .flat_map(|&i| {
-                    cols.iter()
-                        .map(move |col| col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN))
-                })
-                .collect()
-        }
-        ClusterSpace::Variable => {
-            let cols = view.numeric_columns(param_names);
-            target_indices
-                .iter()
-                .flat_map(|&i| {
-                    cols.iter()
-                        .zip(param_names)
-                        .map(move |(&col, name)| param_value(col, name, i))
-                })
-                .collect()
-        }
-        ClusterSpace::Combined => {
-            let param_cols = view.numeric_columns(param_names);
-            let obj_cols = view.numeric_columns(obj_names);
-            target_indices
-                .iter()
-                .flat_map(|&i| {
-                    param_cols
-                        .iter()
-                        .zip(param_names)
-                        .map(move |(&col, name)| param_value(col, name, i))
-                        .chain(obj_cols.iter().map(move |col| {
-                            col.and_then(|c| c.get(i)).copied().unwrap_or(f64::NAN)
-                        }))
-                })
-                .collect()
-        }
-    };
-
-    let mut finite_data = Vec::new();
-    if n_cols > 0 {
-        target_indices = target_indices
-            .iter()
-            .zip(flat_data.chunks_exact(n_cols))
-            .filter_map(|(&source, row)| {
-                if row.iter().all(|v| v.is_finite()) {
-                    finite_data.extend_from_slice(row);
-                    Some(source)
-                } else {
-                    None
-                }
-            })
-            .collect();
-    } else {
-        target_indices.clear();
-    }
-    let n_rows = target_indices.len();
-    ClusterMatrix {
-        flat_data: finite_data,
-        n_rows,
-        n_cols,
-        total_trials,
-        target_indices,
-    }
-}
-
+#[cfg(test)]
 pub fn build_cluster_matrix(
     view: &StudyView,
-    param_names: &[String],
-    obj_names: &[String],
-    target_space: ClusterSpace,
+    parameters: &[String],
+    objectives: &[String],
+    target: super::settings::ClusterSpace,
 ) -> Result<ClusterMatrix, crate::state::messages::ClusterUiError> {
-    let matrix = build_cluster_matrix_data(view, param_names, obj_names, target_space);
-    if !matrix.is_valid_for_clustering() {
+    use super::settings::ClusterSpace;
+    use tdashboard_analysis::preparation::{cluster_features, FeatureSpace};
+    let space = match target {
+        ClusterSpace::Objective => FeatureSpace::Objectives,
+        ClusterSpace::Variable => FeatureSpace::Parameters,
+        ClusterSpace::Combined => FeatureSpace::Both,
+    };
+    let data = cluster_features(&view.df, parameters, objectives, space, &view.pareto_rank);
+    if data.rows.len() < 2 || data.names.is_empty() {
         return Err(crate::state::messages::cluster_ui_error(
             "At least 2 trials and one feature are required.",
             Some(format!(
                 "validation: trial_count({}), n_cols({})",
-                matrix.n_rows, matrix.n_cols
+                data.rows.len(),
+                data.names.len()
             )),
             false,
         ));
     }
-    Ok(matrix)
+    Ok(ClusterMatrix {
+        flat_data: data.matrix.into_iter().flatten().collect(),
+        n_rows: data.rows.len(),
+        n_cols: data.names.len(),
+        total_trials: data.total_rows,
+        target_indices: data.rows,
+    })
 }
 
-/// Returns the first two objective-value axes for the scatter plot.
-/// If there's only one objective function, the Y axis is fixed at 0.0.
+/// Display axes are presentation data, not clustering input selection.
 pub(super) fn compute_obj_axes_2d(view: &StudyView, obj_names: &[String]) -> Vec<[f32; 2]> {
-    let n = view.row_count();
     let col0 = obj_names.first().and_then(|name| view.numeric_column(name));
     let col1 = obj_names.get(1).and_then(|name| view.numeric_column(name));
-    (0..n)
+    (0..view.row_count())
         .map(|i| {
-            let x = col0.and_then(|c| c.get(i)).copied().unwrap_or(0.0) as f32;
-            let y = col1.and_then(|c| c.get(i)).copied().unwrap_or(0.0) as f32;
-            [x, y]
+            [
+                col0.and_then(|c| c.get(i)).copied().unwrap_or(0.0) as f32,
+                col1.and_then(|c| c.get(i)).copied().unwrap_or(0.0) as f32,
+            ]
         })
         .collect()
 }

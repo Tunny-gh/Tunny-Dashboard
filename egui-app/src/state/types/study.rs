@@ -226,6 +226,7 @@ impl StudyContext {
 
 #[derive(Clone, Debug)]
 pub struct StudyView {
+    input: Option<tdashboard_study::StudyInput>,
     /// Immutable snapshot of the column data fetched from the shared store.
     pub df: Arc<DataFrame>,
     /// Row index -> trial_id.
@@ -287,11 +288,22 @@ impl StudyView {
             vec![0; n]
         };
         StudyView {
+            input: None,
             df,
             trial_ids,
             pareto_rank,
             cluster_id: vec![None; n],
         }
+    }
+
+    pub fn input(&self) -> Option<tdashboard_study::StudyInput> {
+        self.input.clone()
+    }
+
+    pub(crate) fn with_input(mut self, input: tdashboard_study::StudyInput) -> Self {
+        assert_eq!(self.df.provenance(), Some(input.stamp()));
+        self.input = Some(input);
+        self
     }
 
     /// Row count (= DataFrame.row_count).

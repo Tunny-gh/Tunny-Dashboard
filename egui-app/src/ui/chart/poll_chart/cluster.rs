@@ -3,6 +3,20 @@ use crate::ui::widgets::cluster_scatter::{
     ClusterCacheKey, ClusterComputeRequest, ClusterMatrix, KSelectionMode,
 };
 
+pub(super) fn cluster_conditions(
+    req: &ClusterComputeRequest,
+) -> tdashboard_analysis::session::Condition {
+    let key = ClusterCacheKey::from_request(req);
+    (
+        format!("{:?}", key.target_space),
+        format!("{:?}", key.k_mode),
+        key.k,
+        format!("{:?}", key.init_strategy),
+        key.elbow_max_k,
+    )
+        .into()
+}
+
 pub(super) fn run_cluster_compute(
     source: ClusterChartSource,
     req: ClusterComputeRequest,

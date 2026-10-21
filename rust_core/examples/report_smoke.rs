@@ -124,7 +124,13 @@ fn run(args: &Args) -> Result<(), String> {
         ..ReportOptions::default()
     };
 
-    let report = build_study_report(&meta, &df, Some(&extras), &source, &opts);
+    let report = build_study_report(
+        &tunny_core::journal_parser::analysis_meta(&meta),
+        &df,
+        Some(&extras),
+        &source,
+        &opts,
+    );
 
     let html = render_html(&report, args.lang);
     let markdown = render_markdown(&report, args.lang);

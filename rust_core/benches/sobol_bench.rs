@@ -1,9 +1,9 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::collections::HashMap;
-use tunny_core::dataframe::{select_study, store_dataframes, DataFrame, TrialRow};
+use tunny_core::dataframe::{DataFrame, TrialRow};
 use tunny_core::sensitivity::compute_sobol;
 
-fn setup_sobol_df(n: usize, n_params: usize, n_objectives: usize) {
+fn setup_sobol_df(n: usize, n_params: usize, n_objectives: usize) -> DataFrame {
     let param_names: Vec<String> = (0..n_params).map(|i| format!("x{}", i)).collect();
     let objective_names: Vec<String> = (0..n_objectives).map(|i| format!("obj{}", i)).collect();
 
@@ -34,9 +34,7 @@ fn setup_sobol_df(n: usize, n_params: usize, n_objectives: usize) {
         })
         .collect();
 
-    let df = DataFrame::from_trials(&rows, &param_names, &objective_names, &[], &[], 0);
-    store_dataframes(vec![df]);
-    select_study(0).expect("select_study failed");
+    DataFrame::from_trials(&rows, &param_names, &objective_names, &[], &[], 0)
 }
 
 fn bench_sobol(c: &mut Criterion) {
@@ -46,8 +44,8 @@ fn bench_sobol(c: &mut Criterion) {
             BenchmarkId::new("compute_sobol", n_obj),
             &n_obj,
             |b, &n_obj| {
-                setup_sobol_df(200, 5, n_obj);
-                b.iter(|| compute_sobol(512));
+                let df = setup_sobol_df(200, 5, n_obj);
+                b.iter(|| compute_sobol(&df, 512));
             },
         );
     }

@@ -67,25 +67,18 @@ directions and parameter ranges; it does not support Reload.
 tunny-dashboard/
 ├── crates/
 │   ├── study/          # All-state Study model and caller-owned management
-│   └── io/             # Formats, owned load/update batches, writers, artifact resolution
-├── rust_core/          # Core library (headless analytics)
-│   ├── src/
-│   │   ├── clustering/     # k-means, hierarchical, PCA, SOM
-│   │   ├── contour/        # Observed contour interpolation
-│   │   ├── data/           # DataFrame operations
-│   │   ├── gh/             # Grasshopper (.ghx) → Rhino.Compute execution
-│   │   ├── io/             # Temporary projection facades and legacy export/statistics
-│   │   ├── mcdm/           # TOPSIS, VIKOR, PROMETHEE I·II, entropy weights
-│   │   ├── process/        # Generic external-tool objective (command integration)
-│   │   ├── runner/         # Self-contained optimization loop (no Python/Optuna)
-│   │   ├── multi_objective/# Pareto ranking, Hypervolume, IGD+, ε, R2
-│   │   ├── pdp/            # Partial Dependence Plots (1D/2D, GP-backed)
-│   │   ├── report/         # Self-contained HTML/Markdown/JSON report export
-│   │   ├── sensitivity/    # Spearman, Ridge, tree-based, SHAP, Sobol, ARD
-│   │   ├── statistics/     # Histograms, quantiles, correlations
-│   │   ├── surrogate_opt/  # Candidate suggestion, robustness analysis
-│   │   └── gaussian_process.rs # Sparse GP (FITC/VFE) + MoE
-│   └── Cargo.toml
+│   ├── io/             # Formats, owned load/update batches, writers, artifact resolution
+│   └── analysis/       # Explicit-input analysis, derived tables, sessions and provenance
+│       └── src/        # Clustering/PCA/SOM, Pareto/indicators, MCDM, sensitivity,
+│                       # PDP, statistics, GP/LightGBM, surrogate optimization,
+│                       # report computation and pure HTML/Markdown/JSON/SVG output
+├── rust_core/          # Temporary import/presentation facades and real-evaluation loops
+│   └── src/
+│       ├── data/       # Legacy presentation-store facade (derived views only)
+│       ├── gh/         # Grasshopper (.ghx) → Rhino.Compute execution
+│       ├── io/         # Temporary entry composition and CSV encoding adapters
+│       ├── process/    # Generic external-tool objective (command integration)
+│       └── runner/     # Generic real-evaluation loop (no Python/Optuna)
 ├── egui-app/           # Desktop application (egui UI)
 │   ├── src/
 │   │   ├── io/         # File dialogs, I/O dispatch, export composition
@@ -99,6 +92,14 @@ tunny-dashboard/
 ├── docs/               # adr/, guides/ (execution / integration), planning/, reports/
 └── Cargo.toml          # Workspace configuration
 ```
+
+For versioned analysis, callers acquire immutable `tdashboard-study::StudyInput`
+handles and use `AnalysisSession::prepare_for` with a typed
+`tdashboard_analysis::preparation::Preparation`. Readiness, method-specific
+selections and trial maps are produced together; workers consume
+`PreparedAnalysis::data()` (or its retained model dependencies). Calculation-key
+conditions alone do not prepare data. Explicit matrix-only numerical APIs remain
+available for execution callers that do not operate on a loaded Study.
 
 ---
 

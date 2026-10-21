@@ -120,6 +120,18 @@ pub enum TrialState {
     Waiting,
 }
 
+impl TrialState {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Running => "RUNNING",
+            Self::Complete => "COMPLETE",
+            Self::Pruned => "PRUNED",
+            Self::Fail => "FAIL",
+            Self::Waiting => "WAITING",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ObjectiveDescriptor {
     pub index: ObjectiveIndex,

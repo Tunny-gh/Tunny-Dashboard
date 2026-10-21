@@ -14,14 +14,6 @@ impl ClusterSpace {
             ClusterSpace::Combined => "Combined",
         }
     }
-
-    pub fn feature_count(&self, n_params: usize, n_objectives: usize) -> usize {
-        match self {
-            ClusterSpace::Objective => n_objectives,
-            ClusterSpace::Variable => n_params,
-            ClusterSpace::Combined => n_params + n_objectives,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]

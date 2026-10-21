@@ -54,6 +54,26 @@ enum ComputeSyncKind {
 }
 
 impl ComputeSyncKind {
+    fn from_slot(slot: crate::state::analysis_job::DeliverySlot) -> Self {
+        use crate::state::analysis_job::DeliverySlot as S;
+        match slot {
+            S::Cluster(_) => Self::Cluster,
+            S::Importance => Self::Importance,
+            S::Heatmap => Self::SensitivityHeatmap,
+            S::Mcdm(_) | S::Entropy(_) => Self::Mcdm,
+            S::Pdp1d => Self::Pdp,
+            S::Pdp2d => Self::Pdp2d,
+            S::Contour => Self::ObservedContour,
+            S::Convergence => Self::Convergence,
+            S::Fit | S::MultiFit => Self::SurrogateFit,
+            S::Optimize | S::MultiOptimize => Self::SurrogateOpt,
+            S::Suggest | S::MultiSuggest => Self::SurrogateSuggest,
+            S::Robustness => Self::RobustnessFit,
+            S::Surface => Self::ResponseSurfaceFit,
+            S::Compare => Self::SurrogateCompare,
+        }
+    }
+
     fn from_message(msg: &AppMessage) -> Option<Self> {
         match msg {
             AppMessage::ClusteringDone { .. } | AppMessage::ClusterFailed { .. } => {
@@ -365,6 +385,27 @@ impl TunnyApp {
     pub fn poll_messages(&mut self, ctx: &egui::Context) {
         while let Ok(msg) = self.rx.try_recv() {
             let msg = match msg {
+                AppMessage::AnalysisCompleted { slot, completion } => {
+                    let deliveries = crate::state::analysis_job::adopt_all(
+                        slot,
+                        completion,
+                        &self.app_state,
+                        &mut self.widget_states,
+                    );
+                    for delivery in deliveries {
+                        let sync = ComputeSyncKind::from_message(&delivery)
+                            .unwrap_or_else(|| ComputeSyncKind::from_slot(slot));
+                        MessageHandler::handle(
+                            delivery,
+                            &mut self.app_state,
+                            &mut self.widget_states,
+                            &mut self.is_loading,
+                            &mut self.load_error,
+                        );
+                        sync.propagate(&self.widget_states, &mut self.canvas_widgets);
+                    }
+                    continue;
+                }
                 AppMessage::JournalScanned {
                     source,
                     scan,
@@ -984,17 +1025,21 @@ where
     F: FnOnce() -> AppMessage + Send + 'static,
 {
     std::thread::spawn(move || {
-        let msg = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
-            Ok(msg) => msg,
-            Err(payload) => {
-                let detail = payload
-                    .downcast_ref::<&str>()
-                    .map(|s| s.to_string())
-                    .or_else(|| payload.downcast_ref::<String>().cloned())
-                    .unwrap_or_else(|| "unknown panic".to_string());
-                AppMessage::TaskPanicked(detail)
-            }
-        };
+        let msg = task_result(f);
         let _ = tx.send(msg);
     });
+}
+
+pub(crate) fn task_result(f: impl FnOnce() -> AppMessage) -> AppMessage {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(msg) => msg,
+        Err(payload) => {
+            let detail = payload
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "unknown panic".to_string());
+            AppMessage::TaskPanicked(detail)
+        }
+    }
 }
