@@ -557,12 +557,10 @@ pub(crate) fn render_chart(
             );
         }
         ChartId::IntermediateValues => {
-            let extras = tunny_core::dataframe::active_extras_snapshot();
-            widgets.intermediate_values.show(ui, extras.as_deref());
+            widgets.intermediate_values.show(ui, ctx.view.extras());
         }
         ChartId::Timeline => {
-            let extras = tunny_core::dataframe::active_extras_snapshot();
-            widgets.timeline.show(ui, extras.as_deref());
+            widgets.timeline.show(ui, ctx.view.extras());
         }
         ChartId::EdfPlot => {
             use crate::theme::color_compute::{comparison_color_at, rgba_to_color32};

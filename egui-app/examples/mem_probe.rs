@@ -25,7 +25,6 @@
 //!
 //! dhat also outputs `dhat-heap.json` (viewable in detail with `dhat-view`).
 
-use std::sync::Arc;
 use tdashboard_study::*;
 use tunny_desktop::state::types::StudyView;
 
@@ -118,7 +117,7 @@ fn main() {
         manager.finish(ticket, receipt.next_sequence).unwrap();
         let projection =
             tunny_core::journal_parser::study_projection::project(&manager.acquire().unwrap());
-        frames.insert(study.study_id, Arc::new(projection.dataframe));
+        frames.insert(study.study_id, projection.dataframe);
         studies.push(projection.meta);
         managers.push(manager);
     }

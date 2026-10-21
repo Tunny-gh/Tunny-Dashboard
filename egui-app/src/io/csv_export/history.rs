@@ -56,8 +56,8 @@ pub(super) fn build_convergence_csv(app_state: &AppState) -> Option<String> {
 
 /// Outputs all trials and all steps of Intermediate Values in long format (no
 /// thinning).
-pub(super) fn build_intermediate_values_csv() -> Option<String> {
-    let extras = tunny_core::dataframe::active_extras_snapshot()?;
+pub(super) fn build_intermediate_values_csv(app_state: &AppState) -> Option<String> {
+    let extras = app_state.current_study.as_ref()?.view.extras()?;
     if !extras.has_intermediate() {
         return None;
     }
@@ -87,8 +87,8 @@ pub(super) fn build_intermediate_values_csv() -> Option<String> {
 }
 
 /// Outputs the start/end (elapsed seconds) of every trial in Timeline.
-pub(super) fn build_timeline_csv() -> Option<String> {
-    let extras = tunny_core::dataframe::active_extras_snapshot()?;
+pub(super) fn build_timeline_csv(app_state: &AppState) -> Option<String> {
+    let extras = app_state.current_study.as_ref()?.view.extras()?;
     if !extras.has_datetimes() {
         return None;
     }

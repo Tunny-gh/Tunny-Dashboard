@@ -26,6 +26,7 @@ pub(crate) fn poll_chart_work(
     chart_id: &ChartId,
     tx: &mpsc::SyncSender<AppMessage>,
 ) {
+    app_state.analysis_consumer.set(widgets.analysis_consumer);
     if app_state.current_study.is_none() {
         return;
     }
@@ -63,8 +64,7 @@ fn poll_convergence_indicators(
     }
     let indicator = app_state.convergence_indicator;
     let reference = app_state.hv_ref_point_override.clone();
-    // D5 removes this legacy presentation-target guard. Numerical inputs below
-    // are exclusively the prepared series, not this view snapshot.
+    #[cfg(test)]
     let presentation_target = app_state.current_study.as_ref().unwrap().view.df.clone();
     widgets.convergence.computing = true;
     spawn_analysis(
@@ -114,6 +114,7 @@ fn poll_convergence_indicators(
                 },
             };
             AppMessage::IndicatorHistoryDone {
+                #[cfg(test)]
                 source_df: presentation_target,
                 indicator,
                 base: history(0),
@@ -604,6 +605,7 @@ pub(crate) fn poll_trial_table_work(
     widgets: &mut WidgetStates,
     tx: &mpsc::SyncSender<AppMessage>,
 ) {
+    app_state.analysis_consumer.set(widgets.analysis_consumer);
     use crate::ui::widgets::trial_table::TrialTableMode;
     let Some(ctx) = app_state.current_study.as_ref() else {
         return;

@@ -128,10 +128,20 @@ pub struct StudyContext {
     pub meta: StudyMeta,
     /// Lightweight view over the column-oriented data (replaces the legacy `trial_rows: Vec<TrialRow>`, MEM-001).
     pub view: StudyView,
+    #[cfg(test)]
     pub pareto_indices: Vec<u32>,
 }
 
 impl StudyContext {
+    pub fn pareto_indices(&self) -> &[u32] {
+        if let Some(front) = &self.view.front {
+            return &front.pareto_indices;
+        }
+        #[cfg(test)]
+        return &self.pareto_indices;
+        #[cfg(not(test))]
+        &[]
+    }
     /// Trial count (equivalent to the legacy `trial_rows.len()`). Read from the column view without copying.
     pub fn trial_count(&self) -> usize {
         self.view.row_count()
@@ -217,22 +227,24 @@ impl StudyContext {
 // ============================================================
 // TASK-2331: StudyView — a lightweight view over a column-oriented DataFrame snapshot
 //
-// Wraps `Arc<DataFrame>` and holds app-layer-derived values not present in the DataFrame
-// (pareto_rank / cluster_id / trial_ids) as parallel arrays. Doesn't persistently hold a
-// row-oriented `Vec<TrialRow>` or per-row HashMap, so no column data is duplicated (MEM-001).
-// For the staged migration, temporary compatibility helpers `row_at` / `to_trial_rows` are
-// provided (planned for removal in TASK-2342).
+// The view retains the analysis-owned projection and finalized Pareto handle.
+// Provisional ranks are display padding, not a finalized analysis dependency.
+// Test-only row helpers support legacy presentation fixtures.
 // ============================================================
 
 #[derive(Clone, Debug)]
 pub struct StudyView {
     input: Option<tdashboard_study::StudyInput>,
-    /// Immutable snapshot of the column data fetched from the shared store.
+    projection: Option<Arc<tdashboard_analysis::projection::Projection>>,
+    pub front: Option<
+        tdashboard_analysis::shared::SharedResult<tdashboard_analysis::pareto::ParetoResult>,
+    >,
+    /// Shared immutable columns owned by the analysis projection.
     pub df: Arc<DataFrame>,
     /// Row index -> trial_id.
     pub trial_ids: Vec<u32>,
-    /// Pareto rank (in row-index order, computed at the app layer).
-    pub pareto_rank: Vec<u32>,
+    /// Finalized shared ranks, or provisional display padding while loading.
+    pub pareto_rank: tdashboard_analysis::shared::ParetoRanks,
     /// Cluster ID (in row-index order, None if unassigned).
     pub cluster_id: Vec<Option<i32>>,
 }
@@ -289,15 +301,40 @@ impl StudyView {
         };
         StudyView {
             input: None,
+            projection: None,
+            front: None,
             df,
             trial_ids,
-            pareto_rank,
+            pareto_rank: tdashboard_analysis::shared::ParetoRanks::Pending(pareto_rank),
             cluster_id: vec![None; n],
         }
     }
 
     pub fn input(&self) -> Option<tdashboard_study::StudyInput> {
         self.input.clone()
+    }
+
+    pub(crate) fn from_projection(
+        projection: Arc<tdashboard_analysis::projection::Projection>,
+        input: tdashboard_study::StudyInput,
+        front: Option<tdashboard_analysis::session::ResultHandle>,
+    ) -> Self {
+        let front = front.map(|h| tdashboard_analysis::shared::SharedResult::<tdashboard_analysis::pareto::ParetoResult>::new(h).expect("Completed Pareto result"));
+        let mut view = Self::new(projection.dataframe.clone(), vec![]).with_input(input);
+        if let Some(front) = &front {
+            view.pareto_rank = tdashboard_analysis::shared::ParetoRanks::Finalized(front.clone());
+        }
+        view.projection = Some(projection);
+        view.front = front;
+        view
+    }
+
+    pub fn extras(&self) -> Option<&tdashboard_analysis::extras::StudyExtras> {
+        self.projection.as_ref().map(|p| &p.extras)
+    }
+
+    pub fn trial_keys(&self) -> Option<&[tdashboard_study::TrialKey]> {
+        self.projection.as_ref().map(|p| p.rows.as_slice())
     }
 
     pub(crate) fn with_input(mut self, input: tdashboard_study::StudyInput) -> Self {

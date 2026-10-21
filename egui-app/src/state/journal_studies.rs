@@ -1,5 +1,5 @@
 //! Caller-owned loaded-Study collection. All formats emit owned I/O batches;
-//! #252 replaces projections; #253 removes legacy presentation-store mirrors.
+//! Analysis sessions own projections and shared results; selection stays in the entry.
 use super::app_state::StudyContext;
 use super::messages::AppMessage;
 use std::collections::{HashMap, VecDeque};
@@ -22,7 +22,7 @@ pub struct JournalStudies {
     comparisons: VecDeque<ComparisonRequest>,
     pub analysis: std::cell::RefCell<tdashboard_analysis::session::AnalysisSession>,
     pub analysis_jobs: std::cell::RefCell<
-        HashMap<super::analysis_job::DeliverySlot, tdashboard_analysis::session::ResultKey>,
+        HashMap<(u64, super::analysis_job::DeliverySlot), tdashboard_analysis::session::ResultKey>,
     >,
 }
 

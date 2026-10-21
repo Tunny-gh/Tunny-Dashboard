@@ -10,7 +10,11 @@ pub fn parse_single_study(
     let key = new_key(id)?;
     let rows = tdashboard_io::sqlite::parse_single_study_rows(path, id)?;
     let p = project_batch(key, rows.into_batch(key))?;
-    Ok((io_meta(p.meta), p.dataframe, p.extras))
+    Ok((
+        io_meta(p.meta),
+        std::sync::Arc::unwrap_or_clone(p.dataframe),
+        p.extras,
+    ))
 }
 #[cfg(test)]
 use crate::data::extras::TrialState;

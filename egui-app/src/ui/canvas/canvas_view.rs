@@ -219,6 +219,10 @@ pub fn show_canvas_view(
                 let had_no_capture = iw.capture.pending_capture.is_none();
                 let ctx = content_ui.ctx().clone();
                 handle_toolbar_action(&ctx, &tb_action, iw, app_state, tx);
+                iw.analysis_consumer = item
+                    .id
+                    .checked_add(1)
+                    .expect("Canvas consumer ID exhausted");
                 let body_rect = render_panel_item_body(
                     &mut content_ui,
                     app_state,

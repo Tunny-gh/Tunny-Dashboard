@@ -28,14 +28,9 @@ pub(crate) fn test_store_guard() -> std::sync::MutexGuard<'static, ()> {
 pub use reload::can_reload;
 use reload::ReloadRestore;
 
-/// For each async-compute completion message, indicates which widget's completion state
-/// should be propagated to each canvas item (an independent `WidgetStates`).
-///
-/// Compute is dispatched (`pending_compute`) from the item-specific `WidgetStates`, but
-/// the completion message (`MessageHandler::handle`) only updates the global
-/// `widget_states`. Without propagation, canvas items would be left with the `computing`
-/// flag stuck on, so the spinner never stops and results never render (a regression
-/// introduced by the per-item state split in commit 73883d8).
+/// Direct legacy notifications retain their presentation synchronization adapter.
+/// Keyed analysis completions route to their explicit consumer instead; broadcasting
+/// them would overwrite unrelated widgets' pending/error/model state.
 enum ComputeSyncKind {
     Cluster,
     Importance,
@@ -54,26 +49,6 @@ enum ComputeSyncKind {
 }
 
 impl ComputeSyncKind {
-    fn from_slot(slot: crate::state::analysis_job::DeliverySlot) -> Self {
-        use crate::state::analysis_job::DeliverySlot as S;
-        match slot {
-            S::Cluster(_) => Self::Cluster,
-            S::Importance => Self::Importance,
-            S::Heatmap => Self::SensitivityHeatmap,
-            S::Mcdm(_) | S::Entropy(_) => Self::Mcdm,
-            S::Pdp1d => Self::Pdp,
-            S::Pdp2d => Self::Pdp2d,
-            S::Contour => Self::ObservedContour,
-            S::Convergence => Self::Convergence,
-            S::Fit | S::MultiFit => Self::SurrogateFit,
-            S::Optimize | S::MultiOptimize => Self::SurrogateOpt,
-            S::Suggest | S::MultiSuggest => Self::SurrogateSuggest,
-            S::Robustness => Self::RobustnessFit,
-            S::Surface => Self::ResponseSurfaceFit,
-            S::Compare => Self::SurrogateCompare,
-        }
-    }
-
     fn from_message(msg: &AppMessage) -> Option<Self> {
         match msg {
             AppMessage::ClusteringDone { .. } | AppMessage::ClusterFailed { .. } => {
@@ -393,8 +368,33 @@ impl TunnyApp {
                         &mut self.widget_states,
                     );
                     for delivery in deliveries {
-                        let sync = ComputeSyncKind::from_message(&delivery)
-                            .unwrap_or_else(|| ComputeSyncKind::from_slot(slot));
+                        let output = match &delivery {
+                            AppMessage::ConsumerDelivery { message, .. } => message.as_ref(),
+                            message => message,
+                        };
+                        self.share_surrogate_output(output);
+                        if let AppMessage::ConsumerDelivery {
+                            consumer,
+                            slot,
+                            message,
+                        } = delivery
+                        {
+                            if let Some(widgets) = self
+                                .canvas_widgets
+                                .values_mut()
+                                .find(|w| w.analysis_consumer == consumer)
+                            {
+                                slot.clear_busy(widgets);
+                                MessageHandler::handle(
+                                    *message,
+                                    &mut self.app_state,
+                                    widgets,
+                                    &mut self.is_loading,
+                                    &mut self.load_error,
+                                );
+                            }
+                            continue;
+                        }
                         MessageHandler::handle(
                             delivery,
                             &mut self.app_state,
@@ -402,7 +402,6 @@ impl TunnyApp {
                             &mut self.is_loading,
                             &mut self.load_error,
                         );
-                        sync.propagate(&self.widget_states, &mut self.canvas_widgets);
                     }
                     continue;
                 }
@@ -555,7 +554,7 @@ impl TunnyApp {
             // propagated to every item after processing. Decide which widget to
             // propagate to before msg is consumed.
             let sync = ComputeSyncKind::from_message(&msg);
-
+            let previous_input = self.app_state.journal_display;
             MessageHandler::handle(
                 msg,
                 &mut self.app_state,
@@ -563,6 +562,7 @@ impl TunnyApp {
                 &mut self.is_loading,
                 &mut self.load_error,
             );
+            self.invalidate_canvas_input(previous_input);
 
             // Reflect the completion state into every canvas item (the global widget is
             // now the just-processed authoritative state).
@@ -691,7 +691,7 @@ impl TunnyApp {
                             let row_indices = crate::io::export::select_row_indices_for_export(
                                 &ctx.view,
                                 &self.app_state.selected_indices,
-                                &ctx.pareto_indices,
+                                ctx.pareto_indices(),
                                 &target,
                             );
                             // Don't swallow save failures — reflect them into load_error
@@ -880,6 +880,7 @@ impl eframe::App for TunnyApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         crate::ui::layout::show_layout(self, ui);
+        self.retain_analysis_interests();
         self.show_new_confirm_dialog(&ctx);
         self.show_csv_import_dialog(&ctx);
         self.show_db_url_dialog(&ctx);
@@ -940,6 +941,192 @@ fn dispatch_scan(
 }
 
 impl TunnyApp {
+    fn share_surrogate_output(&mut self, message: &AppMessage) {
+        // Pareto overlays and the model-only stages already reuse these outputs.
+        // Share the output, never another instance's busy/error/settings state.
+        for widgets in
+            std::iter::once(&mut self.widget_states).chain(self.canvas_widgets.values_mut())
+        {
+            let state = &mut widgets.surrogate_opt;
+            match message {
+                AppMessage::SurrogateFitDone(model) => state.trained = Some(model.clone()),
+                AppMessage::SurrogateMultiFitDone(models) => {
+                    state.multi_trained = Some(models.clone())
+                }
+                AppMessage::SurrogateOptDone(result) => state.result = Some(result.clone()),
+                AppMessage::SurrogateMultiOptDone(result) => {
+                    state.multi_result = Some(result.clone())
+                }
+                AppMessage::SurrogateSuggestDone(result) => {
+                    state.suggest_result = Some(result.clone())
+                }
+                AppMessage::SurrogateMultiSuggestDone(result) => {
+                    state.multi_suggest_result = Some(result.clone())
+                }
+                _ => {}
+            }
+        }
+    }
+    fn invalidate_canvas_input(&mut self, previous: Option<tdashboard_study::AcquiredStamp>) {
+        if previous != self.app_state.journal_display {
+            for widgets in self.canvas_widgets.values_mut() {
+                widgets.invalidate_analysis_input();
+            }
+        }
+    }
+    fn retain_analysis_interests(&mut self) {
+        use crate::state::layout_state::{ChartId, PanelItem};
+        use std::collections::HashSet;
+        use tdashboard_analysis::session::{AnalysisKey, AnalysisKind, AnalysisRequest};
+        let mut cluster = HashSet::new();
+        let mut mcdm = HashSet::new();
+        let mut importance = HashSet::new();
+        let mut sobol = HashSet::new();
+        let mut heatmap = HashSet::new();
+        let mut consumers = HashSet::new();
+        let live = self
+            .layout
+            .canvas
+            .items
+            .iter()
+            .filter_map(|item| {
+                self.canvas_widgets
+                    .get(&item.id)
+                    .map(|widgets| (&item.content, widgets))
+            })
+            .chain(
+                self.widget_states
+                    .maximized_item
+                    .iter()
+                    .map(|item| (item, &self.widget_states)),
+            );
+        for (panel, widgets) in live {
+            consumers.insert(widgets.analysis_consumer);
+            let controls = match panel {
+                PanelItem::Chart(ChartId::ClusterScatter) => {
+                    cluster.insert(widgets.cluster_scatter.cache_key());
+                    None
+                }
+                PanelItem::Chart(ChartId::ClusterScatter3D) => {
+                    cluster.insert(widgets.cluster_scatter_3d.cache_key());
+                    None
+                }
+                PanelItem::TrialTable => {
+                    cluster.insert(widgets.trial_table.cluster.cache_key());
+                    Some(&widgets.trial_table.mcdm.controls)
+                }
+                PanelItem::Chart(ChartId::ArtifactGallery) => {
+                    cluster.insert(widgets.artifact_gallery.cluster_cache_key());
+                    Some(&widgets.artifact_gallery.mcdm)
+                }
+                PanelItem::Chart(ChartId::McdmRankChart) => Some(&widgets.mcdm_chart.controls),
+                PanelItem::Chart(ChartId::McdmScatterChart) => {
+                    Some(&widgets.scatter_chart.controls)
+                }
+                PanelItem::Chart(ChartId::McdmScatterChart3D) => {
+                    Some(&widgets.mcdm_scatter_3d.controls)
+                }
+                PanelItem::Chart(ChartId::ImportanceChart) => {
+                    importance.insert((
+                        widgets.importance.metric.cache_id(),
+                        widgets.importance.objective_index,
+                        widgets.importance.feasible_only,
+                    ));
+                    sobol.insert((
+                        widgets.importance.objective_index,
+                        widgets.importance.feasible_only,
+                    ));
+                    None
+                }
+                PanelItem::Chart(ChartId::SensitivityHeatmap) => {
+                    heatmap.insert((
+                        widgets.sensitivity_heatmap.metric.cache_id(),
+                        widgets.sensitivity_heatmap.feasible_only,
+                    ));
+                    None
+                }
+                _ => None,
+            };
+            if let Some(controls) = controls {
+                if let Ok(key) = controls.cache_key() {
+                    mcdm.insert(key);
+                }
+            }
+        }
+        self.app_state
+            .cluster_cache
+            .retain(|key| cluster.contains(key));
+        self.app_state.mcdm_cache.retain(|key| mcdm.contains(key));
+        self.app_state
+            .importance_cache
+            .retain(|key| importance.contains(key));
+        self.app_state.sobol_cache.retain(|key| sobol.contains(key));
+        self.app_state
+            .sensitivity_heatmap_cache
+            .retain(|key| heatmap.contains(key));
+        let Some(journal) = self.app_state.journal_studies.as_ref() else {
+            return;
+        };
+        journal
+            .analysis_jobs
+            .borrow_mut()
+            .retain(|(consumer, _), _| consumers.contains(consumer));
+        let mut keys: Vec<_> = self
+            .app_state
+            .cluster_cache
+            .keys()
+            .chain(self.app_state.mcdm_cache.keys())
+            .chain(self.app_state.importance_cache.keys())
+            .chain(self.app_state.sobol_cache.keys())
+            .chain(self.app_state.sensitivity_heatmap_cache.keys())
+            .chain(self.app_state.mcdm_result.iter().map(|r| r.key()))
+            .cloned()
+            .collect();
+        keys.extend(journal.analysis_jobs.borrow().values().cloned());
+        for widgets in std::iter::once(&self.widget_states).chain(self.canvas_widgets.values()) {
+            for model in [
+                widgets.surrogate_opt.trained.as_ref(),
+                widgets.robustness.trained.as_ref(),
+                widgets.response_surface.trained.as_ref(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if let Some(key) = model.fit_key() {
+                    keys.push(key.clone());
+                }
+            }
+            if let Some(models) = &widgets.surrogate_opt.multi_trained {
+                keys.extend(models.iter().filter_map(|model| model.fit_key().cloned()));
+            }
+        }
+        let mut interests: Vec<_> = keys.iter().map(|key| key.analysis.clone()).collect();
+        for key in &keys {
+            interests.extend(key.analysis.dependencies.iter().map(|d| d.analysis.clone()));
+        }
+        for study in self
+            .app_state
+            .current_study
+            .iter()
+            .chain(&self.app_state.comparison_studies)
+        {
+            if let Some(front) = &study.view.front {
+                interests.push(front.key().analysis.clone());
+            }
+            if let Some(input) = study.view.input() {
+                interests.push(AnalysisKey {
+                    inputs: vec![input.stamp()],
+                    request: AnalysisRequest {
+                        kind: AnalysisKind::Distribution,
+                        conditions: vec![],
+                    },
+                    dependencies: vec![],
+                });
+            }
+        }
+        journal.analysis.borrow_mut().retain_interests(&interests);
+    }
+
     fn select_study(
         &mut self,
         meta: crate::state::app_state::StudyMeta,
@@ -957,6 +1144,7 @@ impl TunnyApp {
             }
             match journal.request(meta.study_id, comparison, force, tx) {
                 Ok(Some(activation)) => {
+                    let previous_input = self.app_state.journal_display;
                     MessageHandler::handle(
                         activation,
                         &mut self.app_state,
@@ -964,6 +1152,7 @@ impl TunnyApp {
                         &mut self.is_loading,
                         &mut self.load_error,
                     );
+                    self.invalidate_canvas_input(previous_input);
                     if self
                         .app_state
                         .journal_studies

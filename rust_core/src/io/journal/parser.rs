@@ -93,7 +93,11 @@ pub fn parse_single_study(
 > {
     let key = new_key(id)?;
     let p = project_batch(key, study::read_full(data, key)?)?;
-    Ok((io_meta(p.meta), p.dataframe, p.extras))
+    Ok((
+        io_meta(p.meta),
+        std::sync::Arc::unwrap_or_clone(p.dataframe),
+        p.extras,
+    ))
 }
 
 pub struct StudyStreamBatch {
@@ -179,7 +183,8 @@ pub fn parse_single_study_streaming(
         numeric.sort();
         let mut text = projection.dataframe.user_attr_string_col_names().to_vec();
         text.sort();
-        let replacement = (corrected || new_width < width).then_some(projection.dataframe);
+        let replacement = (corrected || new_width < width)
+            .then(|| std::sync::Arc::unwrap_or_clone(projection.dataframe));
         width = new_width;
         sink(StudyStreamBatch {
             extras: projection.extras,

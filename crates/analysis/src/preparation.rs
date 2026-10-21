@@ -748,11 +748,11 @@ fn prepare_sensitivity(
     feasible_only: bool,
     samples: usize,
 ) -> Result<SensitivityData, Readiness> {
-    let df = Arc::new(if feasible_only {
-        table.dataframe.filter_feasible()
+    let df = if feasible_only {
+        Arc::new(table.dataframe.filter_feasible())
     } else {
         table.dataframe.clone()
-    });
+    };
     let source_rows: Vec<_> = (0..table.dataframe.row_count())
         .filter(|&r| !feasible_only || table.dataframe.feasibility().is_feasible(r))
         .collect();

@@ -173,6 +173,13 @@ impl std::fmt::Debug for ResultHandle {
     }
 }
 impl ResultHandle {
+    pub fn is_pending(&self) -> bool {
+        self.0
+            .value
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .is_none()
+    }
     pub fn key(&self) -> &ResultKey {
         &self.0.key
     }
@@ -228,6 +235,15 @@ impl AnalysisWork {
         AnalysisCompletion {
             handle: self.handle,
             value,
+        }
+    }
+    pub fn execute_shared(
+        self,
+        compute: impl FnOnce(&PreparedAnalysis) -> Result<Arc<dyn Any + Send + Sync>, String>,
+    ) -> AnalysisCompletion {
+        AnalysisCompletion {
+            value: compute(&self.prepared),
+            handle: self.handle,
         }
     }
 }
@@ -596,15 +612,7 @@ impl AnalysisSession {
 
     pub fn retain_interests(&mut self, interests: &[AnalysisKey]) {
         let selected: HashSet<_> = interests.iter().collect();
-        self.results.retain(|key, result| {
-            selected.contains(key)
-                || result
-                    .0
-                    .value
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .is_none()
-        });
+        self.results.retain(|key, _| selected.contains(key));
         let inputs: HashSet<_> = interests
             .iter()
             .flat_map(|k| k.inputs.iter().copied())

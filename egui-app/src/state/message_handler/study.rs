@@ -1,8 +1,7 @@
 use super::*;
 
 impl MessageHandler {
-    /// Explicit-input table/history path. Legacy store writes below are derived
-    /// mirrors for unmigrated widgets only (#253); they are never read here.
+    /// Publish the analysis-owned table/front and explicit all-state display input.
     pub(super) fn publish_journal(
         key: tdashboard_study::StudyKey,
         app_state: &mut AppState,
@@ -34,33 +33,29 @@ impl MessageHandler {
         let meta = crate::io::journal::convert_study_meta(tunny_core::journal_parser::io_meta(
             projection.meta.clone(),
         ));
-        let pareto = if complete {
+        let front = if complete {
             let front = journal
                 .analysis
                 .borrow_mut()
                 .pareto(input.clone())
                 .expect("Complete input is Pareto-ready");
-            (*front
-                .payload::<tdashboard_analysis::pareto::ParetoResult>()
-                .expect("Pareto result completed")
-                .expect("Pareto computation succeeds"))
-            .clone()
+            Some(front)
         } else {
-            tunny_core::pareto::ParetoResult {
-                ranks: vec![],
-                pareto_indices: vec![],
-                hypervolume: None,
-            }
+            None
         };
-        let df = std::sync::Arc::new(projection.dataframe.clone());
         let history = journal.analysis.borrow_mut().history(input.clone()).ok();
-        // Remove these compatibility publications in #253. No parser writes them.
-        tunny_core::dataframe::swap_snapshot(key.stored_id, df.clone());
-        tunny_core::dataframe::store_extras_for(key.stored_id, projection.extras.clone());
+        let view = StudyView::from_projection(projection, input.clone(), front);
+        #[cfg(test)]
+        let pareto_indices = view
+            .front
+            .as_ref()
+            .map(|f| f.pareto_indices.clone())
+            .unwrap_or_default();
         let context = StudyContext {
             meta: meta.clone(),
-            view: StudyView::new(df, pareto.ranks).with_input(input.clone()),
-            pareto_indices: pareto.pareto_indices,
+            view,
+            #[cfg(test)]
+            pareto_indices,
         };
         let comparison_context = comparison_ready.then(|| context.clone());
         if let Some(existing) = app_state
@@ -95,8 +90,6 @@ impl MessageHandler {
             app_state.convergence_history = None;
             app_state.comparison_convergence_histories.clear();
             widget_states.convergence.computing = false;
-            // Only unmigrated active-store consumers need this selection (#253).
-            let _ = tunny_core::dataframe::select_study(key.stored_id);
         }
         // Primary invalidation above must not clear histories just appended by a
         // shared acquisition's comparison handoff.

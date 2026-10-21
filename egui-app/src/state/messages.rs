@@ -207,6 +207,15 @@ pub struct SurrogateCompareUiResult {
 // ============================================================
 
 pub enum AppMessage {
+    ConsumerDelivery {
+        consumer: u64,
+        slot: super::analysis_job::DeliverySlot,
+        message: Box<AppMessage>,
+    },
+    SharedAnalysis {
+        slot: super::analysis_job::DeliverySlot,
+        result: tdashboard_analysis::session::ResultHandle,
+    },
     AnalysisUnavailable(super::analysis_job::DeliverySlot),
     AnalysisCompleted {
         slot: super::analysis_job::DeliverySlot,
@@ -323,6 +332,7 @@ pub enum AppMessage {
     /// common reference set.
     IndicatorHistoryDone {
         /// Snapshot used by the job; results from replaced snapshots are stale.
+        #[cfg(test)]
         source_df: std::sync::Arc<tunny_core::dataframe::DataFrame>,
         indicator: tunny_core::indicators::MoIndicator,
         /// Indicator history for the base Study.

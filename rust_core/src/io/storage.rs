@@ -56,7 +56,7 @@ pub fn load_study(
     );
     Ok((
         crate::journal_parser::io_meta(projection.meta),
-        projection.dataframe,
+        std::sync::Arc::unwrap_or_clone(projection.dataframe),
         projection.extras,
         display,
     ))

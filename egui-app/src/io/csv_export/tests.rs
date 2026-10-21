@@ -278,7 +278,10 @@ fn importance_csv_has_expected_columns() {
         ard: None,
     };
     // Spearman is cache_id=0
-    state.importance_cache.insert((0u8, 0, false), result);
+    state.importance_cache.select(
+        (0u8, 0, false),
+        crate::state::analysis_job::fixture_result(result),
+    );
     let widgets = WidgetStates::default(); // metric=Spearman, obj_idx=0
     let csv = build_importance_csv(&state, &widgets).unwrap();
     let header = csv.lines().next().unwrap();
@@ -299,9 +302,9 @@ fn categorical_csv_outputs_are_explicit_for_mixed_and_all_categorical_inputs() {
             widgets.importance.objective_index = 1; // cache contains one objective, not index 1
             widgets.sensitivity_heatmap.metric = metric;
             let names = if mixed { vec!["x".into()] } else { vec![] };
-            state.importance_cache.insert(
+            state.importance_cache.select(
                 (metric.cache_id(), 1, false),
-                SensitivityResult {
+                crate::state::analysis_job::fixture_result(SensitivityResult {
                     param_names: names.clone(),
                     unsupported_categorical: vec!["cat".into()],
                     spearman: if mixed { vec![vec![0.9]] } else { vec![] },
@@ -318,17 +321,17 @@ fn categorical_csv_outputs_are_explicit_for_mixed_and_all_categorical_inputs() {
                     shap: None,
                     permutation: None,
                     ard: None,
-                },
+                }),
             );
-            state.sensitivity_heatmap_cache.insert(
+            state.sensitivity_heatmap_cache.select(
                 (metric.cache_id(), false),
-                HeatmapMatrix {
+                crate::state::analysis_job::fixture_result(HeatmapMatrix {
                     param_names: names,
                     unsupported_categorical: vec!["cat".into()],
                     objective_names: vec!["obj".into()],
                     values: if mixed { vec![vec![0.9]] } else { vec![] },
                     signed: true,
-                },
+                }),
             );
             let importance = build_importance_csv(&state, &widgets).unwrap();
             assert!(has_csv_data(&ChartId::ImportanceChart, &state, &widgets));
@@ -351,15 +354,15 @@ fn unsupported_names_do_not_bypass_heatmap_dimension_validation() {
     use crate::state::results::HeatmapMatrix;
     let mut state = AppState::default();
     let widgets = WidgetStates::default();
-    state.sensitivity_heatmap_cache.insert(
+    state.sensitivity_heatmap_cache.select(
         (0, false),
-        HeatmapMatrix {
+        crate::state::analysis_job::fixture_result(HeatmapMatrix {
             param_names: vec!["x".into()],
             unsupported_categorical: vec!["cat".into()],
             objective_names: vec!["obj".into()],
             values: vec![],
             signed: true,
-        },
+        }),
     );
     assert!(!has_csv_data(
         &ChartId::SensitivityHeatmap,
@@ -388,7 +391,10 @@ fn importance_csv_quotes_param_name_with_comma() {
         permutation: None,
         ard: None,
     };
-    state.importance_cache.insert((0u8, 0, false), result);
+    state.importance_cache.select(
+        (0u8, 0, false),
+        crate::state::analysis_job::fixture_result(result),
+    );
     let widgets = WidgetStates::default();
     let csv = build_importance_csv(&state, &widgets).unwrap();
     assert_eq!(csv.lines().nth(1).unwrap(), "\"x,y\",0.9,Spearman");
@@ -413,7 +419,10 @@ fn importance_csv_guards_param_name_starting_with_equals() {
         permutation: None,
         ard: None,
     };
-    state.importance_cache.insert((0u8, 0, false), result);
+    state.importance_cache.select(
+        (0u8, 0, false),
+        crate::state::analysis_job::fixture_result(result),
+    );
     let widgets = WidgetStates::default();
     let csv = build_importance_csv(&state, &widgets).unwrap();
     assert_eq!(csv.lines().nth(1).unwrap(), "'=SUM(A1),0.9,Spearman");
@@ -424,15 +433,15 @@ fn sensitivity_csv_has_objective_columns_in_header() {
     use crate::state::app_state::HeatmapMatrix;
     let widgets = WidgetStates::default(); // default metric = Spearman (id 0)
     let mut state = AppState::default();
-    state.sensitivity_heatmap_cache.insert(
+    state.sensitivity_heatmap_cache.select(
         (widgets.sensitivity_heatmap.metric.cache_id(), false),
-        HeatmapMatrix {
+        crate::state::analysis_job::fixture_result(HeatmapMatrix {
             param_names: vec!["x".into(), "y".into()],
             unsupported_categorical: vec![],
             objective_names: vec!["f1".into(), "f2".into()],
             values: vec![vec![0.9, 0.3], vec![0.5, 0.7]],
             signed: true,
-        },
+        }),
     );
     let csv = build_sensitivity_csv(&state, &widgets).unwrap();
     let header = csv.lines().next().unwrap();
@@ -499,12 +508,12 @@ fn cluster_csv_includes_cluster_id_column() {
     state.current_study = Some(study);
     // Register the result in the cache under the 2D chart's settings key.
     let key = widgets.cluster_scatter.cache_key();
-    state.cluster_cache.insert(
+    state.cluster_cache.select(
         key,
-        ClusterResult {
+        crate::state::analysis_job::fixture_result(ClusterResult {
             labels: vec![0, 1],
             n_clusters: 2,
-        },
+        }),
     );
     let csv = build_cluster_csv(&ChartId::ClusterScatter, &state, &widgets).unwrap();
     let lines: Vec<&str> = csv.lines().collect();
@@ -678,7 +687,10 @@ fn negative_mcdm_settings_cannot_export_a_cached_uniform_ranking() {
     widgets.trial_table.mode = TrialTableMode::Mcdm;
     widgets.mcdm_chart.controls.weights = vec![0.0, 0.0];
     let key = widgets.mcdm_chart.controls.cache_key().unwrap();
-    state.mcdm_cache.insert(key, make_topsis_mcdm(0));
+    state.mcdm_cache.select(
+        key,
+        crate::state::analysis_job::fixture_result(make_topsis_mcdm(0)),
+    );
     assert!(mcdm_result_for_chart(&ChartId::McdmRankChart, &state, &widgets).is_some());
     for weights in [vec![-1.0, -1.0], vec![f64::NAN, -1.0]] {
         widgets.mcdm_chart.controls.weights = weights.clone();

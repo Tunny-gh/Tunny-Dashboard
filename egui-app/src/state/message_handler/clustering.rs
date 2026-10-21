@@ -8,6 +8,7 @@ impl MessageHandler {
         app_state: &mut AppState,
         widget_states: &mut WidgetStates,
     ) {
+        Self::fixture_delivery_only();
         let trial_count = app_state
             .current_study
             .as_ref()
@@ -15,7 +16,12 @@ impl MessageHandler {
             .unwrap_or(0);
         if result.labels.len() == trial_count {
             // Cache the result per settings key, shared with other charts using the same settings.
-            app_state.cluster_cache.insert(key, result);
+            #[cfg(test)]
+            app_state
+                .cluster_cache
+                .select(key, crate::state::analysis_job::fixture_result(result));
+            #[cfg(not(test))]
+            let _ = (key, result);
             // Clear the spinner / pending state of the chart that started the run.
             Self::clear_cluster_runtime(source, widget_states);
         } else {
@@ -41,7 +47,7 @@ impl MessageHandler {
     }
 
     /// Clears the execution state of the widget that started clustering.
-    fn clear_cluster_runtime(
+    pub(super) fn clear_cluster_runtime(
         source: crate::state::messages::ClusterChartSource,
         widget_states: &mut WidgetStates,
     ) {

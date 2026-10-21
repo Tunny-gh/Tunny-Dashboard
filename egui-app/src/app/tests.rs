@@ -3,7 +3,517 @@ use super::*;
 use crate::state::app_state::StudyMeta;
 
 #[test]
-fn d4_adopted_analysis_deliveries_sync_current_canvas_success_and_panic() {
+fn d5_pdp_1d_rerun_delivers_success_to_both_rebound_canvas_consumers() {
+    check_pdp_rebound_consumers(false);
+}
+
+#[test]
+fn d5_pdp_2d_rerun_delivers_success_to_both_rebound_canvas_consumers() {
+    check_pdp_rebound_consumers(true);
+}
+
+#[test]
+fn d5_generic_failure_finishes_only_the_rebound_consumers_selected_slot() {
+    use crate::state::analysis_job::{reject_settings, DeliverySlot};
+    let mut app = artifact_test_app(None);
+    app.app_state = crate::state::analysis_job::tests::state(true).0;
+    for owner in [10, 20] {
+        let mut widgets = WidgetStates {
+            analysis_consumer: owner + 1,
+            ..Default::default()
+        };
+        widgets.pdp_2d.computing = true;
+        widgets.importance.computing = true;
+        app.canvas_widgets.insert(owner, widgets);
+        app.app_state.analysis_consumer.set(owner + 1);
+        reject_settings(
+            &app.app_state,
+            app.sender(),
+            DeliverySlot::Pdp2d,
+            "same unavailable input".into(),
+        );
+    }
+    let mut queued = (0..2)
+        .map(|_| {
+            app.rx
+                .recv_timeout(std::time::Duration::from_secs(30))
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    queued.sort_by_key(|message| {
+        let AppMessage::AnalysisCompleted { completion, .. } = message else {
+            panic!()
+        };
+        completion.key().run
+    });
+    for (index, message) in queued.into_iter().enumerate() {
+        app.sender().send(message).unwrap();
+        app.poll_messages(&egui::Context::default());
+        for widgets in app.canvas_widgets.values() {
+            assert_eq!(widgets.pdp_2d.computing, index == 0);
+            assert!(
+                widgets.importance.computing,
+                "Only the completed slot is cleared"
+            );
+        }
+    }
+    assert_eq!(app.load_error.as_deref(), Some("PDP 2D computation failed"));
+}
+
+fn check_pdp_rebound_consumers(two_dimensional: bool) {
+    use crate::state::analysis_job::DeliverySlot;
+    use crate::state::layout_state::ChartId;
+    use crate::ui::widgets::{pdp_2d::Pdp2dComputeRequest, pdp_chart::PdpComputeRequest};
+    use std::sync::Arc;
+    use tdashboard_study::*;
+    for latest_first in [false, true] {
+        let mut app = artifact_test_app(None);
+        app.app_state = crate::state::analysis_job::tests::state(true).0;
+        let journal = app.app_state.journal_studies.as_mut().unwrap();
+        let manager = journal.managers.get_mut(&0).unwrap();
+        let input = manager.acquire().unwrap();
+        let upserts = input
+            .data()
+            .trials()
+            .iter()
+            .map(|trial| {
+                let mut trial = (**trial).clone();
+                let parameter = trial.parameters["x"].clone();
+                Arc::make_mut(&mut trial.parameters).insert("z".into(), parameter);
+                Arc::new(trial)
+            })
+            .collect();
+        let ticket = manager.begin(LoadKind::Refresh).unwrap();
+        let receipt = manager
+            .apply(
+                manager.header(ticket).unwrap(),
+                StudyBatch::Delta {
+                    upserts,
+                    removals: vec![],
+                    metadata: MetadataEdit::Unchanged,
+                },
+            )
+            .unwrap();
+        manager.finish(ticket, receipt.next_sequence).unwrap();
+        MessageHandler::handle(
+            AppMessage::JournalActivate {
+                key: input.stamp().input.study,
+            },
+            &mut app.app_state,
+            &mut app.widget_states,
+            &mut app.is_loading,
+            &mut app.load_error,
+        );
+        let slot = if two_dimensional {
+            DeliverySlot::Pdp2d
+        } else {
+            DeliverySlot::Pdp1d
+        };
+        let mut requests = vec![];
+        for owner in [10, 20] {
+            let mut widgets = WidgetStates {
+                analysis_consumer: owner + 1,
+                ..Default::default()
+            };
+            let chart = if two_dimensional {
+                widgets.pdp_2d.pending_compute = Some(Pdp2dComputeRequest {
+                    param1: "x".into(),
+                    param2: "z".into(),
+                    objective: "y".into(),
+                    model_type: "ridge".into(),
+                    n_grid: 5,
+                    feasible_only: false,
+                });
+                ChartId::PdpChart2D
+            } else {
+                widgets.pdp_chart.pending_compute = Some(PdpComputeRequest {
+                    param: "x".into(),
+                    objective: "y".into(),
+                    model_type: "ridge".into(),
+                    n_grid: 5,
+                    feasible_only: false,
+                });
+                ChartId::PdpChart
+            };
+            let tx = app.sender();
+            crate::ui::poll_chart::poll_chart_work(&mut app.app_state, &mut widgets, &chart, &tx);
+            requests.push(
+                app.app_state
+                    .journal_studies
+                    .as_ref()
+                    .unwrap()
+                    .analysis_jobs
+                    .borrow()[&(owner + 1, slot)]
+                    .clone(),
+            );
+            app.canvas_widgets.insert(owner, widgets);
+        }
+        assert_ne!(
+            requests[0], requests[1],
+            "The existing manual request starts a new run"
+        );
+        let jobs = app
+            .app_state
+            .journal_studies
+            .as_ref()
+            .unwrap()
+            .analysis_jobs
+            .borrow();
+        assert!(jobs.values().all(|key| key == &requests[1]));
+        drop(jobs);
+        let mut queued = (0..2)
+            .map(|_| {
+                app.rx
+                    .recv_timeout(std::time::Duration::from_secs(30))
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        queued.sort_by_key(|message| {
+            let AppMessage::AnalysisCompleted { completion, .. } = message else {
+                panic!()
+            };
+            (completion.key() == &requests[1]) != latest_first
+        });
+        for (index, message) in queued.into_iter().enumerate() {
+            app.sender().send(message).unwrap();
+            app.poll_messages(&egui::Context::default());
+            let finished = latest_first || index == 1;
+            for owner in [10, 20] {
+                let widgets = &app.canvas_widgets[&owner];
+                if two_dimensional {
+                    assert_eq!(
+                        !widgets.pdp_2d.computing, finished,
+                        "consumer {owner}, latest_first={latest_first}"
+                    );
+                    assert_eq!(widgets.pdp_2d.result.is_some(), finished);
+                    if let Some(result) = &widgets.pdp_2d.result {
+                        assert_eq!(result.x_values.len(), 5);
+                        assert_eq!(result.z_values.len(), 5);
+                    }
+                } else {
+                    assert_eq!(
+                        !widgets.pdp_chart.computing, finished,
+                        "consumer {owner}, latest_first={latest_first}"
+                    );
+                    assert_eq!(widgets.pdp_chart.result.is_some(), finished);
+                    if let Some(result) = &widgets.pdp_chart.result {
+                        assert_eq!(result.x_values.len(), 5);
+                        assert_eq!(result.param_name, "x");
+                    }
+                    assert_eq!(widgets.pdp_chart.cache.is_empty(), !finished);
+                }
+            }
+            assert!(app.load_error.is_none(), "{:?}", app.load_error);
+        }
+    }
+}
+
+#[test]
+fn d5_trained_model_reuse_does_not_finish_another_instances_fit() {
+    use crate::state::analysis_job::{spawn, DeliverySlot};
+    use tdashboard_analysis::preparation::{FitObjectives, Preparation};
+    use tdashboard_analysis::surrogate_opt::*;
+    let mut app = artifact_test_app(None);
+    app.app_state = crate::state::analysis_job::tests::state(true).0;
+    for owner in [10, 20] {
+        let mut widgets = WidgetStates {
+            analysis_consumer: owner + 1,
+            ..Default::default()
+        };
+        widgets.surrogate_opt.fitting = true;
+        widgets.surrogate_opt.error_message = Some("independent diagnostic".into());
+        app.canvas_widgets.insert(owner, widgets);
+    }
+    app.app_state.analysis_consumer.set(11);
+    spawn(
+        &app.app_state,
+        app.sender(),
+        DeliverySlot::Fit,
+        "Ridge",
+        Preparation::Fit {
+            objectives: FitObjectives::Name("y".into()),
+            constraints: false,
+        },
+        |prepared| {
+            let data = prepared.data().fit();
+            let request = SurrogateFitRequest {
+                x_matrix: data.x.clone(),
+                y: data.ys[0].clone(),
+                param_names: data.names.clone(),
+                objective_name: "y".into(),
+                model: SurrogateModelKind::Ridge,
+                auto_select: false,
+                constraints: vec![],
+                priority_rows: vec![],
+                param_bounds: Some(data.bounds.clone()),
+            };
+            AppMessage::SurrogateFitDone(std::sync::Arc::new(
+                fit_surrogate_with_validation(&request).unwrap(),
+            ))
+        },
+    );
+    poll_until(&mut app, |app| {
+        !app.canvas_widgets[&10].surrogate_opt.fitting
+    });
+    let target = &app.canvas_widgets[&10].surrogate_opt;
+    let other = &app.canvas_widgets[&20].surrogate_opt;
+    assert!(other.fitting);
+    assert_eq!(
+        other.error_message.as_deref(),
+        Some("independent diagnostic")
+    );
+    let trained = target.trained.as_ref().unwrap();
+    assert!(std::sync::Arc::ptr_eq(
+        trained,
+        other.trained.as_ref().unwrap()
+    ));
+    assert!(std::sync::Arc::ptr_eq(
+        trained,
+        app.widget_states.surrogate_opt.trained.as_ref().unwrap()
+    ));
+    assert_eq!(
+        trained.fit_key().unwrap().analysis.inputs,
+        [app.app_state
+            .current_study
+            .as_ref()
+            .unwrap()
+            .view
+            .input()
+            .unwrap()
+            .stamp()]
+    );
+}
+
+#[test]
+fn d5_mcdm_rank_table_and_gallery_share_the_retained_result() {
+    use crate::state::layout_state::ChartId;
+    use crate::state::results::McdmMethod;
+    use crate::ui::widgets::artifact_gallery::ArtifactViewMode;
+    use crate::ui::widgets::mcdm_chart::McdmComputeRequest;
+    use crate::ui::widgets::trial_table::TrialTableMode;
+    let mut app = artifact_test_app(None);
+    app.app_state = crate::state::analysis_job::tests::d5_front_state();
+    let key = crate::ui::widgets::mcdm_chart::McdmCacheKey::from_settings(
+        McdmMethod::Topsis,
+        crate::state::results::WeightMode::Manual,
+        &[1.0],
+        0.5,
+    )
+    .unwrap();
+    for owner in 1..=3 {
+        let mut widgets = WidgetStates {
+            analysis_consumer: owner + 1,
+            ..Default::default()
+        };
+        widgets.trial_table.mode = TrialTableMode::Mcdm;
+        widgets.artifact_gallery.mode = ArtifactViewMode::Mcdm;
+        let controls = match owner {
+            1 => &mut widgets.mcdm_chart.controls,
+            2 => &mut widgets.trial_table.mcdm.controls,
+            _ => &mut widgets.artifact_gallery.mcdm,
+        };
+        controls.weights = vec![1.0];
+        controls.pending_compute = Some(McdmComputeRequest {
+            method: McdmMethod::Topsis,
+            weights: vec![1.0],
+            v: 0.5,
+        });
+        controls.computing = true;
+        let tx = app.sender();
+        if owner == 2 {
+            crate::ui::poll_chart::poll_trial_table_work(&mut app.app_state, &mut widgets, &tx);
+        } else {
+            crate::ui::poll_chart::poll_chart_work(
+                &mut app.app_state,
+                &mut widgets,
+                if owner == 1 {
+                    &ChartId::McdmRankChart
+                } else {
+                    &ChartId::ArtifactGallery
+                },
+                &tx,
+            );
+        }
+        app.canvas_widgets.insert(owner, widgets);
+    }
+    let jobs: Vec<_> = app
+        .app_state
+        .journal_studies
+        .as_ref()
+        .unwrap()
+        .analysis_jobs
+        .borrow()
+        .values()
+        .cloned()
+        .collect();
+    assert_eq!(jobs.len(), 3);
+    assert!(jobs.iter().all(|key| key == &jobs[0]));
+    poll_until(&mut app, |app| app.app_state.mcdm_cache.contains_key(&key));
+    assert!(!app.canvas_widgets[&1].mcdm_chart.controls.computing);
+    assert!(!app.canvas_widgets[&2].trial_table.mcdm.controls.computing);
+    assert!(!app.canvas_widgets[&3].artifact_gallery.mcdm.computing);
+    assert!(app
+        .app_state
+        .mcdm_cache
+        .selected(&key)
+        .unwrap()
+        .handle()
+        .same_result(app.app_state.mcdm_result.as_ref().unwrap().handle()));
+    let ctx = egui::Context::default();
+    for owner in 1..=3 {
+        let widgets = app.canvas_widgets.get_mut(&owner).unwrap();
+        let _ = ctx.run_ui(Default::default(), |ui| {
+            if owner == 2 {
+                widgets.trial_table.show(ui, &mut app.app_state);
+            } else {
+                crate::ui::render_chart::render_chart(
+                    ui,
+                    &mut app.app_state,
+                    widgets,
+                    if owner == 1 {
+                        &ChartId::McdmRankChart
+                    } else {
+                        &ChartId::ArtifactGallery
+                    },
+                );
+            }
+        });
+    }
+}
+
+#[test]
+fn d5_canvas_consumers_share_equal_conditions_and_keep_unequal_jobs_independent() {
+    use crate::state::analysis_job::DeliverySlot;
+    use crate::state::layout_state::ChartId;
+    use crate::state::messages::ClusterChartSource;
+    use crate::ui::widgets::cluster_scatter::{
+        ClusterComputeRequest, ClusterSpace, KMeansInitStrategy, KSelectionMode,
+    };
+    for equal in [true, false] {
+        let mut app = artifact_test_app(None);
+        app.app_state = crate::state::analysis_job::tests::d5_front_state();
+        let mut cache_keys = vec![];
+        for (owner, k) in [(10, 2), (20, if equal { 2 } else { 3 })] {
+            let mut widgets = WidgetStates {
+                analysis_consumer: owner + 1,
+                ..Default::default()
+            };
+            let cluster = &mut widgets.cluster_scatter;
+            cluster.k = k;
+            cluster.target_space = ClusterSpace::Variable;
+            cluster.k_mode = KSelectionMode::Manual;
+            cluster.init_strategy = KMeansInitStrategy::Deterministic;
+            cluster.computing = true;
+            cluster.pending_compute = Some(ClusterComputeRequest {
+                k,
+                target_space: cluster.target_space,
+                k_mode: cluster.k_mode,
+                init_strategy: cluster.init_strategy,
+                elbow_max_k: cluster.elbow_max_k,
+            });
+            cache_keys.push(cluster.cache_key());
+            let tx = app.sender();
+            crate::ui::poll_chart::poll_chart_work(
+                &mut app.app_state,
+                &mut widgets,
+                &ChartId::ClusterScatter,
+                &tx,
+            );
+            app.canvas_widgets.insert(owner, widgets);
+            app.layout
+                .canvas
+                .items
+                .push(crate::state::layout_state::CanvasItem {
+                    id: owner,
+                    content: crate::state::layout_state::PanelItem::Chart(ChartId::ClusterScatter),
+                    x: 0.0,
+                    y: 0.0,
+                    w: 300.0,
+                    h: 300.0,
+                });
+        }
+        let journal = app.app_state.journal_studies.as_ref().unwrap();
+        let jobs = journal.analysis_jobs.borrow();
+        let a = jobs[&(11, DeliverySlot::Cluster(ClusterChartSource::Scatter2D))].clone();
+        let b = jobs[&(21, DeliverySlot::Cluster(ClusterChartSource::Scatter2D))].clone();
+        assert_eq!(a == b, equal);
+        drop(jobs);
+        if !equal {
+            let first = app
+                .rx
+                .recv_timeout(std::time::Duration::from_secs(30))
+                .unwrap();
+            let second = app
+                .rx
+                .recv_timeout(std::time::Duration::from_secs(30))
+                .unwrap();
+            let AppMessage::AnalysisCompleted { completion, .. } = &first else {
+                panic!()
+            };
+            let first_owner = if completion.key() == &a { 10 } else { 20 };
+            app.sender().send(first).unwrap();
+            app.poll_messages(&egui::Context::default());
+            assert!(!app.canvas_widgets[&first_owner].cluster_scatter.computing);
+            assert!(
+                app.canvas_widgets[&(30 - first_owner)]
+                    .cluster_scatter
+                    .computing
+            );
+            app.sender().send(second).unwrap();
+        }
+        poll_until(&mut app, |app| {
+            app.app_state.cluster_cache.contains_key(&cache_keys[0])
+                && app.app_state.cluster_cache.contains_key(&cache_keys[1])
+        });
+        for owner in [10, 20] {
+            assert!(!app.canvas_widgets[&owner].cluster_scatter.computing);
+        }
+        let first = app
+            .app_state
+            .cluster_cache
+            .selected(&cache_keys[0])
+            .unwrap();
+        let second = app
+            .app_state
+            .cluster_cache
+            .selected(&cache_keys[1])
+            .unwrap();
+        assert_eq!(first.handle().same_result(second.handle()), equal);
+        assert_eq!(first.labels[2], -1);
+        assert_eq!(first.rows()[2].stored_id, 92);
+        // Exercise the actual plot and table renderers against the shared payloads.
+        let ctx = egui::Context::default();
+        for owner in [10, 20] {
+            let widgets = app.canvas_widgets.get_mut(&owner).unwrap();
+            let _ = ctx.run_ui(Default::default(), |ui| {
+                crate::ui::render_chart::render_chart(
+                    ui,
+                    &mut app.app_state,
+                    widgets,
+                    &ChartId::ClusterScatter,
+                );
+            });
+        }
+        app.retain_analysis_interests();
+        assert!(app.app_state.cluster_cache.contains_key(&cache_keys[0]));
+        app.canvas_widgets.remove(&10);
+        app.canvas_widgets.remove(&20);
+        app.retain_analysis_interests();
+        assert!(!app.app_state.cluster_cache.contains_key(&cache_keys[0]));
+        assert!(app
+            .app_state
+            .journal_studies
+            .as_ref()
+            .unwrap()
+            .analysis
+            .borrow()
+            .lookup(&a.analysis)
+            .is_none());
+    }
+}
+
+#[test]
+fn d5_global_deliveries_do_not_finish_unrelated_canvas_requests() {
     use crate::state::analysis_job::{spawn, DeliverySlot};
     use crate::ui::widgets::importance_chart::ImportanceMetric;
     use tdashboard_analysis::{preparation::Preparation, sensitivity::heatmap::HeatmapMethod};
@@ -66,8 +576,8 @@ fn d4_adopted_analysis_deliveries_sync_current_canvas_success_and_panic() {
         }
         assert!(!app.widget_states.importance.computing);
         assert!(
-            !app.canvas_widgets[&42].importance.computing,
-            "The envelope must not bypass the existing canvas synchronization adapter"
+            app.canvas_widgets[&42].importance.computing,
+            "A global request must not finish an unrelated canvas request"
         );
         if panic {
             assert!(app
@@ -617,11 +1127,31 @@ fn d2_replaced_sqlite_callbacks_cannot_overwrite_a_completed_journal_load() {
             &df
         ));
         assert!(std::sync::Arc::ptr_eq(
-            &tunny_core::dataframe::snapshot(0).unwrap(),
+            &app.app_state
+                .journal_studies
+                .as_ref()
+                .unwrap()
+                .analysis
+                .borrow_mut()
+                .project(
+                    app.app_state
+                        .current_study
+                        .as_ref()
+                        .unwrap()
+                        .view
+                        .input()
+                        .unwrap()
+                )
+                .dataframe,
             &df
         ));
         assert_eq!(
-            tunny_core::dataframe::extras_snapshot(0)
+            app.app_state
+                .current_study
+                .as_ref()
+                .unwrap()
+                .view
+                .extras()
                 .unwrap()
                 .trials
                 .len(),
@@ -1118,9 +1648,21 @@ fn assert_d2_overlapping_journal_load_is_shared(comparison_first: bool) {
         &primary.view.df,
         &comparison.view.df
     ));
+    let front = primary.view.front.as_ref().unwrap();
+    assert!(front
+        .handle()
+        .same_result(comparison.view.front.as_ref().unwrap().handle()));
+    assert_eq!(primary.view.pareto_rank.as_ptr(), front.ranks.as_ptr());
     assert!(std::sync::Arc::ptr_eq(
         &primary.view.df,
-        &tunny_core::dataframe::snapshot(1).unwrap()
+        &app.app_state
+            .journal_studies
+            .as_ref()
+            .unwrap()
+            .analysis
+            .borrow_mut()
+            .project(primary.view.input().unwrap())
+            .dataframe
     ));
     assert_eq!(app.app_state.comparison_colors.len(), 1);
     assert_eq!(app.app_state.comparison_convergence_histories.len(), 1);
