@@ -154,6 +154,7 @@ pub(crate) fn render_panel_item_body(
     id_salt: impl std::hash::Hash + std::fmt::Debug,
     tx: &mpsc::SyncSender<AppMessage>,
 ) -> egui::Rect {
+    app_state.analysis_consumer.set(widgets.analysis_consumer);
     let body_resp = egui::Frame::default()
         .inner_margin(egui::Margin::same(8))
         .show(ui, |ui| {

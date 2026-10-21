@@ -11,6 +11,10 @@ use tunny_core::dataframe::{DataFrame, TrialRow as CoreTrialRow};
 pub struct MessageHandler;
 
 impl MessageHandler {
+    fn fixture_delivery_only() {
+        #[cfg(not(test))]
+        unreachable!("Shared results must arrive through the stamped handoff");
+    }
     /// Processes a single message and updates AppState and WidgetStates.
     pub fn handle(
         msg: AppMessage,
@@ -186,8 +190,69 @@ impl MessageHandler {
                     is_loading,
                 );
             }
+            AppMessage::SharedAnalysis { slot, result } => {
+                use crate::state::analysis_job::DeliverySlot;
+                use crate::state::results::{ClusterResult, McdmResult};
+                use tdashboard_analysis::shared::SharedResult;
+                let Some(view) = app_state.current_study.as_ref().map(|s| &s.view) else {
+                    return;
+                };
+                if view
+                    .input()
+                    .is_none_or(|i| result.key().analysis.inputs != [i.stamp()])
+                {
+                    return;
+                }
+                match slot {
+                    DeliverySlot::Cluster(source) => {
+                        if let Ok((key, shared)) = SharedResult::<ClusterResult>::keyed::<
+                            crate::ui::widgets::cluster_scatter::ClusterCacheKey,
+                        >(result)
+                        {
+                            if view.trial_keys().is_some_and(|rows| rows != shared.rows()) {
+                                return;
+                            }
+                            app_state.cluster_cache.select(key, shared);
+                            Self::clear_cluster_runtime(source, widget_states);
+                        }
+                    }
+                    DeliverySlot::Mcdm(source) => {
+                        if let Ok((key, shared)) = SharedResult::<McdmResult>::keyed::<
+                            crate::ui::widgets::mcdm_chart::McdmCacheKey,
+                        >(result)
+                        {
+                            if view.trial_keys().is_some_and(|rows| rows != shared.rows()) {
+                                return;
+                            }
+                            app_state.mcdm_cache.select(key, shared.clone());
+                            app_state.mcdm_result = Some(shared);
+                            Self::mcdm_controls_mut(source, widget_states).computing = false;
+                        }
+                    }
+                    DeliverySlot::Importance => {
+                        if app_state.importance_cache.adopt(result.clone()).is_err() {
+                            let _ = app_state.sobol_cache.adopt(result);
+                        }
+                        widget_states.importance.computing = false;
+                    }
+                    DeliverySlot::Heatmap => {
+                        let _ = app_state.sensitivity_heatmap_cache.adopt(result);
+                        widget_states.sensitivity_heatmap.computing = false;
+                    }
+                    _ => unreachable!("Only shared widget results use this delivery"),
+                }
+            }
+            AppMessage::ConsumerDelivery { .. } => {
+                unreachable!("Consumer delivery must be routed by the entry")
+            }
             AppMessage::SensitivityDone { key, result } => {
-                app_state.importance_cache.insert(key, result);
+                Self::fixture_delivery_only();
+                #[cfg(test)]
+                app_state
+                    .importance_cache
+                    .select(key, crate::state::analysis_job::fixture_result(result));
+                #[cfg(not(test))]
+                let _ = (key, result);
                 widget_states.importance.computing = false;
             }
             AppMessage::SensitivityHeatmapDone {
@@ -195,13 +260,24 @@ impl MessageHandler {
                 feasible_only,
                 result,
             } => {
-                app_state
-                    .sensitivity_heatmap_cache
-                    .insert((metric.cache_id(), feasible_only), result);
+                Self::fixture_delivery_only();
+                #[cfg(test)]
+                app_state.sensitivity_heatmap_cache.select(
+                    (metric.cache_id(), feasible_only),
+                    crate::state::analysis_job::fixture_result(result),
+                );
+                #[cfg(not(test))]
+                let _ = (metric, feasible_only, result);
                 widget_states.sensitivity_heatmap.computing = false;
             }
             AppMessage::SobolDone { key, result } => {
-                app_state.sobol_cache.insert(key, result);
+                Self::fixture_delivery_only();
+                #[cfg(test)]
+                app_state
+                    .sobol_cache
+                    .select(key, crate::state::analysis_job::fixture_result(result));
+                #[cfg(not(test))]
+                let _ = (key, result);
                 widget_states.importance.computing = false;
             }
             AppMessage::ClusteringDone {
@@ -219,10 +295,15 @@ impl MessageHandler {
                 key,
                 result,
             } => {
-                // Cache per settings key, shared with other charts using the same settings.
-                app_state.mcdm_cache.insert(key, result.clone());
-                // Keep the most recently computed result as the basis for the McdmScore color mode.
-                app_state.mcdm_result = Some(result);
+                Self::fixture_delivery_only();
+                #[cfg(test)]
+                {
+                    let shared = crate::state::analysis_job::fixture_result(result);
+                    app_state.mcdm_cache.select(key, shared.clone());
+                    app_state.mcdm_result = Some(shared);
+                }
+                #[cfg(not(test))]
+                let _ = (key, result);
                 // Only clear the execution state of the chart that started the computation.
                 Self::mcdm_controls_mut(source, widget_states).computing = false;
             }
@@ -240,11 +321,13 @@ impl MessageHandler {
                 controls.computing = false;
             }
             AppMessage::IndicatorHistoryDone {
+                #[cfg(test)]
                 source_df,
                 indicator,
                 base,
                 comparisons,
             } => {
+                #[cfg(test)]
                 if app_state.study_streaming
                     || !app_state.current_study.as_ref().is_some_and(|study| {
                         match source_df.provenance() {

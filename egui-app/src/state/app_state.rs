@@ -5,6 +5,7 @@ use crate::ui::widgets::cluster_scatter::ClusterCacheKey;
 use crate::ui::widgets::mcdm_chart::McdmCacheKey;
 use crate::ui::widgets::report_modal::ReportDialogState;
 use std::collections::HashMap;
+use tdashboard_analysis::shared::{ResultSelections, SharedResult};
 use tunny_core::indicators::MoIndicator;
 
 // ============================================================
@@ -13,6 +14,7 @@ use tunny_core::indicators::MoIndicator;
 
 #[derive(Debug)]
 pub struct AppState {
+    pub analysis_consumer: std::cell::Cell<u64>,
     /// Explicit Journal authorities; active selection is screen state.
     pub journal_studies: Option<super::journal_studies::JournalStudies>,
     pub journal_display: Option<tdashboard_study::AcquiredStamp>,
@@ -27,24 +29,24 @@ pub struct AppState {
     pub highlighted_trial: Option<u32>,
     /// Result cache for sensitivity analysis (single objective). Key is (method id,
     /// objective idx, feasible_only).
-    pub importance_cache: HashMap<(u8, usize, bool), SensitivityResult>,
+    pub importance_cache: ResultSelections<(u8, usize, bool), SensitivityResult>,
     /// Result cache for Sobol indices. Key is (objective idx, feasible_only).
-    pub sobol_cache: HashMap<(usize, bool), SobolResult>,
+    pub sobol_cache: ResultSelections<(usize, bool), SobolResult>,
     /// Result cache for the Sensitivity Heatmap. Holds an all-parameters x
     /// all-objectives matrix per (method id (`ImportanceMetric::cache_id`),
     /// feasible_only), shared by each item.
-    pub sensitivity_heatmap_cache: HashMap<(u8, bool), HeatmapMatrix>,
-    /// Result cache for clustering. Holds computation results per settings key
+    pub sensitivity_heatmap_cache: ResultSelections<(u8, bool), HeatmapMatrix>,
+    /// Selected analysis handles for clustering, indexed by presentation settings.
     /// (target space / k / mode / Init), referenced and shared by 2D / 3D / Table
     /// with their own settings.
-    pub cluster_cache: HashMap<ClusterCacheKey, ClusterResult>,
-    /// The most recently computed MCDM result. Kept as the coloring basis for the
+    pub cluster_cache: ResultSelections<ClusterCacheKey, ClusterResult>,
+    /// The most recently computed MCDM handle. Kept as the coloring basis for the
     /// McdmScore color mode.
-    pub mcdm_result: Option<McdmResult>,
-    /// Result cache for MCDM. Held per settings key (method / weight mode / weights
+    pub mcdm_result: Option<SharedResult<McdmResult>>,
+    /// Selected analysis handles for MCDM, per settings key (method / weight mode / weights
     /// / v), referenced and shared by each chart (Ranking / Scatter / Scatter3D /
     /// Table) with their own settings.
-    pub mcdm_cache: HashMap<McdmCacheKey, McdmResult>,
+    pub mcdm_cache: ResultSelections<McdmCacheKey, McdmResult>,
     pub convergence_history: Option<ConvergenceHistory>,
     /// User-specified HV reference point (in the original objective value units, per
     /// objective).
@@ -151,6 +153,7 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         Self {
+            analysis_consumer: Default::default(),
             journal_studies: None,
             journal_display: None,
             artifact_scan_ticket: None,
@@ -161,12 +164,12 @@ impl AppState {
             selected_indices: Vec::new(),
             filter_ranges: HashMap::new(),
             highlighted_trial: None,
-            importance_cache: HashMap::new(),
-            sobol_cache: HashMap::new(),
-            sensitivity_heatmap_cache: HashMap::new(),
-            cluster_cache: HashMap::new(),
+            importance_cache: Default::default(),
+            sobol_cache: Default::default(),
+            sensitivity_heatmap_cache: Default::default(),
+            cluster_cache: Default::default(),
             mcdm_result: None,
-            mcdm_cache: HashMap::new(),
+            mcdm_cache: Default::default(),
             convergence_history: None,
             hv_ref_point_override: None,
             selected_colormap: ColormapName::Viridis,
@@ -363,9 +366,9 @@ mod tests {
         state.selected_indices = vec![0, 1, 2];
         state.filter_ranges.insert("x".to_string(), (0.0, 1.0));
         state.highlighted_trial = Some(5);
-        state.importance_cache.insert(
+        state.importance_cache.select(
             (0u8, 0, false),
-            SensitivityResult {
+            crate::state::analysis_job::fixture_result(SensitivityResult {
                 param_names: vec!["x".to_string()],
                 unsupported_categorical: vec![],
                 spearman: vec![vec![0.9]],
@@ -375,7 +378,7 @@ mod tests {
                 shap: None,
                 permutation: None,
                 ard: None,
-            },
+            }),
         );
 
         state.clear();

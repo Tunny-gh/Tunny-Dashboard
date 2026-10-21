@@ -15,7 +15,7 @@ pub fn parse_flat_csv(data: &[u8], name: &str) -> Result<FlatCsvParseResult, Str
     let p = project_batch(key, parsed.into_batch(key))?;
     Ok(FlatCsvParseResult {
         meta: io_meta(p.meta),
-        dataframe: p.dataframe,
+        dataframe: std::sync::Arc::unwrap_or_clone(p.dataframe),
         images,
     })
 }

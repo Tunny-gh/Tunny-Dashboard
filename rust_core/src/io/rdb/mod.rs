@@ -10,7 +10,11 @@ pub fn parse_single_study(
     let key = new_key(id)?;
     let rows = tdashboard_io::rdb::parse_single_study_rows(backend, id)?;
     let p = project_batch(key, rows.into_batch(key))?;
-    Ok((io_meta(p.meta), p.dataframe, p.extras))
+    Ok((
+        io_meta(p.meta),
+        std::sync::Arc::unwrap_or_clone(p.dataframe),
+        p.extras,
+    ))
 }
 pub fn parse_single_study_url(
     url: &RdbUrl,
@@ -19,5 +23,9 @@ pub fn parse_single_study_url(
     let key = new_key(id)?;
     let rows = tdashboard_io::rdb::parse_single_study_rows_url(url, id)?;
     let p = project_batch(key, rows.into_batch(key))?;
-    Ok((io_meta(p.meta), p.dataframe, p.extras))
+    Ok((
+        io_meta(p.meta),
+        std::sync::Arc::unwrap_or_clone(p.dataframe),
+        p.extras,
+    ))
 }

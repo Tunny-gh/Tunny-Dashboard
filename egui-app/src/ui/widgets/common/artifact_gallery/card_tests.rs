@@ -191,12 +191,12 @@ fn cluster_render_keeps_numbers_through_filtering_and_global_click_and_pin_targe
         ..Default::default()
     };
     let mut table = ClusterTable::default();
-    app.cluster_cache.insert(
+    app.cluster_cache.select(
         table.cache_key(),
-        ClusterResult {
+        crate::state::analysis_job::fixture_result(ClusterResult {
             labels: vec![-1, 0],
             n_clusters: 1,
-        },
+        }),
     );
     let ctx = egui::Context::default();
     let mut draw = |ui: &mut egui::Ui| table.show(ui, &mut app, &ColorMap::viridis());
@@ -226,20 +226,20 @@ fn trial_table_header_is_trial_number_in_every_mode() {
     };
     let mut table = TrialTable::default();
     table.mcdm.controls.weights = vec![1.0];
-    app.cluster_cache.insert(
+    app.cluster_cache.select(
         table.cluster.cache_key(),
-        ClusterResult {
+        crate::state::analysis_job::fixture_result(ClusterResult {
             labels: vec![0, 0],
             n_clusters: 1,
-        },
+        }),
     );
-    app.mcdm_cache.insert(
+    app.mcdm_cache.select(
         table.mcdm.controls.cache_key().unwrap(),
-        McdmResult::Topsis(TopsisResult {
+        crate::state::analysis_job::fixture_result(McdmResult::Topsis(TopsisResult {
             scores: vec![0.25, 0.75],
             ranked_indices: vec![1, 0],
             duration_ms: 0.0,
-        }),
+        })),
     );
     for mode in [
         TrialTableMode::All,

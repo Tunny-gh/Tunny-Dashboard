@@ -462,6 +462,8 @@ impl RenderChartCache {
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct WidgetStates {
+    #[serde(skip)]
+    pub analysis_consumer: u64,
     pub pareto_2d: ParetoScatter2D,
     pub pareto_3d: Pareto3dChart,
     pub opt_history: OptimizationHistoryChart,

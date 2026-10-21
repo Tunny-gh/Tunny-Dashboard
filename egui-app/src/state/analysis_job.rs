@@ -1,10 +1,10 @@
-//! D4 provenance handoff. D5 replaces the consumed presentation deliveries with
-//! shared typed result handles; widget caches and presentation settings stay local.
+//! Explicit input acquisition and revision-safe shared result delivery.
 use super::app_state::AppState;
 use super::messages::AppMessage;
 use std::sync::{mpsc::SyncSender, Mutex};
 use tdashboard_analysis::preparation::Preparation;
 use tdashboard_analysis::session::*;
+use tdashboard_analysis::shared::KeyedResult;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum DeliverySlot {
@@ -90,10 +90,36 @@ impl DeliverySlot {
 
 pub struct Delivery(pub Mutex<Option<AppMessage>>);
 
+#[cfg(test)]
+pub(crate) fn fixture_result<T: std::any::Any + Send + Sync>(
+    value: T,
+) -> tdashboard_analysis::shared::SharedResult<T> {
+    let (state, _, _) = tests::state(true);
+    let journal = state.journal_studies.as_ref().unwrap();
+    let input = journal.managers[&0].acquire().unwrap();
+    let mut session = journal.analysis.borrow_mut();
+    let prepared = session
+        .prepare(
+            vec![input],
+            AnalysisRequest {
+                kind: AnalysisKind::Distribution,
+                conditions: vec![],
+            },
+            &[],
+        )
+        .unwrap();
+    let WorkOrShared::Work(work) = session.start(prepared, ReuseOrRerun::Rerun).unwrap() else {
+        unreachable!()
+    };
+    let result = session.complete(work.execute(|_| Ok(value))).unwrap();
+    tdashboard_analysis::shared::SharedResult::new(result).unwrap()
+}
+
 fn select_job(
     journal: &super::journal_studies::JournalStudies,
     session: &mut AnalysisSession,
     slot: DeliverySlot,
+    consumer: u64,
     key: Option<&ResultKey>,
 ) {
     let mut jobs = journal.analysis_jobs.borrow_mut();
@@ -107,9 +133,9 @@ fn select_job(
         }
     }
     let previous = if let Some(key) = key {
-        jobs.insert(slot, key.clone())
+        jobs.insert((consumer, slot), key.clone())
     } else {
-        jobs.remove(&slot)
+        jobs.remove(&(consumer, slot))
     };
     let release = previous.filter(|previous| {
         Some(previous) != key && !jobs.values().any(|selected| selected == previous)
@@ -125,7 +151,13 @@ fn select_job(
 /// not cancel the retained calculation or detach another interested consumer.
 pub fn supersede(state: &AppState, slot: DeliverySlot) {
     if let Some(journal) = state.journal_studies.as_ref() {
-        select_job(journal, &mut journal.analysis.borrow_mut(), slot, None);
+        select_job(
+            journal,
+            &mut journal.analysis.borrow_mut(),
+            slot,
+            state.analysis_consumer.get(),
+            None,
+        );
     }
 }
 
@@ -156,7 +188,13 @@ pub fn reject_settings(
     let Ok(completion) = session.reject(&[input], request, &Preparation::Table, message) else {
         return;
     };
-    select_job(journal, &mut session, slot, Some(completion.key()));
+    select_job(
+        journal,
+        &mut session,
+        slot,
+        state.analysis_consumer.get(),
+        Some(completion.key()),
+    );
     drop(session);
     crate::app::spawn_task(tx, move || AppMessage::AnalysisCompleted {
         slot,
@@ -431,7 +469,13 @@ fn spawn_inner(
             let Ok(completion) = session.reject(&inputs, request, &selection, message) else {
                 return;
             };
-            select_job(journal, &mut session, slot, Some(completion.key()));
+            select_job(
+                journal,
+                &mut session,
+                slot,
+                state.analysis_consumer.get(),
+                Some(completion.key()),
+            );
             drop(session);
             crate::app::spawn_task(tx, move || AppMessage::AnalysisCompleted {
                 slot,
@@ -443,10 +487,13 @@ fn spawn_inner(
     let sharing = matches!(
         slot,
         DeliverySlot::Cluster(_) | DeliverySlot::Mcdm(_) | DeliverySlot::Entropy(_)
-    ) && !journal.analysis_jobs.borrow().contains_key(&slot)
+    ) && !journal
+        .analysis_jobs
+        .borrow()
+        .contains_key(&(state.analysis_consumer.get(), slot))
         && session
             .lookup(prepared.key())
-            .is_some_and(|r| r.payload::<Delivery>().is_none());
+            .is_some_and(|r| r.is_pending());
     let started = session.start(
         prepared,
         if sharing {
@@ -460,23 +507,65 @@ fn spawn_inner(
             journal
                 .analysis_jobs
                 .borrow_mut()
-                .insert(slot, handle.key().clone());
+                .insert((state.analysis_consumer.get(), slot), handle.key().clone());
             return;
         }
         Ok(WorkOrShared::Work(work)) => work,
         Err(_) => return,
     };
     let key = work.key().clone();
-    select_job(journal, &mut session, slot, Some(&key));
+    select_job(
+        journal,
+        &mut session,
+        slot,
+        state.analysis_consumer.get(),
+        Some(&key),
+    );
     drop(session);
     crate::app::spawn_task(tx, move || {
-        let completion = work.execute(|prepared| {
+        let completion = work.execute_shared(|prepared| {
             let message = crate::app::task_result(|| {
                 let mut message = compute(prepared);
                 bind_trained(&mut message, &key, prepared);
                 message
             });
-            Ok(Delivery(Mutex::new(Some(message))))
+            Ok(match message {
+                AppMessage::ClusteringDone { key, result, .. } => std::sync::Arc::new(KeyedResult {
+                    selection: key,
+                    value: std::sync::Arc::new(result),
+                    rows: prepared.tables()[0].rows.clone(),
+                })
+                    as std::sync::Arc<dyn std::any::Any + Send + Sync>,
+                AppMessage::McdmDone { key, result, .. } => std::sync::Arc::new(KeyedResult {
+                    selection: key,
+                    value: std::sync::Arc::new(result),
+                    rows: prepared.tables()[0].rows.clone(),
+                }),
+                AppMessage::SensitivityDone { key, result } => std::sync::Arc::new(KeyedResult {
+                    selection: key,
+                    value: std::sync::Arc::new(result),
+                    rows: prepared.tables()[0].rows.clone(),
+                }),
+                AppMessage::SobolDone { key, result } => std::sync::Arc::new(KeyedResult {
+                    selection: key,
+                    value: std::sync::Arc::new(result),
+                    rows: prepared.tables()[0].rows.clone(),
+                }),
+                AppMessage::SensitivityHeatmapDone {
+                    metric,
+                    feasible_only,
+                    result,
+                } => std::sync::Arc::new(KeyedResult {
+                    selection: (metric.cache_id(), feasible_only),
+                    value: std::sync::Arc::new(result),
+                    rows: prepared.tables()[0].rows.clone(),
+                }),
+                AppMessage::SurrogateFitDone(model)
+                | AppMessage::RobustnessFitDone(model)
+                | AppMessage::ResponseSurfaceFitDone(model) => model,
+                AppMessage::SurrogateMultiFitDone(models) => models,
+                message => std::sync::Arc::new(Delivery(Mutex::new(Some(message)))),
+            })
         });
         AppMessage::AnalysisCompleted { slot, completion }
     });
@@ -540,11 +629,14 @@ pub fn adopt_all(
         .map(|(slot, _)| *slot)
         .collect();
     if selected.is_empty() {
+        journal.analysis.borrow_mut().release(&key);
         return vec![];
     }
     for selected in &selected {
         journal.analysis_jobs.borrow_mut().remove(selected);
-        selected.clear_busy(widgets);
+        if selected.0 == 0 {
+            selected.1.clear_busy(widgets);
+        }
     }
     let mut session = journal.analysis.borrow_mut();
     if key.analysis.inputs != expected {
@@ -554,6 +646,81 @@ pub fn adopt_all(
     let Some(result) = session.complete(completion) else {
         return vec![];
     };
+    if let Some(Ok(model)) =
+        result.payload::<tdashboard_analysis::surrogate_opt::TrainedSurrogate>()
+    {
+        return selected
+            .into_iter()
+            .map(|(consumer, slot)| {
+                targeted(
+                    consumer,
+                    slot,
+                    match slot {
+                        DeliverySlot::Fit => AppMessage::SurrogateFitDone(model.clone()),
+                        DeliverySlot::Robustness => AppMessage::RobustnessFitDone(model.clone()),
+                        DeliverySlot::Surface => AppMessage::ResponseSurfaceFitDone(model.clone()),
+                        _ => unreachable!("Fit payload delivered only to fit consumers"),
+                    },
+                )
+            })
+            .collect();
+    }
+    if let Some(Ok(models)) =
+        result.payload::<Vec<tdashboard_analysis::surrogate_opt::TrainedSurrogate>>()
+    {
+        return selected
+            .into_iter()
+            .map(|(consumer, slot)| {
+                targeted(
+                    consumer,
+                    slot,
+                    AppMessage::SurrogateMultiFitDone(models.clone()),
+                )
+            })
+            .collect();
+    }
+    let typed =
+        match slot {
+            DeliverySlot::Cluster(_) => result
+                .payload::<KeyedResult<
+                    crate::ui::widgets::cluster_scatter::ClusterCacheKey,
+                    super::results::ClusterResult,
+                >>()
+                .is_some_and(|r| r.is_ok()),
+            DeliverySlot::Mcdm(_) => result
+                .payload::<KeyedResult<
+                    crate::ui::widgets::mcdm_chart::McdmCacheKey,
+                    super::results::McdmResult,
+                >>()
+                .is_some_and(|r| r.is_ok()),
+            DeliverySlot::Importance => {
+                result
+                    .payload::<KeyedResult<(u8, usize, bool), super::results::SensitivityResult>>()
+                    .is_some_and(|r| r.is_ok())
+                    || result
+                        .payload::<KeyedResult<(usize, bool), super::results::SobolResult>>()
+                        .is_some_and(|r| r.is_ok())
+            }
+            DeliverySlot::Heatmap => result
+                .payload::<KeyedResult<(u8, bool), super::results::HeatmapMatrix>>()
+                .is_some_and(|r| r.is_ok()),
+            _ => false,
+        };
+    if typed {
+        return selected
+            .into_iter()
+            .map(|(consumer, slot)| {
+                targeted(
+                    consumer,
+                    slot,
+                    AppMessage::SharedAnalysis {
+                        slot,
+                        result: result.clone(),
+                    },
+                )
+            })
+            .collect();
+    }
     let Some(payload) = result.payload::<Delivery>() else {
         return vec![];
     };
@@ -563,11 +730,15 @@ pub fn adopt_all(
             session.release(&key);
             return selected
                 .into_iter()
-                .map(|slot| {
-                    preparation_error(
+                .map(|(consumer, slot)| {
+                    targeted(
+                        consumer,
                         slot,
-                        &Preparation::Table,
-                        Readiness::Unavailable(message.clone()),
+                        preparation_error(
+                            slot,
+                            &Preparation::Table,
+                            Readiness::Unavailable(message.clone()),
+                        ),
                     )
                 })
                 .collect();
@@ -578,54 +749,153 @@ pub fn adopt_all(
     let Some(message) = message else {
         return vec![];
     };
+    let original = selected.iter().position(|(_, selected)| *selected == slot);
     let mut messages: Vec<_> = selected
         .iter()
-        .filter(|selected| **selected != slot)
-        .filter_map(|slot| share_delivery(&message, *slot))
+        .enumerate()
+        .filter(|(i, _)| Some(*i) != original)
+        .map(|(_, (consumer, slot))| targeted(*consumer, *slot, share_delivery(&message, *slot)))
         .collect();
-    if selected.contains(&slot) {
-        messages.push(message);
+    if let Some(original) = original {
+        messages.push(targeted(
+            selected[original].0,
+            selected[original].1,
+            message,
+        ));
     }
     messages
 }
 
-fn share_delivery(message: &AppMessage, slot: DeliverySlot) -> Option<AppMessage> {
+fn targeted(consumer: u64, slot: DeliverySlot, message: AppMessage) -> AppMessage {
+    if consumer == 0 {
+        message
+    } else {
+        AppMessage::ConsumerDelivery {
+            consumer,
+            slot,
+            message: Box::new(message),
+        }
+    }
+}
+
+fn share_delivery(message: &AppMessage, slot: DeliverySlot) -> AppMessage {
     match (message, slot) {
         (AppMessage::ClusteringDone { key, result, .. }, DeliverySlot::Cluster(source)) => {
-            Some(AppMessage::ClusteringDone {
+            AppMessage::ClusteringDone {
                 source,
                 key: key.clone(),
                 result: result.clone(),
-            })
+            }
         }
         (AppMessage::ClusterFailed { err, .. }, DeliverySlot::Cluster(source)) => {
-            Some(AppMessage::ClusterFailed {
+            AppMessage::ClusterFailed {
                 source,
                 err: err.clone(),
-            })
+            }
         }
         (AppMessage::McdmDone { key, result, .. }, DeliverySlot::Mcdm(source)) => {
-            Some(AppMessage::McdmDone {
+            AppMessage::McdmDone {
                 source,
                 key: key.clone(),
                 result: result.clone(),
-            })
+            }
         }
         (
             AppMessage::McdmFailed { message, .. },
             DeliverySlot::Mcdm(source) | DeliverySlot::Entropy(source),
-        ) => Some(AppMessage::McdmFailed {
+        ) => AppMessage::McdmFailed {
             source,
             message: message.clone(),
-        }),
+        },
         (AppMessage::EntropyDone { result, .. }, DeliverySlot::Entropy(source)) => {
-            Some(AppMessage::EntropyDone {
+            AppMessage::EntropyDone {
                 source,
                 result: result.clone(),
-            })
+            }
         }
-        (AppMessage::TaskPanicked(message), _) => Some(AppMessage::TaskPanicked(message.clone())),
-        _ => None,
+        (
+            AppMessage::PdpDone {
+                param,
+                objective,
+                model_type,
+                feasible_only,
+                result,
+            },
+            _,
+        ) => AppMessage::PdpDone {
+            param: param.clone(),
+            objective: objective.clone(),
+            model_type: model_type.clone(),
+            feasible_only: *feasible_only,
+            result: result.clone(),
+        },
+        (AppMessage::Pdp2dDone(result), _) => AppMessage::Pdp2dDone(result.clone()),
+        (
+            AppMessage::IndicatorHistoryDone {
+                #[cfg(test)]
+                source_df,
+                indicator,
+                base,
+                comparisons,
+            },
+            _,
+        ) => AppMessage::IndicatorHistoryDone {
+            #[cfg(test)]
+            source_df: source_df.clone(),
+            indicator: *indicator,
+            base: base.clone(),
+            comparisons: comparisons.clone(),
+        },
+        (AppMessage::ObservedContourDone(result), _) => {
+            AppMessage::ObservedContourDone(result.clone())
+        }
+        (AppMessage::ObservedContourFailed(message), _) => {
+            AppMessage::ObservedContourFailed(message.clone())
+        }
+        (AppMessage::SurrogateOptDone(result), _) => AppMessage::SurrogateOptDone(result.clone()),
+        (AppMessage::SurrogateMultiOptDone(result), _) => {
+            AppMessage::SurrogateMultiOptDone(result.clone())
+        }
+        (AppMessage::SurrogateMultiOptFailed(message), _) => {
+            AppMessage::SurrogateMultiOptFailed(message.clone())
+        }
+        (AppMessage::SurrogateSuggestDone(result), _) => {
+            AppMessage::SurrogateSuggestDone(result.clone())
+        }
+        (AppMessage::SurrogateSuggestFailed(message), _) => {
+            AppMessage::SurrogateSuggestFailed(message.clone())
+        }
+        (AppMessage::SurrogateMultiSuggestDone(result), _) => {
+            AppMessage::SurrogateMultiSuggestDone(result.clone())
+        }
+        (AppMessage::SurrogateMultiSuggestFailed(message), _) => {
+            AppMessage::SurrogateMultiSuggestFailed(message.clone())
+        }
+        (AppMessage::SurrogateCompareDone(result), _) => {
+            AppMessage::SurrogateCompareDone(result.clone())
+        }
+        (AppMessage::SurrogateCompareFailed(message), _) => {
+            AppMessage::SurrogateCompareFailed(message.clone())
+        }
+        (AppMessage::AnalysisUnavailable(_), _) => AppMessage::AnalysisUnavailable(slot),
+        (AppMessage::TaskPanicked(message), _) => AppMessage::TaskPanicked(message.clone()),
+        (AppMessage::Error(message), _) => AppMessage::Error(message.clone()),
+        (AppMessage::SensitivityError(message), _) => AppMessage::SensitivityError(message.clone()),
+        (AppMessage::SurrogateFitFailed(message), _) => {
+            AppMessage::SurrogateFitFailed(message.clone())
+        }
+        (AppMessage::SurrogateMultiFitFailed(message), _) => {
+            AppMessage::SurrogateMultiFitFailed(message.clone())
+        }
+        (AppMessage::SurrogateFitCancelled, _) => AppMessage::SurrogateFitCancelled,
+        (AppMessage::SurrogateMultiFitCancelled, _) => AppMessage::SurrogateMultiFitCancelled,
+        (AppMessage::RobustnessFitFailed(message), _) => {
+            AppMessage::RobustnessFitFailed(message.clone())
+        }
+        (AppMessage::ResponseSurfaceFitFailed(message), _) => {
+            AppMessage::ResponseSurfaceFitFailed(message.clone())
+        }
+        _ => unreachable!("Every rebound analysis consumer requires a supported notification"),
     }
 }
 
@@ -651,6 +921,228 @@ pub(crate) mod tests {
     use std::sync::{mpsc, Arc};
     use std::time::Duration;
     use tdashboard_study::*;
+
+    #[test]
+    fn d5_notification_success_fanout_preserves_each_operations_payload() {
+        use super::super::messages::*;
+        let (mut state, _, _) = state(true);
+        let cases = vec![
+            (
+                DeliverySlot::Convergence,
+                AppMessage::IndicatorHistoryDone {
+                    source_df: state.current_study.as_ref().unwrap().view.df.clone(),
+                    indicator: tunny_core::indicators::MoIndicator::Hypervolume,
+                    base: super::super::results::ConvergenceHistory {
+                        trial_ids: vec![90],
+                        values: vec![13.0],
+                        sample_step: 1,
+                        ref_point: vec![],
+                    },
+                    comparisons: vec![],
+                },
+            ),
+            (
+                DeliverySlot::Contour,
+                AppMessage::ObservedContourDone(ObservedContourResult {
+                    x_name: "x".into(),
+                    y_name: "z".into(),
+                    value_name: "y".into(),
+                    surface: tunny_core::contour::ObservedSurface {
+                        x_values: vec![1.0],
+                        y_values: vec![2.0],
+                        z: vec![vec![Some(13.0)]],
+                    },
+                    points: vec![[1.0, 2.0, 13.0]],
+                    point_trial_ids: vec![90],
+                }),
+            ),
+            (
+                DeliverySlot::Optimize,
+                AppMessage::SurrogateOptDone(SurrogateOptUiResult {
+                    best_params: vec![("x".into(), 1.0)],
+                    best_value: 13.0,
+                    predicted_std: None,
+                    r_squared: 1.0,
+                    objective_name: "y".into(),
+                    minimize: true,
+                    best_observed_value: 14.0,
+                    predicted_constraints: vec![],
+                    feasibility_probability: None,
+                }),
+            ),
+            (
+                DeliverySlot::MultiOptimize,
+                AppMessage::SurrogateMultiOptDone(SurrogateMultiOptUiResult {
+                    param_names: vec!["x".into()],
+                    objective_names: vec!["y".into()],
+                    front: vec![],
+                    r_squared: vec![13.0],
+                }),
+            ),
+            (
+                DeliverySlot::Suggest,
+                AppMessage::SurrogateSuggestDone(SurrogateSuggestUiResult {
+                    candidates: vec![],
+                    param_names: vec!["x".into()],
+                    objective_name: "y".into(),
+                }),
+            ),
+            (
+                DeliverySlot::MultiSuggest,
+                AppMessage::SurrogateMultiSuggestDone(SurrogateMultiSuggestUiResult {
+                    candidates: vec![],
+                    param_names: vec!["x".into()],
+                    objective_names: vec!["y".into()],
+                }),
+            ),
+            (
+                DeliverySlot::Compare,
+                AppMessage::SurrogateCompareDone(Arc::new(SurrogateCompareUiResult {
+                    rows: vec![],
+                    slices: vec![],
+                    observed: vec![(1.0, 13.0)],
+                    param_name: "x".into(),
+                    objective_name: "y".into(),
+                    anchor: vec![1.0],
+                })),
+            ),
+        ];
+        for (slot, message) in cases {
+            for _ in 0..2 {
+                let delivery = share_delivery(&message, slot);
+                assert_eq!(
+                    std::mem::discriminant(&delivery),
+                    std::mem::discriminant(&message)
+                );
+                let mut widgets = WidgetStates::default();
+                widgets.convergence.computing = true;
+                widgets.observed_contour.computing = true;
+                widgets.surrogate_opt.optimizing = true;
+                widgets.surrogate_opt.suggesting = true;
+                widgets.surrogate_opt.multi_suggesting = true;
+                widgets.surrogate_compare.computing = true;
+                crate::state::message_handler::MessageHandler::handle(
+                    delivery,
+                    &mut state,
+                    &mut widgets,
+                    &mut false,
+                    &mut None,
+                );
+                match slot {
+                    DeliverySlot::Convergence => {
+                        assert!(!widgets.convergence.computing);
+                        assert_eq!(state.convergence_history.as_ref().unwrap().values, [13.0]);
+                    }
+                    DeliverySlot::Contour => {
+                        assert!(!widgets.observed_contour.computing);
+                        assert_eq!(
+                            widgets
+                                .observed_contour
+                                .result
+                                .as_ref()
+                                .unwrap()
+                                .point_trial_ids,
+                            [90]
+                        );
+                    }
+                    DeliverySlot::Optimize => {
+                        assert!(!widgets.surrogate_opt.optimizing);
+                        assert_eq!(
+                            widgets.surrogate_opt.result.as_ref().unwrap().best_value,
+                            13.0
+                        );
+                    }
+                    DeliverySlot::MultiOptimize => {
+                        assert!(!widgets.surrogate_opt.optimizing);
+                        assert_eq!(
+                            widgets
+                                .surrogate_opt
+                                .multi_result
+                                .as_ref()
+                                .unwrap()
+                                .r_squared,
+                            [13.0]
+                        );
+                    }
+                    DeliverySlot::Suggest => {
+                        assert!(!widgets.surrogate_opt.suggesting);
+                        assert_eq!(
+                            widgets
+                                .surrogate_opt
+                                .suggest_result
+                                .as_ref()
+                                .unwrap()
+                                .objective_name,
+                            "y"
+                        );
+                    }
+                    DeliverySlot::MultiSuggest => {
+                        assert!(!widgets.surrogate_opt.multi_suggesting);
+                        assert_eq!(
+                            widgets
+                                .surrogate_opt
+                                .multi_suggest_result
+                                .as_ref()
+                                .unwrap()
+                                .objective_names,
+                            ["y"]
+                        );
+                    }
+                    DeliverySlot::Compare => {
+                        assert!(!widgets.surrogate_compare.computing);
+                        assert_eq!(
+                            widgets.surrogate_compare.result.as_ref().unwrap().observed,
+                            [(1.0, 13.0)]
+                        );
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn d5_notification_failure_fanout_preserves_diagnostics_and_unavailable_slots() {
+        use crate::state::messages::McdmChartSource;
+        let cases = [
+            (
+                DeliverySlot::Contour,
+                AppMessage::ObservedContourFailed("contour".into()),
+            ),
+            (
+                DeliverySlot::MultiOptimize,
+                AppMessage::SurrogateMultiOptFailed("optimization".into()),
+            ),
+            (
+                DeliverySlot::Suggest,
+                AppMessage::SurrogateSuggestFailed("suggestion".into()),
+            ),
+            (
+                DeliverySlot::MultiSuggest,
+                AppMessage::SurrogateMultiSuggestFailed("multi suggestion".into()),
+            ),
+            (
+                DeliverySlot::Compare,
+                AppMessage::SurrogateCompareFailed("comparison".into()),
+            ),
+        ];
+        for (slot, message) in cases {
+            let shared = share_delivery(&message, slot);
+            let text = |message| match message {
+                AppMessage::ObservedContourFailed(s)
+                | AppMessage::SurrogateMultiOptFailed(s)
+                | AppMessage::SurrogateSuggestFailed(s)
+                | AppMessage::SurrogateMultiSuggestFailed(s)
+                | AppMessage::SurrogateCompareFailed(s) => s,
+                _ => panic!("The notification must retain its failure variant"),
+            };
+            assert_eq!(text(shared), text(message));
+        }
+        let slot = DeliverySlot::Entropy(McdmChartSource::Table);
+        assert!(
+            matches!(share_delivery(&AppMessage::AnalysisUnavailable(DeliverySlot::Entropy(McdmChartSource::Rank)), slot), AppMessage::AnalysisUnavailable(selected) if selected == slot)
+        );
+    }
 
     pub(crate) fn state(complete: bool) -> (AppState, LoadTicket, ApplyReceipt) {
         let mut journal = JournalStudies::new(1).unwrap();
@@ -715,16 +1207,415 @@ pub(crate) mod tests {
 
     fn install(state: &mut AppState) {
         let journal = state.journal_studies.as_ref().unwrap();
-        let input = journal.managers[&0].acquire().unwrap();
+        let input = journal.managers[&journal.selected.unwrap_or(0)]
+            .acquire()
+            .unwrap();
         let p = journal.analysis.borrow_mut().project(input.clone());
         state.journal_display = Some(input.stamp());
         state.current_study = Some(StudyContext {
             meta: crate::io::journal::convert_study_meta(tunny_core::journal_parser::io_meta(
                 p.meta.clone(),
             )),
-            view: StudyView::new(Arc::new(p.dataframe.clone()), vec![]).with_input(input),
+            view: StudyView::from_projection(p, input, None),
             pareto_indices: vec![],
         });
+    }
+
+    pub(crate) fn d5_front_state() -> AppState {
+        let (mut state, _, _) = state(true);
+        let manager = state
+            .journal_studies
+            .as_mut()
+            .unwrap()
+            .managers
+            .get_mut(&0)
+            .unwrap();
+        let input = manager.acquire().unwrap();
+        let trials = input
+            .data()
+            .trials()
+            .iter()
+            .map(|t| {
+                let mut t = (**t).clone();
+                Arc::make_mut(&mut t.objectives).insert(ObjectiveIndex(0), Number(0.0));
+                if t.key.stored_id == 92 {
+                    Arc::make_mut(&mut t.parameters).clear();
+                }
+                Arc::new(t)
+            })
+            .collect();
+        let ticket = manager.begin(LoadKind::Refresh).unwrap();
+        let receipt = manager
+            .apply(
+                manager.header(ticket).unwrap(),
+                StudyBatch::Replace {
+                    trials,
+                    metadata: (**input.data().metadata()).clone(),
+                },
+            )
+            .unwrap();
+        manager.finish(ticket, receipt.next_sequence).unwrap();
+        install(&mut state);
+        state
+    }
+
+    fn d5_work(state: &AppState, cluster: bool, condition: usize, consumer: u64) -> AnalysisWork {
+        use crate::state::messages::{ClusterChartSource as C, McdmChartSource as M};
+        let journal = state.journal_studies.as_ref().unwrap();
+        let input = state.current_study.as_ref().unwrap().view.input().unwrap();
+        let mut session = journal.analysis.borrow_mut();
+        let front = session.pareto(input.clone()).unwrap();
+        let slot = if cluster {
+            DeliverySlot::Cluster(C::Table)
+        } else {
+            DeliverySlot::Mcdm(M::Table)
+        };
+        let selection = if cluster {
+            Preparation::Cluster {
+                space: tdashboard_analysis::preparation::FeatureSpace::Parameters,
+                manual_k: Some(2),
+            }
+        } else {
+            Preparation::Mcdm
+        };
+        let prepared = session
+            .prepare_for(
+                vec![input],
+                AnalysisRequest {
+                    kind: slot.kind(),
+                    conditions: vec![("condition".into(), condition.into())],
+                },
+                selection,
+                &[front],
+            )
+            .unwrap();
+        let WorkOrShared::Work(work) = session.start(prepared, ReuseOrRerun::Rerun).unwrap() else {
+            panic!()
+        };
+        select_job(journal, &mut session, slot, consumer, Some(work.key()));
+        work
+    }
+
+    fn d5_success(work: AnalysisWork, cluster: bool, value: f64) -> AnalysisCompletion {
+        work.execute_shared(|prepared| {
+            let rows = prepared.tables()[0].rows.clone();
+            if cluster {
+                let mut labels = vec![-1; rows.len()];
+                for &row in &prepared.data().features().rows {
+                    labels[row] = 0;
+                }
+                Ok(Arc::new(KeyedResult {
+                    selection: crate::ui::widgets::cluster_scatter::ClusterCacheKey::new(
+                        crate::ui::widgets::cluster_scatter::ClusterSpace::Variable,
+                        crate::ui::widgets::cluster_scatter::KSelectionMode::Manual,
+                        2,
+                        crate::ui::widgets::cluster_scatter::KMeansInitStrategy::Deterministic,
+                        10,
+                    ),
+                    value: Arc::new(super::super::results::ClusterResult {
+                        labels,
+                        n_clusters: 2,
+                    }),
+                    rows,
+                }) as Arc<dyn std::any::Any + Send + Sync>)
+            } else {
+                let weight_mode = if value == 1.0 {
+                    super::super::results::WeightMode::Manual
+                } else {
+                    super::super::results::WeightMode::Entropy
+                };
+                Ok(Arc::new(KeyedResult {
+                    selection: crate::ui::widgets::mcdm_chart::McdmCacheKey::from_settings(
+                        super::super::results::McdmMethod::Topsis,
+                        weight_mode,
+                        &[1.0],
+                        0.5,
+                    )
+                    .unwrap(),
+                    value: Arc::new(super::super::results::McdmResult::Topsis(
+                        super::super::results::TopsisResult {
+                            scores: vec![value; rows.len()],
+                            ranked_indices: (0..rows.len() as u32).rev().collect(),
+                            duration_ms: 0.0,
+                        },
+                    )),
+                    rows,
+                }))
+            }
+        })
+    }
+
+    fn d5_deliver(
+        state: &mut AppState,
+        cluster: bool,
+        completion: AnalysisCompletion,
+    ) -> Vec<ResultHandle> {
+        use crate::state::messages::{ClusterChartSource as C, McdmChartSource as M};
+        let slot = if cluster {
+            DeliverySlot::Cluster(C::Table)
+        } else {
+            DeliverySlot::Mcdm(M::Table)
+        };
+        let mut widgets = WidgetStates::default();
+        let messages = adopt_all(slot, completion, state, &mut widgets);
+        let mut handles = vec![];
+        for message in messages {
+            let message = match message {
+                AppMessage::ConsumerDelivery { message, .. } => *message,
+                m => m,
+            };
+            if let AppMessage::SharedAnalysis { result, .. } = &message {
+                handles.push(result.clone());
+            }
+            crate::state::message_handler::MessageHandler::handle(
+                message,
+                state,
+                &mut widgets,
+                &mut false,
+                &mut None,
+            );
+        }
+        handles
+    }
+
+    #[test]
+    fn d5_typed_completed_and_inflight_results_share_payload_and_trial_maps() {
+        for cluster in [true, false] {
+            let mut state = d5_front_state();
+            let work = d5_work(&state, cluster, 1, 11);
+            let key = work.key().clone();
+            let journal = state.journal_studies.as_ref().unwrap();
+            let input = state.current_study.as_ref().unwrap().view.input().unwrap();
+            let mut session = journal.analysis.borrow_mut();
+            let front = session.pareto(input.clone()).unwrap();
+            let selection = if cluster {
+                Preparation::Cluster {
+                    space: tdashboard_analysis::preparation::FeatureSpace::Parameters,
+                    manual_k: Some(2),
+                }
+            } else {
+                Preparation::Mcdm
+            };
+            // Reconstruct the request without the preparation-owned condition.
+            let mut request = key.analysis.request.clone();
+            request.conditions.pop();
+            let prepared = session
+                .prepare_for(vec![input], request, selection, &[front])
+                .unwrap();
+            let WorkOrShared::Shared(pending) =
+                session.start(prepared, ReuseOrRerun::Reuse).unwrap()
+            else {
+                panic!("Matching conditions must share pending work")
+            };
+            let slot = if cluster {
+                DeliverySlot::Cluster(crate::state::messages::ClusterChartSource::Table)
+            } else {
+                DeliverySlot::Mcdm(crate::state::messages::McdmChartSource::Table)
+            };
+            select_job(journal, &mut session, slot, 22, Some(&key));
+            drop(session);
+            let handles = d5_deliver(&mut state, cluster, d5_success(work, cluster, 1.0));
+            assert_eq!(handles.len(), 2);
+            assert!(handles[0].same_result(&handles[1]));
+            assert!(pending.same_result(&handles[0]));
+            assert_eq!(handles[0].rows()[0].len(), if cluster { 19 } else { 20 });
+            if cluster {
+                assert!(!handles[0].rows()[0].iter().any(|key| key.stored_id == 92));
+            }
+            let cached = state
+                .journal_studies
+                .as_ref()
+                .unwrap()
+                .analysis
+                .borrow()
+                .lookup(&key.analysis)
+                .unwrap();
+            assert!(cached.same_result(&handles[0]));
+            assert_eq!(
+                cached.key().analysis.inputs[0],
+                state
+                    .current_study
+                    .as_ref()
+                    .unwrap()
+                    .view
+                    .input()
+                    .unwrap()
+                    .stamp()
+            );
+            if cluster {
+                let selected = state
+                    .cluster_cache
+                    .selected(&crate::ui::widgets::cluster_scatter::ClusterCacheKey::new(
+                        crate::ui::widgets::cluster_scatter::ClusterSpace::Variable,
+                        crate::ui::widgets::cluster_scatter::KSelectionMode::Manual,
+                        2,
+                        crate::ui::widgets::cluster_scatter::KMeansInitStrategy::Deterministic,
+                        10,
+                    ))
+                    .unwrap();
+                assert_eq!(selected.labels[2], -1);
+                assert_eq!(selected.rows()[2].stored_id, 92);
+                assert_eq!(
+                    state
+                        .current_study
+                        .as_ref()
+                        .unwrap()
+                        .view
+                        .df
+                        .get_trial_number(2),
+                    Some(11)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn d5_cluster_and_mcdm_reject_stale_success_error_and_cancellation() {
+        for cluster in [true, false] {
+            for change in ["revision", "reload", "source", "study", "rerun"] {
+                for outcome in ["success", "error", "cancelled"] {
+                    let mut state = d5_front_state();
+                    let work = d5_work(&state, cluster, 1, 0);
+                    let completion = if outcome == "success" {
+                        d5_success(work, cluster, 1.0)
+                    } else {
+                        work.execute::<()>(|_| Err(outcome.into()))
+                    };
+                    if change == "source" {
+                        state = d5_front_state();
+                    } else if change == "rerun" {
+                        let _new_work = d5_work(&state, cluster, 1, 0);
+                    } else {
+                        let journal = state.journal_studies.as_mut().unwrap();
+                        let old = journal.managers[&0].acquire().unwrap();
+                        if change == "study" {
+                            let key = StudyKey {
+                                source: journal.source,
+                                stored_id: 1,
+                            };
+                            let mut manager = StudyManager::new(key);
+                            let ticket = manager.begin(LoadKind::Initial).unwrap();
+                            let trials = old
+                                .data()
+                                .trials()
+                                .iter()
+                                .map(|t| {
+                                    let mut t = (**t).clone();
+                                    t.study = key;
+                                    t.key.stored_id += 100;
+                                    Arc::new(t)
+                                })
+                                .collect();
+                            let receipt = manager
+                                .apply(
+                                    manager.header(ticket).unwrap(),
+                                    StudyBatch::Replace {
+                                        trials,
+                                        metadata: (**old.data().metadata()).clone(),
+                                    },
+                                )
+                                .unwrap();
+                            manager.finish(ticket, receipt.next_sequence).unwrap();
+                            journal.managers.insert(1, manager);
+                            journal.selected = Some(1);
+                        } else {
+                            let manager = journal.managers.get_mut(&0).unwrap();
+                            let ticket = manager
+                                .begin(if change == "reload" {
+                                    LoadKind::Reload
+                                } else {
+                                    LoadKind::Refresh
+                                })
+                                .unwrap();
+                            let mut metadata = (**old.data().metadata()).clone();
+                            metadata.name.push('!');
+                            let receipt = manager
+                                .apply(
+                                    manager.header(ticket).unwrap(),
+                                    StudyBatch::Replace {
+                                        trials: old.data().trials().as_ref().clone(),
+                                        metadata,
+                                    },
+                                )
+                                .unwrap();
+                            manager.finish(ticket, receipt.next_sequence).unwrap();
+                        }
+                        install(&mut state);
+                    }
+                    assert_eq!(state.current_study.as_ref().unwrap().view.row_count(), 20);
+                    let slot = if cluster {
+                        DeliverySlot::Cluster(crate::state::messages::ClusterChartSource::Table)
+                    } else {
+                        DeliverySlot::Mcdm(crate::state::messages::McdmChartSource::Table)
+                    };
+                    assert!(
+                        adopt_all(slot, completion, &state, &mut WidgetStates::default())
+                            .is_empty(),
+                        "{cluster} {change} {outcome}"
+                    );
+                    assert!(state.cluster_cache.is_empty());
+                    assert!(state.mcdm_cache.is_empty());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn d5_coloring_keeps_the_last_computation_not_the_table_selection() {
+        let mut state = d5_front_state();
+        let a = d5_work(&state, false, 1, 0);
+        let a = d5_deliver(&mut state, false, d5_success(a, false, 1.0))
+            .pop()
+            .unwrap();
+        let b = d5_work(&state, false, 2, 0);
+        let b = d5_deliver(&mut state, false, d5_success(b, false, 2.0))
+            .pop()
+            .unwrap();
+        assert_ne!(a.key().analysis, b.key().analysis);
+        assert!(state.mcdm_result.as_ref().unwrap().handle().same_result(&b));
+        let table = crate::ui::widgets::mcdm_chart::McdmCacheKey::from_settings(
+            super::super::results::McdmMethod::Topsis,
+            super::super::results::WeightMode::Manual,
+            &[1.0],
+            0.5,
+        )
+        .unwrap();
+        assert!(state
+            .mcdm_cache
+            .selected(&table)
+            .unwrap()
+            .handle()
+            .same_result(&a));
+        assert_eq!(
+            state.mcdm_cache.get(&table).unwrap().primary_scores()[0],
+            1.0
+        );
+        assert_eq!(state.mcdm_result.as_ref().unwrap().primary_scores()[0], 2.0);
+        let weak = Arc::downgrade(
+            &a.payload::<KeyedResult<
+                crate::ui::widgets::mcdm_chart::McdmCacheKey,
+                super::super::results::McdmResult,
+            >>()
+            .unwrap()
+            .unwrap(),
+        );
+        state.mcdm_cache.retain(|key| key != &table);
+        state
+            .journal_studies
+            .as_ref()
+            .unwrap()
+            .analysis
+            .borrow_mut()
+            .retain_interests(&[b.key().analysis.clone()]);
+        assert!(
+            weak.upgrade().is_some(),
+            "An external retained result stays valid"
+        );
+        drop(a);
+        assert!(
+            weak.upgrade().is_none(),
+            "Uninterested completed payloads are released"
+        );
     }
 
     fn completion(state: &AppState, text: &'static str) -> AnalysisCompletion {
@@ -885,6 +1776,65 @@ pub(crate) mod tests {
         assert_eq!(trained.fit_rows()[0].stored_id, 90);
         assert!(!trained.fit_rows().iter().any(|key| key.stored_id == 92));
         assert!(!key.analysis.request.conditions.is_empty());
+        let journal = state.journal_studies.as_ref().unwrap();
+        let mut session = journal.analysis.borrow_mut();
+        assert!(session
+            .lookup(&key.analysis)
+            .unwrap()
+            .payload::<tdashboard_analysis::surrogate_opt::TrainedSurrogate>()
+            .unwrap()
+            .is_ok());
+        let prepared = session
+            .prepare_models(
+                vec![input.clone()],
+                AnalysisRequest {
+                    kind: AnalysisKind::Optimize,
+                    conditions: vec![],
+                },
+                tdashboard_analysis::preparation::Models::Single(trained.clone()),
+            )
+            .unwrap();
+        assert_eq!(prepared.key().dependencies, [key]);
+        drop(prepared);
+        drop(session);
+        let manager = state
+            .journal_studies
+            .as_mut()
+            .unwrap()
+            .managers
+            .get_mut(&0)
+            .unwrap();
+        let ticket = manager.begin(LoadKind::Refresh).unwrap();
+        let mut metadata = (**input.data().metadata()).clone();
+        metadata.name.push('!');
+        let receipt = manager
+            .apply(
+                manager.header(ticket).unwrap(),
+                StudyBatch::Replace {
+                    trials: input.data().trials().as_ref().clone(),
+                    metadata,
+                },
+            )
+            .unwrap();
+        manager.finish(ticket, receipt.next_sequence).unwrap();
+        install(&mut state);
+        let (tx, rx) = mpsc::sync_channel(1);
+        spawn_with_models(
+            &state,
+            tx,
+            DeliverySlot::Optimize,
+            "same fit",
+            tdashboard_analysis::preparation::Models::Single(trained),
+            |_| panic!("A stale fit must not reach optimization"),
+        );
+        let AppMessage::AnalysisCompleted { slot, completion } =
+            rx.recv_timeout(Duration::from_secs(30)).unwrap()
+        else {
+            panic!()
+        };
+        assert!(
+            matches!(adopt(slot, completion, &state, &mut widgets), Some(AppMessage::SurrogateFitFailed(message)) if message == "Trained model belongs to another input")
+        );
     }
 
     #[test]
@@ -966,14 +1916,14 @@ pub(crate) mod tests {
         let (mut state, _, _) = state(true);
         state.selected_indices = vec![90];
         state.hv_ref_point_override = Some(vec![100.0]);
-        state.sobol_cache.insert(
+        state.sobol_cache.select(
             (0, false),
-            crate::state::results::SobolResult {
+            fixture_result(crate::state::results::SobolResult {
                 param_names: vec!["x".into()],
                 first_order: vec![vec![1.0]],
                 total_effect: vec![vec![1.0]],
                 r_squared: vec![1.0],
-            },
+            }),
         );
         let mut widgets = WidgetStates::default();
         widgets.surrogate_opt.auto_select = true;
@@ -1375,31 +2325,33 @@ pub(crate) mod tests {
                 let old_key = queued.key().clone();
                 let chart = match path {
                     0 => {
-                        state
-                            .importance_cache
-                            .insert((M::Ridge.cache_id(), 0, false), sensitivity_fixture(0.8));
+                        state.importance_cache.select(
+                            (M::Ridge.cache_id(), 0, false),
+                            fixture_result(sensitivity_fixture(0.8)),
+                        );
                         widgets.importance.pending_compute = Some((M::Ridge, 0, false));
                         widgets.importance.computing = true;
                         ChartId::ImportanceChart
                     }
                     1 => {
-                        state.sobol_cache.insert(
+                        state.sobol_cache.select(
                             (0, false),
-                            crate::state::results::SobolResult {
+                            fixture_result(crate::state::results::SobolResult {
                                 param_names: vec!["x".into()],
                                 first_order: vec![vec![0.8]],
                                 total_effect: vec![vec![0.8]],
                                 r_squared: vec![0.8],
-                            },
+                            }),
                         );
                         widgets.importance.pending_compute = Some((M::SobolFirst, 0, false));
                         widgets.importance.computing = true;
                         ChartId::ImportanceChart
                     }
                     2 => {
-                        state
-                            .sensitivity_heatmap_cache
-                            .insert((M::Ridge.cache_id(), false), heatmap_fixture(0.8));
+                        state.sensitivity_heatmap_cache.select(
+                            (M::Ridge.cache_id(), false),
+                            fixture_result(heatmap_fixture(0.8)),
+                        );
                         widgets.sensitivity_heatmap.pending_compute = Some((M::Ridge, false));
                         widgets.sensitivity_heatmap.computing = true;
                         ChartId::SensitivityHeatmap
@@ -1423,7 +2375,7 @@ pub(crate) mod tests {
                 crate::ui::poll_chart::poll_chart_work(&mut state, &mut widgets, &chart, &tx);
                 let journal = state.journal_studies.as_ref().unwrap();
                 assert!(
-                    !journal.analysis_jobs.borrow().contains_key(&slot),
+                    !journal.analysis_jobs.borrow().contains_key(&(0, slot)),
                     "A cache hit must replace the old pending adoption interest"
                 );
                 assert!(journal
@@ -1454,12 +2406,24 @@ pub(crate) mod tests {
                     .contains_key(&(M::Spearman.cache_id(), false)));
                 match path {
                     0 => assert_eq!(
-                        state.importance_cache[&(M::Ridge.cache_id(), 0, false)].ridge[0].beta,
+                        state
+                            .importance_cache
+                            .get(&(M::Ridge.cache_id(), 0, false))
+                            .unwrap()
+                            .ridge[0]
+                            .beta,
                         [0.8]
                     ),
-                    1 => assert_eq!(state.sobol_cache[&(0, false)].first_order, [vec![0.8]]),
+                    1 => assert_eq!(
+                        state.sobol_cache.get(&(0, false)).unwrap().first_order,
+                        [vec![0.8]]
+                    ),
                     2 => assert_eq!(
-                        state.sensitivity_heatmap_cache[&(M::Ridge.cache_id(), false)].values,
+                        state
+                            .sensitivity_heatmap_cache
+                            .get(&(M::Ridge.cache_id(), false))
+                            .unwrap()
+                            .values,
                         [vec![0.8]]
                     ),
                     _ => {
@@ -1507,12 +2471,12 @@ pub(crate) mod tests {
         assert!(!journal
             .analysis_jobs
             .borrow()
-            .contains_key(&DeliverySlot::Mcdm(M::Rank)));
+            .contains_key(&(0, DeliverySlot::Mcdm(M::Rank))));
         assert_eq!(
             journal
                 .analysis_jobs
                 .borrow()
-                .get(&DeliverySlot::Mcdm(M::Table)),
+                .get(&(0, DeliverySlot::Mcdm(M::Table))),
             Some(&key)
         );
         assert!(journal.analysis.borrow().lookup(&key.analysis).is_some());
@@ -1666,7 +2630,7 @@ pub(crate) mod tests {
                 .unwrap()
                 .analysis_jobs
                 .borrow()
-                .contains_key(&DeliverySlot::Convergence));
+                .contains_key(&(0, DeliverySlot::Convergence)));
             assert!(adopt_all(origin, queued, &state, &mut widgets).is_empty());
             if change_reference {
                 assert_eq!(state.hv_ref_point_override, Some(vec![100.0, 100.0]));

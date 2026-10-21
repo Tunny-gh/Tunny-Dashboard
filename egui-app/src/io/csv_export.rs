@@ -104,8 +104,8 @@ pub fn build_chart_csv(
         ChartId::SomMap => build_som_csv(app_state, widgets),
         ChartId::Dendrogram => build_dendrogram_csv(widgets),
         ChartId::ResponseSurface3D => build_response_surface_csv(widgets),
-        ChartId::IntermediateValues => build_intermediate_values_csv(),
-        ChartId::Timeline => build_timeline_csv(),
+        ChartId::IntermediateValues => build_intermediate_values_csv(app_state),
+        ChartId::Timeline => build_timeline_csv(app_state),
         ChartId::EdfPlot => build_edf_csv(app_state, widgets),
         ChartId::RankPlot2D | ChartId::RankPlot3D => {
             build_rank_plot_csv(chart_id, app_state, widgets)
@@ -223,7 +223,7 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
         ChartId::ParetoScatter2D | ChartId::ParetoScatter3D => app_state
             .current_study
             .as_ref()
-            .is_some_and(|s| !s.pareto_indices.is_empty()),
+            .is_some_and(|s| !s.pareto_indices().is_empty()),
         ChartId::McdmRankChart | ChartId::McdmScatterChart => {
             app_state.current_study.is_some()
                 && mcdm_result_for_chart(chart_id, app_state, widgets).is_some()
@@ -309,12 +309,16 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
             .response_surface
             .cached_slice()
             .is_some_and(|s| !s.x_values.is_empty() && !s.y_values.is_empty()),
-        ChartId::IntermediateValues => {
-            tunny_core::dataframe::active_extras_snapshot().is_some_and(|e| e.has_intermediate())
-        }
-        ChartId::Timeline => {
-            tunny_core::dataframe::active_extras_snapshot().is_some_and(|e| e.has_datetimes())
-        }
+        ChartId::IntermediateValues => app_state
+            .current_study
+            .as_ref()
+            .and_then(|s| s.view.extras())
+            .is_some_and(|e| e.has_intermediate()),
+        ChartId::Timeline => app_state
+            .current_study
+            .as_ref()
+            .and_then(|s| s.view.extras())
+            .is_some_and(|e| e.has_datetimes()),
         ChartId::EdfPlot => app_state.current_study.as_ref().is_some_and(|s| {
             s.meta
                 .objective_names

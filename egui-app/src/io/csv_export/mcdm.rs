@@ -3,7 +3,7 @@ use tunny_core::export::{CsvField, CsvWriter};
 
 pub(super) fn build_pareto_csv(app_state: &AppState) -> Option<String> {
     let study = app_state.current_study.as_ref()?;
-    if study.pareto_indices.is_empty() {
+    if study.pareto_indices().is_empty() {
         return None;
     }
     // Export every individual with its Pareto rank (rank 0 = Pareto front).

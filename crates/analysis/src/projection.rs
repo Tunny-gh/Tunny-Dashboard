@@ -41,7 +41,7 @@ pub struct Projection {
     pub stamp: AcquiredStamp,
     pub rows: Vec<TrialKey>,
     pub meta: StudyMeta,
-    pub dataframe: DataFrame,
+    pub dataframe: std::sync::Arc<DataFrame>,
     pub extras: StudyExtras,
     pub history: Option<Vec<(u32, f64)>>,
     pub trial_rows: Vec<TrialRow>,
@@ -346,7 +346,7 @@ fn project_with_schema(input: &StudyInput, previous: Option<&DataFrame>) -> Proj
                 .map(|(k, (l, h))| (k.clone(), (l.0, h.0)))
                 .collect(),
         },
-        dataframe,
+        dataframe: std::sync::Arc::new(dataframe),
         extras,
         history,
         trial_rows: rows,
