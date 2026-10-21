@@ -62,6 +62,7 @@ fn mcdm_dispatch_propagates_negative_weight_failure_before_empty_front() {
             };
             let (tx, rx) = mpsc::sync_channel(1);
             mcdm::dispatch_mcdm_compute(
+                &AppState::default(),
                 &mut controls,
                 &ctx,
                 &ctx.meta.objective_names,

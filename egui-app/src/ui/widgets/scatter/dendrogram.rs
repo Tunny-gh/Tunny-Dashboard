@@ -40,8 +40,8 @@ impl DendrogramSpace {
     }
 }
 
-/// (study_name, row_count, space disc)
-type DendrogramCacheKey = (String, usize, u8);
+/// (acquired input, feature space)
+type DendrogramCacheKey = (Option<tdashboard_study::AcquiredStamp>, u8);
 
 /// UI state for the dendrogram widget.
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -82,10 +82,11 @@ fn feature_names(
 /// Builds Ward linkage from finite feature rows and maps leaves back to view rows.
 /// Subsampling beyond 800 rows is handled internally by `ward_linkage`.
 fn build_linkage(view: &StudyView, features: &[String]) -> Option<HierarchicalResult> {
-    let (source_rows, matrix) = super::feature_matrix_with_rows(view, features);
-    let mut result = ward_linkage(&matrix, true)?;
+    let data =
+        tdashboard_analysis::preparation::prepare_features(&view.df, features, 2, false).ok()?;
+    let mut result = ward_linkage(&data.matrix, true)?;
     for index in &mut result.row_indices {
-        *index = source_rows[*index];
+        *index = data.rows[*index];
     }
     Some(result)
 }
@@ -174,7 +175,7 @@ impl DendrogramChart {
         view: &StudyView,
         param_names: &[String],
         obj_names: &[String],
-        study_name: &str,
+        _study_name: &str,
     ) {
         ui.horizontal(|ui| {
             ui.label("Clusters (k):");
@@ -198,8 +199,8 @@ impl DendrogramChart {
             return;
         }
 
-        let key: DendrogramCacheKey = (study_name.to_string(), view.row_count(), self.space.disc());
-        if self.cache.as_ref().map(|(k, _)| k) != Some(&key) {
+        let key: DendrogramCacheKey = (view.df.provenance(), self.space.disc());
+        if key.0.is_none() || self.cache.as_ref().map(|(k, _)| k) != Some(&key) {
             self.cache = build_linkage(view, &features).map(|r| (key, r));
         }
 
@@ -473,7 +474,7 @@ mod tests {
             .map(|&leaf| result.row_indices[leaf])
             .collect();
         let chart = DendrogramChart {
-            cache: Some((("test".to_string(), 3, 0), result)),
+            cache: Some(((None, 0), result)),
             ..Default::default()
         };
         let assignments = chart.leaf_assignments().unwrap();

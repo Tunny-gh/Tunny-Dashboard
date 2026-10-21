@@ -1,7 +1,7 @@
 //! MCP tool definitions and implementations.
 //!
 //! Each tool takes a `storage` (journal / SQLite path, or a PostgreSQL / MySQL
-//! connection URL), loads it with tunny-core's headless API, and returns the
+//! connection URL), acquires a request-local Study input, and returns the
 //! analysis result. The return value is a single text item (Markdown or a JSON
 //! string).
 //!
@@ -14,9 +14,9 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Map, Value};
+use tdashboard_analysis::{ReportLang, ReportOptions, ReportSource};
 use tunny_core::io::journal::parser::OptimizationDirection;
 use tunny_core::report::{render_markdown, Outcome};
-use tunny_core::{build_study_report, ReportLang, ReportOptions, ReportSource};
 
 use crate::storage;
 
@@ -236,8 +236,7 @@ fn study_report(args: &Value) -> Result<String, ToolError> {
         .unwrap_or(10)
         .max(1);
 
-    let (meta, df, extras, storage_display) =
-        storage::load_study(storage_str, study_id).map_err(exec_err)?;
+    let (input, storage_display) = storage::load_study(storage_str, study_id).map_err(exec_err)?;
 
     let source = report_source(storage_display);
     let opts = ReportOptions {
@@ -245,12 +244,14 @@ fn study_report(args: &Value) -> Result<String, ToolError> {
         top_n,
         ..ReportOptions::default()
     };
-    let report = build_study_report(&meta, &df, Some(&extras), &source, &opts);
+    let computed =
+        tdashboard_analysis::report::generate_report(input, &source, &opts).map_err(exec_err)?;
+    let report = &*computed.report;
 
     match format {
         "json" => serde_json::to_string_pretty(&report)
             .map_err(|e| exec_err(format!("JSON serialization failed: {e}"))),
-        "markdown" => Ok(render_markdown(&report, lang)),
+        "markdown" => Ok(render_markdown(report, lang)),
         other => Err(exec_err(format!(
             "invalid format: {other} (expected markdown|json)"
         ))),
@@ -270,8 +271,7 @@ fn study_summary(args: &Value) -> Result<String, ToolError> {
     let storage_str = arg_str(args, "storage")?;
     let study_id = arg_u32(args, "study_id")?;
 
-    let (meta, df, extras, storage_display) =
-        storage::load_study(storage_str, study_id).map_err(exec_err)?;
+    let (input, storage_display) = storage::load_study(storage_str, study_id).map_err(exec_err)?;
 
     let source = report_source(storage_display);
     // The summary doesn't emit the full report, so skip the MCDM/correlation
@@ -281,7 +281,9 @@ fn study_summary(args: &Value) -> Result<String, ToolError> {
         skip_decision_sections: true,
         ..ReportOptions::default()
     };
-    let report = build_study_report(&meta, &df, Some(&extras), &source, &opts);
+    let computed =
+        tdashboard_analysis::report::generate_report(input, &source, &opts).map_err(exec_err)?;
+    let report = &*computed.report;
 
     let overview = serde_json::to_value(&report.overview)
         .map_err(|e| exec_err(format!("JSON serialization failed: {e}")))?;
@@ -362,8 +364,9 @@ fn trials(args: &Value) -> Result<String, ToolError> {
     let study_id = arg_u32(args, "study_id")?;
     let (offset, limit) = parse_offset_limit(args);
 
-    let (_meta, df, _extras, _storage_display) =
-        storage::load_study(storage_str, study_id).map_err(exec_err)?;
+    let (input, _storage_display) = storage::load_study(storage_str, study_id).map_err(exec_err)?;
+    let projection = tdashboard_analysis::projection::project(&input);
+    let df = &projection.dataframe;
 
     let total = df.row_count();
     let end = total.min(offset.saturating_add(limit));

@@ -7,8 +7,9 @@ use crate::ui::widgets::mcdm_chart::{McdmCacheKey, McdmComputeRequest, McdmContr
 
 /// Launches the Entropy weight computation if needed (from each chart's controls).
 pub(super) fn dispatch_mcdm_entropy(
+    app_state: &crate::state::app_state::AppState,
     controls: &mut McdmControls,
-    ctx: &StudyContext,
+    _ctx: &StudyContext,
     obj_names: &[String],
     source: McdmChartSource,
     tx: &mpsc::SyncSender<AppMessage>,
@@ -16,28 +17,18 @@ pub(super) fn dispatch_mcdm_entropy(
     if !controls.pending_entropy || controls.computing {
         return;
     }
-    let n_trials = ctx.view.row_count();
-    let obj_cols = ctx.view.numeric_columns(obj_names);
-    let objectives: Vec<f64> = (0..n_trials)
-        .flat_map(|i| {
-            obj_cols
-                .iter()
-                .map(move |col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
-        })
-        .collect();
-    let n_objectives = obj_names.len();
-    if n_trials == 0 || n_objectives == 0 {
-        return;
-    }
-
     controls.computing = true;
     let tx = tx.clone();
-    crate::app::spawn_task(
+    crate::state::analysis_job::spawn(
+        app_state,
         tx,
-        move || match tunny_core::entropy::compute_entropy_weights(
-            &objectives,
-            n_trials,
-            n_objectives,
+        crate::state::analysis_job::DeliverySlot::Entropy(source),
+        obj_names.to_vec(),
+        tdashboard_analysis::preparation::Preparation::Entropy,
+        move |prepared| match tunny_core::entropy::compute_entropy_weights(
+            &prepared.data().objectives().values,
+            prepared.data().objectives().rows.len(),
+            prepared.data().objectives().names.len(),
         ) {
             Ok(r) => AppMessage::EntropyDone {
                 source,
@@ -59,70 +50,71 @@ pub(super) fn dispatch_mcdm_entropy(
 /// Launches the MCDM ranking computation if needed (from each chart's controls).
 /// The result is returned with a config key and stored in `app_state.mcdm_cache`.
 pub(super) fn dispatch_mcdm_compute(
+    app_state: &crate::state::app_state::AppState,
     controls: &mut McdmControls,
-    ctx: &StudyContext,
-    obj_names: &[String],
-    directions: &[Direction],
+    _ctx: &StudyContext,
+    _obj_names: &[String],
+    _directions: &[Direction],
     source: McdmChartSource,
     tx: &mpsc::SyncSender<AppMessage>,
 ) {
+    if app_state.study_streaming {
+        return;
+    }
     let Some(req) = controls.pending_compute.take() else {
         return;
     };
     controls.computing = true;
 
-    let key = McdmCacheKey::from_request(&req, controls.weight_mode);
+    let key = match McdmCacheKey::from_request(&req, controls.weight_mode) {
+        Ok(key) => key,
+        Err(message) => {
+            crate::state::analysis_job::reject_settings(
+                app_state,
+                tx.clone(),
+                crate::state::analysis_job::DeliverySlot::Mcdm(source),
+                message,
+            );
+            return;
+        }
+    };
     let McdmComputeRequest { method, weights, v } = req;
 
-    let n_total = ctx.view.row_count();
-    let n_objectives = obj_names.len();
-
-    // Target only the row indices on the Pareto front (rank == 0)
-    let pareto_row_indices: Vec<usize> = (0..n_total)
-        .filter(|&i| ctx.view.pareto_rank.get(i).copied().unwrap_or(u32::MAX) == 0)
-        .collect();
-    let n_pareto = pareto_row_indices.len();
-
-    let obj_cols_mcdm = ctx.view.numeric_columns(obj_names);
-    let objectives: Vec<f64> = pareto_row_indices
-        .iter()
-        .flat_map(|&i| {
-            obj_cols_mcdm
-                .iter()
-                .map(move |col| col.and_then(|c| c.get(i)).copied().unwrap_or(0.0))
-        })
-        .collect();
-    let is_minimize: Vec<bool> = directions
-        .iter()
-        .map(|d| matches!(d, Direction::Minimize))
-        .collect();
-
     let tx = tx.clone();
-    crate::app::spawn_task(tx, move || {
-        let key = match key {
-            Ok(key) => key,
-            Err(message) => return AppMessage::McdmFailed { source, message },
-        };
-        let computed = compute_mcdm_result(
-            method,
-            v,
-            &weights,
-            &objectives,
-            n_total,
-            n_pareto,
-            n_objectives,
-            &is_minimize,
-            &pareto_row_indices,
-        );
-        match computed {
-            Ok(result) => AppMessage::McdmDone {
-                source,
-                key,
-                result,
-            },
-            Err(message) => AppMessage::McdmFailed { source, message },
-        }
-    });
+    crate::state::analysis_job::spawn(
+        app_state,
+        tx,
+        crate::state::analysis_job::DeliverySlot::Mcdm(source),
+        tdashboard_analysis::session::Condition::from((
+            format!("{:?}", key.method),
+            format!("{:?}", key.weight_mode),
+            key.weights_q.clone(),
+            key.v_q,
+        )),
+        tdashboard_analysis::preparation::Preparation::Mcdm,
+        move |prepared| {
+            let data = prepared.data().objectives();
+            let computed = compute_mcdm_result(
+                method,
+                v,
+                &weights,
+                &data.values,
+                data.total_rows,
+                data.rows.len(),
+                data.names.len(),
+                &data.minimize,
+                &data.rows,
+            );
+            match computed {
+                Ok(result) => AppMessage::McdmDone {
+                    source,
+                    key,
+                    result,
+                },
+                Err(message) => AppMessage::McdmFailed { source, message },
+            }
+        },
+    );
 }
 
 /// Computes MCDM over the Pareto-front subset and returns the result expanded to full trial length.

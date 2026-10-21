@@ -6,4 +6,3 @@ pub mod journal;
 pub mod rdb;
 pub mod sqlite;
 pub mod storage;
-pub(crate) mod user_attrs;

@@ -75,8 +75,8 @@ const COLORBAR_RESERVE: f32 = 96.0;
 /// Smallest square the grid is drawn at, even in a cramped widget.
 const MIN_GRID_SIDE: f32 = 120.0;
 
-/// (study_name, row_count, grid_size, n_epochs, space disc)
-type SomCacheKey = (String, usize, usize, usize, u8);
+/// (acquired input, grid size, epochs, feature space)
+type SomCacheKey = (Option<tdashboard_study::AcquiredStamp>, usize, usize, u8);
 
 /// A trained map plus the mapping back to trials.
 struct SomCache {
@@ -183,14 +183,8 @@ fn format_node_value(v: f64, integral: bool) -> String {
 }
 
 impl SomMapChart {
-    fn cache_key(&self, study_name: &str, row_count: usize) -> SomCacheKey {
-        (
-            study_name.to_string(),
-            row_count,
-            self.grid_size,
-            self.n_epochs,
-            self.space.disc(),
-        )
+    fn cache_key(&self, input: Option<tdashboard_study::AcquiredStamp>) -> SomCacheKey {
+        (input, self.grid_size, self.n_epochs, self.space.disc())
     }
 
     /// Returns the node-value grid (row-major `grid_h * grid_w`) and axis label for
@@ -244,7 +238,7 @@ impl SomMapChart {
         view: &StudyView,
         param_names: &[String],
         obj_names: &[String],
-        study_name: &str,
+        _study_name: &str,
         cmap: &ColorMap,
     ) {
         ui.horizontal(|ui| {
@@ -313,22 +307,25 @@ impl SomMapChart {
             return;
         }
 
-        let key = self.cache_key(study_name, view.row_count());
-        if self.cache.as_ref().map(|c| &c.key) != Some(&key) {
+        let key = self.cache_key(view.df.provenance());
+        if key.0.is_none() || self.cache.as_ref().map(|c| &c.key) != Some(&key) {
             // Every row is handed to `train_som`: it caps only the rows used by the
             // weight update (`MAX_SOM_TRAINING_ROWS`) and still assigns a BMU to all of
             // them, so hit counts and the click-to-select mapping cover every trial.
-            let (rows, matrix) = super::feature_matrix_with_rows(view, &features);
             let spec = SomSpec {
                 grid_w: self.grid_size,
                 grid_h: self.grid_size,
                 n_epochs: self.n_epochs,
             };
-            self.cache = train_som(&matrix, &spec).map(|result| SomCache {
-                key,
-                node_rows: group_rows_by_node(&result, &rows),
-                result,
-            });
+            self.cache = tdashboard_analysis::preparation::prepare_som(&view.df, &features, &spec)
+                .ok()
+                .and_then(|data| {
+                    train_som(&data.matrix, &spec).map(|result| SomCache {
+                        key,
+                        node_rows: group_rows_by_node(&result, &data.rows),
+                        result,
+                    })
+                });
             // Node indices are meaningless against the new map, so the selection goes
             // too — including the copy the rest of the app is holding, which would
             // otherwise keep highlighting trials that no cell is marked with anymore.
@@ -681,7 +678,7 @@ mod tests {
         let (view, _) = view_with_param(&[1.0, 2.0, 3.0]);
         let chart = SomMapChart {
             cache: Some(SomCache {
-                key: ("s".to_string(), 3, 8, 20, 0),
+                key: (None, 8, 20, 0),
                 result: SomResult {
                     grid_w: 2,
                     grid_h: 1,

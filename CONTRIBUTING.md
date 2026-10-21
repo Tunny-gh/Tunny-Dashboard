@@ -108,6 +108,9 @@ cargo build -p tunny-core
 # Build only storage/format I/O (no numerical native-library dependency)
 cargo build -p tdashboard-io
 
+# Build only explicit-input numerical analysis (requires LightGBM)
+cargo build -p tdashboard-analysis
+
 # Build only the desktop app
 cargo build -p tunny-desktop
 
@@ -117,7 +120,13 @@ cargo build -p tunny-mcp
 
 ### Runtime (Windows)
 
-On Windows, `lib_lightgbm.dll` must be discoverable at runtime. The `build.rs` script automatically copies it into the Cargo target directory during build, so `cargo test` and `cargo run` work out of the box. For a standalone binary, place `lib_lightgbm.dll` alongside the executable.
+On Windows, `lib_lightgbm.dll` must be discoverable at runtime. `crates/analysis/build.rs` automatically copies it into the Cargo target directory during build, so `cargo test` and `cargo run` work out of the box. For a standalone binary, place `lib_lightgbm.dll` alongside the executable.
+
+`tdashboard-analysis` owns numerical dependencies and native-library linking.
+The `libs/` directory remains at the workspace root, not inside the new crate.
+GUI/MCP and legacy test/example targets retain their final-binary link/rpath
+handling; an rlib's link arguments do not supply every executable's runtime path.
+The exact workspace checks below include the analysis crate and its native tests.
 
 ## Development Commands
 
@@ -135,6 +144,7 @@ Local only (quicker feedback, uses the default dev profile):
 
 ```bash
 cargo test -p tunny-core
+cargo test -p tdashboard-analysis
 cargo test -p tunny-desktop
 ```
 

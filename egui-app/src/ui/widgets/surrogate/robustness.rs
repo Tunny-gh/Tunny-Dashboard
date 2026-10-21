@@ -143,10 +143,18 @@ impl Default for RobustnessChart {
 }
 
 impl RobustnessChart {
+    pub(crate) fn invalidate_input(&mut self) {
+        self.trained = None;
+        self.fit_error = None;
+        self.cache = None;
+    }
     /// Pulls in the global widget's compute state, result, and error (used to
     /// propagate state to each canvas item). UI selections such as objective,
     /// model, center point, and noise settings remain per-item.
     pub fn adopt_compute_state(&mut self, global: &Self) {
+        if global.trained.is_none() {
+            self.cache = None;
+        }
         self.trained = global.trained.clone();
         self.fitting = global.fitting;
         self.fit_error = global.fit_error.clone();

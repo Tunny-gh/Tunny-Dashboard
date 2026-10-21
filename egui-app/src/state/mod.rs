@@ -1,3 +1,4 @@
+pub(crate) mod analysis_job;
 pub mod app_state;
 pub mod filter;
 pub mod layout_state;

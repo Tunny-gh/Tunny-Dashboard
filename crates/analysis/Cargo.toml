@@ -1,0 +1,24 @@
+[package]
+name = "tdashboard-analysis"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Explicit-input analysis and numerical models for Tunny Dashboard"
+
+[dependencies]
+tdashboard-study = { path = "../study" }
+delaunator = "1.1"
+faer = "0.24.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rayon = "1"
+argmin = "0.11"
+argmin-math = { version = "0.5", features = ["vec"] }
+rand = "0.9"
+rand_chacha = "0.9"
+rand_xoshiro = "0.6"
+egobox-gp = "0.36"
+egobox-moe = "0.35"
+linfa = "0.8"
+linfa-clustering = "0.8"
+ndarray = "0.16"

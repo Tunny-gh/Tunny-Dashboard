@@ -1,6 +1,6 @@
 //! Module providing CSV export and report aggregation functionality.
-//! D4 owns statistical/derived export computation; D7 removes ambient entry
-//! selection glue. Neutral CSV field encoding lives in tdashboard-io.
+//! Statistical/derived selection lives in analysis. D7 removes these entry
+//! composition imports. Neutral CSV field encoding lives in tdashboard-io.
 //!
 //! Design:
 //! Text generation (`csv` / `formatting` / `report`) is separated from actual file

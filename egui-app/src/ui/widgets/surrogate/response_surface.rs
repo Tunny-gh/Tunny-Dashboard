@@ -142,9 +142,17 @@ impl Default for ResponseSurfaceChart {
 }
 
 impl ResponseSurfaceChart {
+    pub(crate) fn invalidate_input(&mut self) {
+        self.trained = None;
+        self.fit_error = None;
+        self.cache = None;
+    }
     /// Pulls in the global widget's computation state, result, and error
     /// (called from `ComputeSyncKind::ResponseSurfaceFit`; same convention as `robustness.rs`).
     pub fn adopt_compute_state(&mut self, global: &Self) {
+        if global.trained.is_none() {
+            self.cache = None;
+        }
         self.trained = global.trained.clone();
         self.fitting = global.fitting;
         self.fit_error = global.fit_error.clone();

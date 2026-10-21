@@ -24,7 +24,6 @@ pub use pdp::slice_chart;
 
 // Surrogate optimization (build response surface + optimize on the surface)
 mod surrogate;
-pub use surrogate::anchor;
 pub use surrogate::compare;
 pub use surrogate::response_surface;
 pub use surrogate::robustness;

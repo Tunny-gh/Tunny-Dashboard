@@ -18,7 +18,7 @@ fn sqlite_generic_rdb_metadata_survives_row_ingestion_and_append_refresh() {
     let (_, initial, _) = parse_single_study(file.path(), 1).unwrap();
     let rows = parse_single_study_rows(file.path(), 1).unwrap();
     let mut appended = crate::dataframe::DataFrame::empty();
-    for row in &rows.rows {
+    for row in &crate::journal_parser::project_rows(rows.rows.clone()) {
         appended.append_trials(
             std::slice::from_ref(row),
             &rows.param_names,
@@ -47,7 +47,7 @@ fn sqlite_generic_rdb_metadata_survives_row_ingestion_and_append_refresh() {
     .unwrap();
     let refreshed = parse_single_study_rows(file.path(), 1).unwrap();
     appended.append_trials(
-        &refreshed.rows[3..],
+        &crate::journal_parser::project_rows(refreshed.rows[3..].to_vec()),
         &refreshed.param_names,
         &refreshed.objective_names,
         &refreshed.user_attr_numeric_names,

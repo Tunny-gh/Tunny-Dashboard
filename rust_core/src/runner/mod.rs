@@ -23,12 +23,12 @@ use std::sync::Mutex;
 
 use rayon::prelude::*;
 
-use crate::data::extras::TrialState;
 use crate::io::journal::parser::OptimizationDirection;
 use crate::io::journal::writer::{JournalWriter, ParamDistribution};
 use crate::math::rng::SeededRng;
 use crate::surrogate_opt::optimizers::nsga2::{nsga2_minimize, Nsga2Config};
 use crate::surrogate_opt::FitProgress;
+use tdashboard_io::extras::TrialState;
 
 /// Fitness returned to the sampler on evaluation failure / cancellation.
 /// Strictly worse than any constraint-violating fitness so the search never

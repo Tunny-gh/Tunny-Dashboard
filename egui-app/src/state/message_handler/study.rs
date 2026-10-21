@@ -29,22 +29,22 @@ impl MessageHandler {
         else {
             return;
         };
-        let projection = journal
-            .projections
-            .entry(key.stored_id)
-            .or_default()
-            .project(&input);
+        let projection = journal.analysis.borrow_mut().project(input.clone());
         let complete = input.load_state().phase == tdashboard_study::LoadPhase::Complete;
-        let meta = crate::io::journal::convert_study_meta(projection.meta);
+        let meta = crate::io::journal::convert_study_meta(tunny_core::journal_parser::io_meta(
+            projection.meta.clone(),
+        ));
         let pareto = if complete {
-            tunny_core::pareto::compute_pareto_ranks_from_df(
-                &projection.dataframe,
-                &meta
-                    .directions
-                    .iter()
-                    .map(|d| matches!(d, Direction::Minimize))
-                    .collect::<Vec<_>>(),
-            )
+            let front = journal
+                .analysis
+                .borrow_mut()
+                .pareto(input.clone())
+                .expect("Complete input is Pareto-ready");
+            (*front
+                .payload::<tdashboard_analysis::pareto::ParetoResult>()
+                .expect("Pareto result completed")
+                .expect("Pareto computation succeeds"))
+            .clone()
         } else {
             tunny_core::pareto::ParetoResult {
                 ranks: vec![],
@@ -52,13 +52,14 @@ impl MessageHandler {
                 hypervolume: None,
             }
         };
-        let df = std::sync::Arc::new(projection.dataframe);
+        let df = std::sync::Arc::new(projection.dataframe.clone());
+        let history = journal.analysis.borrow_mut().history(input.clone()).ok();
         // Remove these compatibility publications in #253. No parser writes them.
         tunny_core::dataframe::swap_snapshot(key.stored_id, df.clone());
-        tunny_core::dataframe::store_extras_for(key.stored_id, projection.extras);
+        tunny_core::dataframe::store_extras_for(key.stored_id, projection.extras.clone());
         let context = StudyContext {
             meta: meta.clone(),
-            view: StudyView::new(df, pareto.ranks),
+            view: StudyView::new(df, pareto.ranks).with_input(input.clone()),
             pareto_indices: pareto.pareto_indices,
         };
         let comparison_context = comparison_ready.then(|| context.clone());
@@ -71,6 +72,7 @@ impl MessageHandler {
         }
         if selected {
             let stamp = input.stamp();
+            let changed = app_state.journal_display != Some(stamp);
             let first = app_state.journal_display.is_none_or(|old| {
                 old.input.study != stamp.input.study
                     || old.input.generation != stamp.input.generation
@@ -82,10 +84,14 @@ impl MessageHandler {
                 widget_states.trial_table.cluster.clear_runtime_state();
                 widget_states.reset_infeasible_flags();
             }
+            if changed {
+                app_state.clear_analysis_results();
+                widget_states.invalidate_analysis_input();
+            }
             app_state.journal_display = Some(stamp);
             app_state.current_study = Some(context);
             app_state.study_streaming = !complete;
-            app_state.best_trial_history = if complete { projection.history } else { None };
+            app_state.best_trial_history = history;
             app_state.convergence_history = None;
             app_state.comparison_convergence_histories.clear();
             widget_states.convergence.computing = false;
@@ -257,7 +263,7 @@ impl MessageHandler {
                 .iter()
                 .map(|d| matches!(d, Direction::Minimize))
                 .collect();
-            let pareto = tunny_core::pareto::compute_pareto_ranks(&is_minimize);
+            let pareto = tunny_core::pareto::compute_pareto_ranks(&arc, &is_minimize);
             (pareto.ranks, pareto.pareto_indices)
         } else {
             (Vec::new(), Vec::new())

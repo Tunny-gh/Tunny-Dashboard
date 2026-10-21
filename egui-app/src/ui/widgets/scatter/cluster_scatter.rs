@@ -22,7 +22,7 @@ mod tests;
 use matrix::compute_obj_axes_2d;
 
 pub use cache::{validate_cluster_request, ClusterCacheKey, ClusterComputeRequest};
-pub use matrix::{build_cluster_matrix, ClusterMatrix};
+pub use matrix::ClusterMatrix;
 pub use settings::{ClusterSpace, KMeansInitStrategy, KSelectionMode};
 
 /// Cluster scatter plot widget.

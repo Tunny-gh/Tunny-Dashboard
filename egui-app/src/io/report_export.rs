@@ -1,21 +1,22 @@
 //! Background generation processing for the "Report..." dialog (Phase R4).
 //!
-//! The UI thread only needs to pass a study snapshot (a `StudyMeta` clone,
-//! `Arc<DataFrame>`, `Arc<StudyExtras>`, masked storage display name, and generation
-//! timestamp) into this module; the actual `tunny_core::report::build_study_report`
-//! call and file writing happen on a worker thread launched by
+//! The UI passes one acquired Study input and its consistently prepared table,
+//! plus a masked storage display name. Pure analysis and external file writes
+//! are composed on a worker thread launched by
 //! `crate::app::spawn_task` (so the UI is never blocked). Sends
 //! `AppMessage::ReportExportDone` on success, or the existing `AppMessage::Error` on
 //! failure.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::SyncSender;
-use std::sync::Arc;
 
-use tunny_core::dataframe::DataFrame;
-use tunny_core::extras::StudyExtras;
+#[cfg(test)]
+use tdashboard_analysis::dataframe::DataFrame;
+#[cfg(test)]
+use tdashboard_analysis::extras::StudyExtras;
 use tunny_core::report::ReportLang;
 
+#[cfg(test)]
 use crate::state::app_state::{Direction, StudyMeta};
 use crate::state::messages::AppMessage;
 use crate::ui::widgets::report_modal::{export_paths, ReportFormat};
@@ -36,9 +37,8 @@ pub fn storage_display(journal_path: Option<&Path>) -> String {
 /// the UI thread.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_report_export(
-    meta: StudyMeta,
-    df: Arc<DataFrame>,
-    extras: Option<Arc<StudyExtras>>,
+    input: tdashboard_study::StudyInput,
+    table: std::sync::Arc<tdashboard_analysis::projection::Projection>,
     storage_display: String,
     lang: ReportLang,
     top_n: usize,
@@ -52,17 +52,19 @@ pub fn spawn_report_export(
         .map(|d| d.as_secs() as i64);
 
     crate::app::spawn_task(tx, move || {
-        match build_and_write_report(
-            &meta,
-            &df,
-            extras.as_deref(),
-            &storage_display,
+        let source = tdashboard_analysis::report::ReportSource {
+            storage_display,
             generated_at_unix,
+        };
+        let opts = tdashboard_analysis::report::ReportOptions {
             lang,
             top_n,
-            &formats,
-            &base_path,
-        ) {
+            ..Default::default()
+        };
+        let result =
+            tdashboard_analysis::report::generate_prepared_report(input, table, &source, &opts)
+                .and_then(|computed| write_report(&computed.report, lang, &formats, &base_path));
+        match result {
             Ok((paths, overwrote)) => AppMessage::ReportExportDone { paths, overwrote },
             Err(e) => AppMessage::Error(e),
         }
@@ -71,6 +73,7 @@ pub fn spawn_report_export(
 
 /// Builds a `StudyReport` and writes it out to a file for each selected format.
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 fn build_and_write_report(
     meta: &StudyMeta,
     df: &DataFrame,
@@ -94,6 +97,15 @@ fn build_and_write_report(
     };
     let report = tunny_core::report::build_study_report(&core_meta, df, extras, &source, &opts);
 
+    write_report(&report, lang, formats, base_path)
+}
+
+fn write_report(
+    report: &tdashboard_analysis::report::StudyReport,
+    lang: ReportLang,
+    formats: &[ReportFormat],
+    base_path: &Path,
+) -> Result<(Vec<PathBuf>, Vec<PathBuf>), String> {
     let mut written = Vec::with_capacity(formats.len());
     // The base_path itself, chosen by the user in the save dialog, goes through the
     // OS's overwrite confirmation, but non-primary sibling files derived via
@@ -106,8 +118,8 @@ fn build_and_write_report(
             overwritten.push(path.clone());
         }
         let content = match format {
-            ReportFormat::Html => tunny_core::report::render_html(&report, lang),
-            ReportFormat::Markdown => tunny_core::report::render_markdown(&report, lang),
+            ReportFormat::Html => tunny_core::report::render_html(report, lang),
+            ReportFormat::Markdown => tunny_core::report::render_markdown(report, lang),
             ReportFormat::Json => serde_json::to_string_pretty(&report)
                 .map_err(|e| format!("Failed to serialize report as JSON: {e}"))?,
         };
@@ -129,12 +141,13 @@ fn build_and_write_report(
 /// - `total_trials`: uses the count from `StudyExtras` (extra info for all states) if
 ///   available, otherwise falls back to the DataFrame's row count (= number of
 ///   COMPLETE trials).
+#[cfg(test)]
 fn to_core_meta(
     meta: &StudyMeta,
     df: &DataFrame,
     extras: Option<&StudyExtras>,
-) -> tunny_core::io::journal::parser::StudyMeta {
-    use tunny_core::io::journal::parser::{OptimizationDirection, StudyMeta as CoreStudyMeta};
+) -> tdashboard_analysis::projection::StudyMeta {
+    use tdashboard_analysis::projection::{OptimizationDirection, StudyMeta as CoreStudyMeta};
 
     let directions = meta
         .directions
@@ -176,6 +189,58 @@ fn to_core_meta(
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn d4_report_worker_uses_one_acquired_input_and_the_finite_front_policy() {
+        use tdashboard_study::*;
+        let key = StudyKey {
+            source: IdentityAllocator::new().unwrap().source().unwrap(),
+            stored_id: 0,
+        };
+        let bytes = b"{\"op_code\":0,\"study_name\":\"report\",\"directions\":[1,1]}\n{\"op_code\":4,\"study_id\":0,\"distributions\":{},\"state\":1,\"values\":[1,2]}\n{\"op_code\":4,\"study_id\":0,\"distributions\":{},\"state\":1,\"values\":[-Infinity,0]}\n{\"op_code\":4,\"study_id\":0}\n";
+        let batch = tdashboard_io::journal::parser::study::read_full(bytes, key).unwrap();
+        let mut manager = StudyManager::new(key);
+        let ticket = manager.begin(LoadKind::Initial).unwrap();
+        let receipt = manager
+            .apply(manager.header(ticket).unwrap(), batch)
+            .unwrap();
+        manager.finish(ticket, receipt.next_sequence).unwrap();
+        let input = manager.acquire().unwrap();
+        let mut session = tdashboard_analysis::session::AnalysisSession::default();
+        let table = session.project(input.clone());
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("report.json");
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        spawn_report_export(
+            input.clone(),
+            table,
+            "test journal".into(),
+            ReportLang::En,
+            10,
+            vec![ReportFormat::Json],
+            path.clone(),
+            tx,
+        );
+        let ticket = manager.begin(LoadKind::Refresh).unwrap();
+        manager
+            .apply(
+                manager.header(ticket).unwrap(),
+                StudyBatch::Replace {
+                    trials: vec![],
+                    metadata: (**input.data().metadata()).clone(),
+                },
+            )
+            .unwrap();
+        assert!(matches!(
+            rx.recv_timeout(std::time::Duration::from_secs(30)).unwrap(),
+            AppMessage::ReportExportDone { .. }
+        ));
+        let report: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(report["overview"]["complete_trials"], 2);
+        assert_eq!(report["overview"]["total_trials"], 3);
+        assert_eq!(report["outcome"]["MultiObj"]["pareto_size"], 1);
+    }
 
     #[test]
     fn storage_display_masks_rdb_password() {

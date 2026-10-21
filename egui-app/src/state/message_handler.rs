@@ -1,4 +1,6 @@
-use crate::state::app_state::{AppState, Direction, StudyContext, StudyView};
+#[cfg(test)]
+use crate::state::app_state::Direction;
+use crate::state::app_state::{AppState, StudyContext, StudyView};
 use crate::state::messages::AppMessage;
 use crate::state::results::ConvergenceHistory;
 use crate::ui::widget_states::WidgetStates;
@@ -18,6 +20,17 @@ impl MessageHandler {
         load_error: &mut Option<String>,
     ) {
         match msg {
+            AppMessage::AnalysisUnavailable(slot) => slot.clear_busy(widget_states),
+            AppMessage::AnalysisCompleted { slot, completion } => {
+                for message in crate::state::analysis_job::adopt_all(
+                    slot,
+                    completion,
+                    app_state,
+                    widget_states,
+                ) {
+                    Self::handle(message, app_state, widget_states, is_loading, load_error);
+                }
+            }
             AppMessage::JournalBatch {
                 header,
                 batch,
@@ -233,10 +246,12 @@ impl MessageHandler {
                 comparisons,
             } => {
                 if app_state.study_streaming
-                    || !app_state
-                        .current_study
-                        .as_ref()
-                        .is_some_and(|study| std::sync::Arc::ptr_eq(&study.view.df, &source_df))
+                    || !app_state.current_study.as_ref().is_some_and(|study| {
+                        match source_df.provenance() {
+                            Some(stamp) => study.view.df.provenance() == Some(stamp),
+                            None => std::sync::Arc::ptr_eq(&study.view.df, &source_df),
+                        }
+                    })
                 {
                     // Do not clear the running flag of a newer snapshot's job.
                     return;

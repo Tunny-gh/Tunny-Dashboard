@@ -5688,6 +5688,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "tdashboard-analysis"
+version = "0.1.0"
+dependencies = [
+ "argmin",
+ "argmin-math",
+ "delaunator",
+ "egobox-gp",
+ "egobox-moe",
+ "faer",
+ "linfa",
+ "linfa-clustering",
+ "ndarray",
+ "rand 0.9.5",
+ "rand_chacha 0.9.0",
+ "rand_xoshiro 0.6.0",
+ "rayon",
+ "serde",
+ "serde_json",
+ "tdashboard-study",
+]
+
+[[package]]
 name = "tdashboard-io"
 version = "0.1.0"
 dependencies = [
@@ -6027,26 +6049,16 @@ name = "tunny-core"
 version = "0.1.1"
 dependencies = [
  "arc-swap",
- "argmin",
- "argmin-math",
  "base64 0.22.1",
  "criterion",
- "delaunator",
- "egobox-gp",
- "egobox-moe",
  "faer",
- "linfa",
- "linfa-clustering",
- "ndarray",
  "quick-xml 0.38.4",
- "rand 0.9.5",
- "rand_chacha 0.9.0",
- "rand_xoshiro 0.6.0",
  "rayon",
  "regex",
  "rusqlite",
  "serde",
  "serde_json",
+ "tdashboard-analysis",
  "tdashboard-io",
  "tdashboard-study",
  "tempfile",
@@ -6071,6 +6083,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "tdashboard-analysis",
  "tdashboard-io",
  "tdashboard-study",
  "tempfile",
@@ -6084,6 +6097,7 @@ version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
+ "tdashboard-analysis",
  "tdashboard-io",
  "tdashboard-study",
  "tunny-core",

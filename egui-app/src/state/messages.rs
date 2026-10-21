@@ -11,7 +11,7 @@ use crate::ui::widgets::mcdm_chart::McdmCacheKey;
 /// but execution state (spinner / error) must be reflected on the originating
 /// widget, so completion/failure messages carry which chart triggered the
 /// computation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ClusterChartSource {
     Scatter2D,
     Scatter3D,
@@ -21,7 +21,7 @@ pub enum ClusterChartSource {
 
 /// The chart that started the MCDM computation. Like clustering, this is
 /// carried so execution state can be reflected on the originating widget.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum McdmChartSource {
     Rank,
     Scatter2D,
@@ -207,6 +207,11 @@ pub struct SurrogateCompareUiResult {
 // ============================================================
 
 pub enum AppMessage {
+    AnalysisUnavailable(super::analysis_job::DeliverySlot),
+    AnalysisCompleted {
+        slot: super::analysis_job::DeliverySlot,
+        completion: tdashboard_analysis::session::AnalysisCompletion,
+    },
     JournalScanned {
         source: tdashboard_study::SourceInstanceId,
         scan: u64,

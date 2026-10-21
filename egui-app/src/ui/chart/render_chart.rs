@@ -216,6 +216,11 @@ pub(crate) fn render_chart(
             // recomputation.
             if let Some(new_ind) = widgets.convergence.pending_indicator.take() {
                 if new_ind != app_state.convergence_indicator {
+                    crate::state::analysis_job::supersede(
+                        app_state,
+                        crate::state::analysis_job::DeliverySlot::Convergence,
+                    );
+                    widgets.convergence.computing = false;
                     app_state.convergence_indicator = new_ind;
                     app_state.convergence_history = None;
                 }
@@ -230,6 +235,11 @@ pub(crate) fn render_chart(
                     RefPointChange::Manual(v) => Some(v),
                 };
                 if app_state.hv_ref_point_override != new_override {
+                    crate::state::analysis_job::supersede(
+                        app_state,
+                        crate::state::analysis_job::DeliverySlot::Convergence,
+                    );
+                    widgets.convergence.computing = false;
                     app_state.hv_ref_point_override = new_override;
                     app_state.convergence_history = None;
                 }

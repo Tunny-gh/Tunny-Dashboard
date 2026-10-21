@@ -272,13 +272,7 @@ impl AppState {
         self.selected_indices.clear();
         self.filter_ranges.clear();
         self.highlighted_trial = None;
-        self.importance_cache.clear();
-        self.sobol_cache.clear();
-        self.sensitivity_heatmap_cache.clear();
-        self.cluster_cache.clear();
-        self.mcdm_result = None;
-        self.mcdm_cache.clear();
-        self.convergence_history = None;
+        self.clear_analysis_results();
         // The reference point depends on the objective's scale, so reset it on Study switch.
         self.hv_ref_point_override = None;
         // selected_colormap is preserved as a user setting
@@ -295,6 +289,19 @@ impl AppState {
         // pinned_trials is not reset on Study switch either (preserves the user's pin settings)
         // comparison_base_study is not reset on Study switch either
         // dark_mode is preserved as a user setting (same pattern as selected_colormap)
+    }
+
+    /// D5 replaces these presentation-cache shims with selected session handles.
+    /// Until then, a changed input cannot reuse an unstamped payload under the
+    /// same method/settings key. Selection and reference controls are independent.
+    pub(crate) fn clear_analysis_results(&mut self) {
+        self.importance_cache.clear();
+        self.sobol_cache.clear();
+        self.sensitivity_heatmap_cache.clear();
+        self.cluster_cache.clear();
+        self.mcdm_result = None;
+        self.mcdm_cache.clear();
+        self.convergence_history = None;
     }
 }
 

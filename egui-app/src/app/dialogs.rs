@@ -41,17 +41,23 @@ impl TunnyApp {
                             .save_file();
                         if let Some(base_path) = chosen {
                             if let Some(ctx_study) = &self.app_state.current_study {
-                                let meta = ctx_study.meta.clone();
-                                let df = ctx_study.view.df.clone();
-                                let extras = tunny_core::dataframe::active_extras_snapshot();
+                                let input = ctx_study.view.input();
+                                let Some(input) = input else {
+                                    dialog.error = Some("No acquired Study input".into());
+                                    self.app_state.report_dialog = Some(dialog);
+                                    return;
+                                };
+                                let Some(journal) = self.app_state.journal_studies.as_ref() else {
+                                    return;
+                                };
+                                let table = journal.analysis.borrow_mut().project(input.clone());
                                 let storage_display = crate::io::report_export::storage_display(
                                     self.app_state.journal_path.as_deref(),
                                 );
                                 dialog.generating = true;
                                 crate::io::report_export::spawn_report_export(
-                                    meta,
-                                    df,
-                                    extras,
+                                    input,
+                                    table,
                                     storage_display,
                                     dialog.lang,
                                     dialog.top_n,

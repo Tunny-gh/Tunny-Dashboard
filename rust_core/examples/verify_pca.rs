@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 use tunny_core::clustering::{run_pca, run_pca_standardized, PcaSpace};
-use tunny_core::dataframe::{select_study, store_dataframes, DataFrame, TrialRow};
+use tunny_core::dataframe::{DataFrame, TrialRow};
 
 /// Deterministic pseudo-random number generator (xorshift64*).
 struct Rng(u64);
@@ -63,13 +63,11 @@ fn main() {
         .collect();
 
     let df = DataFrame::from_trials(&rows, &param_names, &obj_names, &[], &[], 0);
-    store_dataframes(vec![df]);
-    select_study(0).unwrap();
 
     // Verifies both centering-only and standardization (correlation
     // matrix) in the Param space (3 features).
-    let raw = run_pca(3, PcaSpace::Param).unwrap();
-    let standardized = run_pca_standardized(3, PcaSpace::Param).unwrap();
+    let raw = run_pca(&df, 3, PcaSpace::Param).unwrap();
+    let standardized = run_pca_standardized(&df, 3, PcaSpace::Param).unwrap();
 
     let out = serde_json::json!({
         "data": data,
