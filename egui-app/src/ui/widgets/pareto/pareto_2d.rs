@@ -558,7 +558,7 @@ mod tests {
     // ── unit tests for surrogate_front_points ───────────────────────
 
     fn make_ui_result() -> crate::state::messages::SurrogateMultiOptUiResult {
-        use tunny_core::surrogate_opt::ParetoFrontPoint;
+        use tdashboard_analysis::surrogate_opt::ParetoFrontPoint;
         crate::state::messages::SurrogateMultiOptUiResult {
             param_names: vec!["x".to_string()],
             objective_names: vec!["f0".to_string(), "f1".to_string()],

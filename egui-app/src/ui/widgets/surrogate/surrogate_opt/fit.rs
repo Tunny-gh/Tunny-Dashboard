@@ -513,7 +513,7 @@ fn render_oof_plot(ui: &mut egui::Ui, v: &SurrogateValidationReport, id_salt: &s
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tunny_core::surrogate_opt::SurrogateModelKind;
+    use tdashboard_analysis::surrogate_opt::SurrogateModelKind;
 
     #[test]
     fn fit_click_builds_pending_fit_from_selections() {

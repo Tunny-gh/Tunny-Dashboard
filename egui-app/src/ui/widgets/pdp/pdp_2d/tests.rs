@@ -195,7 +195,7 @@ fn push_edge_builds_finite_quad() {
 fn make_view_2p_ranked(p1: &[f64], p2: &[f64], obj: &[f64], ranks: Vec<u32>) -> StudyView {
     use std::collections::HashMap;
     use std::sync::Arc;
-    use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+    use tdashboard_analysis::dataframe::{DataFrame, TrialRow as CoreRow};
     let n = obj.len();
     let param_names = vec!["p1".to_string(), "p2".to_string()];
     let obj_names = vec!["obj0".to_string()];

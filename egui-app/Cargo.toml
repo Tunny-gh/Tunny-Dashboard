@@ -29,10 +29,10 @@ open = "5"
 arboard = "3"
 
 [dev-dependencies]
-# Legacy global-store and decoder fixtures are retired in D8, not production APIs.
-tunny-core = { path = "../rust_core", default-features = false }
+criterion = { version = "0.5", features = ["html_reports"] }
 tempfile = "3"
 dhat = "0.3"
+faer = "0.24.0"
 # SQLite ライブ更新ポーラーの統合テスト用フィクスチャ DB 作成にのみ使用する。
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 
@@ -47,6 +47,10 @@ path = "examples/mem_probe.rs"
 [[test]]
 name = "artifact_animation_native"
 path = "tests/artifact_animation_native.rs"
+harness = false
+
+[[bench]]
+name = "journal_bench"
 harness = false
 
 [build-dependencies]

@@ -21,14 +21,3 @@ pub struct StudyMeta {
     /// The search space bounds recorded in the log. Used as the search box for surrogate optimization.
     pub param_bounds: std::collections::HashMap<String, (f64, f64)>,
 }
-
-/// Parse result of the journal file (metadata for all studies and elapsed time).
-pub struct ParseResult {
-    pub studies: Vec<StudyMeta>,
-    pub duration_ms: f64,
-    pub contents: Vec<(
-        StudyMeta,
-        crate::decoded::DecodedTable,
-        crate::extras::StudyExtras,
-    )>,
-}

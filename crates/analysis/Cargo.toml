@@ -22,3 +22,18 @@ egobox-moe = "0.35"
 linfa = "0.8"
 linfa-clustering = "0.8"
 ndarray = "0.16"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "sensitivity_bench"
+harness = false
+
+[[bench]]
+name = "sobol_bench"
+harness = false
+
+[[bench]]
+name = "permutation_bench"
+harness = false

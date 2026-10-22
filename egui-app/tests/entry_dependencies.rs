@@ -1,4 +1,4 @@
-//! D7 production boundaries exclude the legacy fixture dependency, not its tests.
+//! Final ADR-0021 package, dependency and executable boundaries.
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::process::Command;
@@ -71,6 +71,44 @@ fn product_entries_use_the_approved_production_graph_and_binary_names() {
         ("tdashboard-analysis", &["tdashboard-study"]),
         ("tdashboard-study", &[]),
     ];
+    assert_eq!(workspace.len(), expected.len());
+    assert_eq!(
+        workspace
+            .iter()
+            .map(|id| packages[id]["name"].as_str().unwrap())
+            .collect::<BTreeSet<_>>(),
+        expected.iter().map(|(name, _)| *name).collect()
+    );
+    assert!(!packages.values().any(|p| p["name"] == "tunny-core"));
+    let workspace_names: BTreeSet<_> = expected.iter().map(|(name, _)| *name).collect();
+    for &root in &workspace {
+        let name = packages[root]["name"].as_str().unwrap();
+        for dependency in packages[root]["dependencies"].as_array().unwrap() {
+            let target = dependency["name"].as_str().unwrap();
+            if name == "tdashboard-study" {
+                assert!(
+                    !workspace_names.contains(target),
+                    "Study dependency: {target}"
+                );
+            }
+            assert!(
+                !matches!(
+                    (name, target),
+                    ("tdashboard-io", "tdashboard-analysis")
+                        | ("tdashboard-analysis", "tdashboard-io")
+                ),
+                "I/O and analysis must remain independent, including test dependencies"
+            );
+        }
+        let mut pending = production_edges(root);
+        let mut seen = BTreeSet::new();
+        while let Some(id) = pending.pop() {
+            assert_ne!(id, root, "production dependency cycle for {name}");
+            if seen.insert(id) {
+                pending.extend(production_edges(id));
+            }
+        }
+    }
     for (name, dependencies) in expected {
         let (&id, package) = packages.iter().find(|(_, p)| p["name"] == name).unwrap();
         let actual: BTreeSet<_> = production_edges(id)
@@ -100,16 +138,4 @@ fn product_entries_use_the_approved_production_graph_and_binary_names() {
             }
         }
     }
-    let gui = packages
-        .values()
-        .find(|p| p["name"] == "tunny-dashboard")
-        .unwrap();
-    let legacy: Vec<_> = gui["dependencies"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|d| d["name"] == "tunny-core")
-        .collect();
-    assert_eq!(legacy.len(), 1);
-    assert_eq!(legacy[0]["kind"], "dev");
 }

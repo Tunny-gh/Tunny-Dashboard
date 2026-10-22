@@ -26,7 +26,7 @@ fn cluster_scatter_default_k() {
 fn make_view_with_objs(obj_vals: &[Vec<f64>]) -> StudyView {
     use std::collections::HashMap;
     use std::sync::Arc;
-    use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+    use tdashboard_analysis::dataframe::{DataFrame, TrialRow as CoreRow};
     let n = obj_vals.len();
     if n == 0 {
         let df = DataFrame::from_trials(&[], &[], &[], &[], &[], 0);
@@ -169,7 +169,7 @@ fn cache_key_normalizes_unused_field_per_mode() {
 #[test]
 fn cluster_matrix_filters_missing_numeric_params_and_preserves_targets() {
     use std::sync::Arc;
-    use tunny_core::dataframe::{DataFrame, TrialRow};
+    use tdashboard_analysis::dataframe::{DataFrame, TrialRow};
     let rows: Vec<TrialRow> = (0..4)
         .map(|i| TrialRow {
             trial_id: 100 + i,
@@ -209,7 +209,7 @@ fn cluster_matrix_filters_missing_numeric_params_and_preserves_targets() {
 #[test]
 fn mixed_type_cluster_matrix_keeps_categories_constant_and_filters_missing_numbers() {
     use std::sync::Arc;
-    use tunny_core::dataframe::{DataFrame, TrialRow};
+    use tdashboard_analysis::dataframe::{DataFrame, TrialRow};
     let mut rows: Vec<TrialRow> = (0..4)
         .map(|i| TrialRow {
             trial_id: 100 + i,
@@ -250,11 +250,11 @@ fn mixed_type_cluster_matrix_keeps_categories_constant_and_filters_missing_numbe
                 assert_eq!(&row[..2], &[source as f64, 0.0]);
             }
             assert_eq!(matrix.flat_data[0], 0.0);
-            let result = tunny_core::clustering::run_kmeans(
+            let result = tdashboard_analysis::clustering::run_kmeans(
                 2,
                 &matrix.flat_data,
                 matrix.n_cols,
-                tunny_core::clustering::InitStrategy::Deterministic,
+                tdashboard_analysis::clustering::InitStrategy::Deterministic,
             );
             assert_eq!(result.labels.len(), matrix.n_rows);
             let mut unknown_params = params.clone();

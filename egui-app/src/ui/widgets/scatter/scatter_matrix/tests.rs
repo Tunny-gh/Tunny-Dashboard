@@ -124,7 +124,7 @@ enum LabelRefresh {
 
 fn check_matrix_label_refresh(rotated: bool, trigger: LabelRefresh) {
     use std::{collections::HashMap, sync::Arc};
-    use tunny_core::dataframe::{DataFrame, TrialRow};
+    use tdashboard_analysis::dataframe::{DataFrame, TrialRow};
     let names: Vec<_> = (0..2)
         .map(|i| format!("axis_{i}_long_parameter_name"))
         .collect();
@@ -289,7 +289,7 @@ fn tc_cav_scatter_matrix_show_infeasible_default_true() {
 
 #[test]
 fn tc_cav_split_feasibility_no_constraints_all_feasible() {
-    use tunny_core::dataframe::Feasibility;
+    use tdashboard_analysis::dataframe::Feasibility;
     let feas = Feasibility::from_column(None);
     let (f, inf, unverified) = split_feasibility_indices(3, feas);
     assert!(unverified.is_empty());
@@ -299,7 +299,7 @@ fn tc_cav_split_feasibility_no_constraints_all_feasible() {
 
 #[test]
 fn tc_cav_split_feasibility_mixed() {
-    use tunny_core::dataframe::Feasibility;
+    use tdashboard_analysis::dataframe::Feasibility;
     let col = vec![1.0_f64, 0.0, 1.0];
     let feas = Feasibility::from_column(Some(&col));
     let (f, inf, unverified) = split_feasibility_indices(3, feas);
@@ -311,7 +311,7 @@ fn tc_cav_split_feasibility_mixed() {
 #[test]
 fn unverified_is_not_partitioned_as_infeasible() {
     let col = [1.0, f64::NAN, 0.0];
-    let feas = tunny_core::dataframe::Feasibility::from_column(Some(&col));
+    let feas = tdashboard_analysis::dataframe::Feasibility::from_column(Some(&col));
     assert_eq!(
         split_feasibility_indices(3, feas),
         (vec![0], vec![2], vec![1])
@@ -326,7 +326,7 @@ fn unverified_is_not_partitioned_as_infeasible() {
 
 #[test]
 fn tc_cav_split_feasibility_all_infeasible() {
-    use tunny_core::dataframe::Feasibility;
+    use tdashboard_analysis::dataframe::Feasibility;
     let col = vec![0.0_f64, 0.0];
     let feas = Feasibility::from_column(Some(&col));
     let (f, inf, unverified) = split_feasibility_indices(2, feas);

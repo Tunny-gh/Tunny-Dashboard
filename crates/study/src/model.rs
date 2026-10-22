@@ -247,7 +247,7 @@ pub struct ParameterObservation {
     /// parameter records encode choice indices. Retained for display compatibility.
     pub external_encoding: bool,
     /// Category index evidence (including invalid values), not category identity.
-    /// The temporary projection preserves the existing rounding/display fallback.
+    /// Analysis projections preserve the existing rounding/display fallback.
     pub encoded_numeric: Option<Number>,
 }
 #[derive(Clone, Debug, PartialEq)]

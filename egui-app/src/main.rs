@@ -5,6 +5,9 @@ mod cli;
 mod io;
 mod licenses;
 mod state;
+#[cfg(test)]
+#[path = "../tests/common/mod.rs"]
+mod test_support;
 mod theme;
 mod ui;
 

@@ -24,7 +24,7 @@ pub fn is_sqlite_path(path: &Path) -> bool {
 /// from `path`), so the return value is just `AppMessage`.
 #[cfg(test)]
 pub fn scan_sqlite_task(path: PathBuf) -> AppMessage {
-    match tunny_core::sqlite::scan_study_list(&path) {
+    match tdashboard_io::sqlite::scan_study_list(&path) {
         Ok(studies) => {
             let app_studies: Vec<crate::state::app_state::StudyMeta> = studies
                 .into_iter()

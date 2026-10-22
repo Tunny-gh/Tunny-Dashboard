@@ -517,7 +517,7 @@ fn render_history_plot(ui: &mut egui::Ui, history: &[f64], result: &SurrogateOpt
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tunny_core::surrogate_opt::{OptimizerKind, SurrogateModelKind};
+    use tdashboard_analysis::surrogate_opt::{OptimizerKind, SurrogateModelKind};
 
     fn ui_result() -> SurrogateOptUiResult {
         SurrogateOptUiResult {

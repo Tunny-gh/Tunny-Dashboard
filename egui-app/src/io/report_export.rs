@@ -86,16 +86,17 @@ fn build_and_write_report(
     base_path: &Path,
 ) -> Result<(Vec<PathBuf>, Vec<PathBuf>), String> {
     let core_meta = to_core_meta(meta, df, extras);
-    let source = tunny_core::report::ReportSource {
+    let source = tdashboard_analysis::report::ReportSource {
         storage_display: storage_display.to_string(),
         generated_at_unix,
     };
-    let opts = tunny_core::report::ReportOptions {
+    let opts = tdashboard_analysis::report::ReportOptions {
         lang,
         top_n,
         ..Default::default()
     };
-    let report = tunny_core::report::build_study_report(&core_meta, df, extras, &source, &opts);
+    let report =
+        tdashboard_analysis::report::build_study_report(&core_meta, df, extras, &source, &opts);
 
     write_report(&report, lang, formats, base_path)
 }
@@ -133,7 +134,7 @@ fn write_report(
 
 /// Converts egui-app's `StudyMeta` (plus auxiliary info derived from DataFrame /
 /// StudyExtras) into the core-side `StudyMeta` required by
-/// `tunny_core::report::build_study_report`.
+/// `tdashboard_analysis::report::build_study_report`.
 ///
 /// - `user_attr_names`: egui-app's `StudyMeta` doesn't have this, so it's filled in by
 ///   merging the DataFrame's numeric/string user_attr column names.
@@ -289,7 +290,7 @@ mod tests {
     #[test]
     fn to_core_meta_falls_back_to_row_count_without_extras() {
         use std::collections::HashMap;
-        use tunny_core::dataframe::TrialRow as CoreRow;
+        use tdashboard_analysis::dataframe::TrialRow as CoreRow;
 
         let rows = vec![CoreRow {
             trial_id: 0,
@@ -315,7 +316,7 @@ mod tests {
 
     fn make_df() -> DataFrame {
         use std::collections::HashMap;
-        use tunny_core::dataframe::TrialRow as CoreRow;
+        use tdashboard_analysis::dataframe::TrialRow as CoreRow;
 
         let rows = vec![CoreRow {
             trial_id: 0,

@@ -6,7 +6,7 @@
 //! the live-update poller reads based on byte-offset diffs, a single `write` + `flush`
 //! is performed after each line written.
 //!
-//! Reference: spec doc "Optuna-compatible journal writer" (rust_core/src/io/journal/writer.rs)
+//! Recording is separate from optimization orchestration and analysis.
 
 use std::fs::{File, OpenOptions};
 use std::io::Write as _;
@@ -481,7 +481,27 @@ struct AppendIdentity {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::io::journal::parser::{parse_single_study, scan_study_list};
+    use crate::io::journal::parser::scan_study_list;
+
+    fn read(
+        bytes: &[u8],
+        id: u32,
+    ) -> (
+        tdashboard_study::StudyMetadata,
+        Vec<std::sync::Arc<tdashboard_study::TrialRecord>>,
+    ) {
+        use tdashboard_study::*;
+        let key = StudyKey {
+            source: IdentityAllocator::new().unwrap().source().unwrap(),
+            stored_id: id,
+        };
+        let StudyBatch::Replace { metadata, trials } =
+            crate::journal::parser::study::read_full(bytes, key).unwrap()
+        else {
+            panic!("Expected full acquisition")
+        };
+        (metadata, trials)
+    }
 
     #[test]
     fn duplicate_preparation_requires_explicit_compatible_reuse_without_relabelling() {
@@ -582,23 +602,25 @@ mod tests {
         assert_eq!(writer.create_study("C", &directions, &[]).unwrap(), 2);
         let bytes = std::fs::read(&path).unwrap();
         assert!(bytes.starts_with(&before_reuse));
-        let (meta, rows, extras) = parse_single_study(&bytes, 0).unwrap();
-        assert_eq!(meta.objective_names, vec!["original"]);
+        let (meta, trials) = read(&bytes, 0);
+        assert_eq!(meta.objectives[0].name.as_deref(), Some("original"));
         assert_eq!(
-            extras
-                .trials
+            trials
                 .iter()
-                .map(|t| (t.trial_id, t.trial_number))
+                .map(|t| (t.key.stored_id, t.number.0))
                 .collect::<Vec<_>>(),
             vec![(0, 0), (1, 1), (2, 2), (3, 3), (4, 4), (6, 5)]
         );
-        assert_eq!(rows.rows[0].objective_values, vec![10.0]);
-        assert_eq!(rows.rows[1].objective_values, vec![20.0]);
-        let (_, _, other) = parse_single_study(&bytes, 1).unwrap();
         assert_eq!(
-            (other.trials[0].trial_id, other.trials[0].trial_number),
-            (5, 0)
+            trials[1].objectives[&tdashboard_study::ObjectiveIndex(0)].0,
+            10.0
         );
+        assert_eq!(
+            trials[5].objectives[&tdashboard_study::ObjectiveIndex(0)].0,
+            20.0
+        );
+        let (_, other) = read(&bytes, 1);
+        assert_eq!((other[0].key.stored_id, other[0].number.0), (5, 0));
     }
 
     #[test]
@@ -723,37 +745,58 @@ mod tests {
         );
 
         // Detailed parsing for one study.
-        let (meta, df, extras) = parse_single_study(&data, 0).unwrap();
-        assert_eq!(meta.completed_trials, 2);
-        assert_eq!(meta.total_trials, 3);
-        assert_eq!(meta.param_bounds.get("span"), Some(&(3.0, 12.0)));
-        assert_eq!(meta.param_bounds.get("count"), Some(&(1.0, 10.0)));
-
-        // DataFrame: only COMPLETE, 2 rows (trial0, trial2).
-        assert_eq!(df.rows.len(), 2);
-        assert_eq!(df.rows[0].trial_id, 0);
-        assert_eq!(df.rows[1].trial_id, 2);
-        assert_eq!(df.rows[0].objective_values, vec![12.3, 4.5]);
-        assert_eq!(df.rows[1].objective_values, vec![10.0, 6.0]);
+        let (meta, trials) = read(&data, 0);
+        use tdashboard_study::{Number, ParameterValue, TrialState as DomainState};
+        assert_eq!(
+            meta.declared_bounds.get("span"),
+            Some(&(Number(3.0), Number(12.0)))
+        );
+        assert_eq!(
+            meta.declared_bounds.get("count"),
+            Some(&(Number(1.0), Number(10.0)))
+        );
+        let complete: Vec<_> = trials
+            .iter()
+            .filter(|t| t.state == DomainState::Complete)
+            .collect();
+        assert_eq!(complete.len(), 2);
+        assert_eq!(complete[0].key.stored_id, 0);
+        assert_eq!(complete[1].key.stored_id, 2);
+        assert_eq!(
+            complete[0]
+                .objectives
+                .values()
+                .map(|v| v.0)
+                .collect::<Vec<_>>(),
+            vec![12.3, 4.5]
+        );
+        assert_eq!(
+            complete[1]
+                .objectives
+                .values()
+                .map(|v| v.0)
+                .collect::<Vec<_>>(),
+            vec![10.0, 6.0]
+        );
         for (name, observed) in [("span", 5.5), ("count", 3.0)] {
-            assert_eq!(df.rows[0].param_display[name], observed);
-            assert!(!df.rows[1].param_display.contains_key(name));
+            assert_eq!(
+                complete[0].parameters[name].value,
+                ParameterValue::Numeric(Number(observed))
+            );
+            assert!(!complete[1].parameters.contains_key(name));
         }
 
-        // StudyExtras: 3 trials, states Complete/Fail/Complete, datetimes are Some.
-        assert_eq!(extras.trials.len(), 3);
-        assert_eq!(extras.trials[0].trial_id, 0);
-        assert_eq!(extras.trials[0].state, TrialState::Complete);
-        assert!(extras.trials[0].datetime_start.is_some());
-        assert!(extras.trials[0].datetime_complete.is_some());
-        assert_eq!(extras.trials[1].trial_id, 1);
-        assert_eq!(extras.trials[1].state, TrialState::Fail);
-        assert!(extras.trials[1].datetime_start.is_some());
-        assert!(extras.trials[1].datetime_complete.is_some());
-        assert_eq!(extras.trials[2].trial_id, 2);
-        assert_eq!(extras.trials[2].state, TrialState::Complete);
-        assert!(extras.trials[2].datetime_start.is_some());
-        assert!(extras.trials[2].datetime_complete.is_some());
+        assert_eq!(trials.len(), 3);
+        for (id, state) in [
+            (0, DomainState::Complete),
+            (1, DomainState::Fail),
+            (2, DomainState::Complete),
+        ] {
+            assert_eq!(trials[id].key.stored_id, id as u32);
+            assert_eq!(trials[id].state, state);
+            assert!(trials[id].datetime_start.is_some());
+            assert!(trials[id].datetime_complete.is_some());
+        }
     }
 
     /// Constraint round-trip: op9 written by the writer is read back by the
@@ -783,10 +826,26 @@ mod tests {
         let data = std::fs::read(&path).unwrap();
         // The lightweight study-list scan does not track constraints; the full
         // parse does.
-        let (meta, df, _) = parse_single_study(&data, 0).unwrap();
-        assert!(meta.has_constraints);
-        assert_eq!(df.rows[0].constraint_values, vec![-0.5, 0.0]);
-        assert_eq!(df.rows[1].constraint_values, vec![0.25, -1.0]);
+        let (_, trials) = read(&data, 0);
+        assert!(trials.iter().all(|t| t.constraints.present));
+        assert_eq!(
+            trials[0]
+                .constraints
+                .values
+                .iter()
+                .map(|n| n.0)
+                .collect::<Vec<_>>(),
+            vec![-0.5, 0.0]
+        );
+        assert_eq!(
+            trials[1]
+                .constraints
+                .values
+                .iter()
+                .map(|n| n.0)
+                .collect::<Vec<_>>(),
+            vec![0.25, -1.0]
+        );
     }
 
     /// Non-finite constraint values are rejected instead of being serialized as
@@ -832,9 +891,15 @@ mod tests {
             .unwrap();
 
         let data = std::fs::read(&path).unwrap();
-        let (_, df, _) = parse_single_study(&data, 0).unwrap();
-        assert_eq!(df.rows[0].user_attrs_numeric["area"], 12.5);
-        assert_eq!(df.rows[0].user_attrs_string["material"], "steel");
+        let (_, trials) = read(&data, 0);
+        assert_eq!(
+            trials[0].user_attributes["area"].json_view(),
+            serde_json::json!(12.5)
+        );
+        assert_eq!(
+            trials[0].user_attributes["material"].json_view(),
+            serde_json::json!("steel")
+        );
     }
 
     /// Append numbering: after closing once and reopening, study_id / trial_id must

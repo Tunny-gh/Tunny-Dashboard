@@ -13,23 +13,23 @@ fn workload() -> (AppState, Option<tempfile::TempDir>) {
     if let Some(path) = std::env::var_os("TUNNY_ANIMATION_JOURNAL") {
         let path = std::path::PathBuf::from(path);
         let bytes = std::fs::read(&path).unwrap();
-        let meta = tunny_core::io::journal::parser::scan_study_list(&bytes)
+        let meta = tdashboard_io::journal::parser::scan_study_list(&bytes)
             .unwrap()
             .remove(0);
-        let (meta, df, _) =
-            tunny_core::io::journal::parser::parse_single_study(&bytes, meta.study_id).unwrap();
+        let projection = crate::test_support::journal(&bytes, meta.study_id);
+        let df = projection.dataframe;
         let count = df.row_count();
         app.current_study = Some(StudyContext {
-            meta: crate::io::journal::convert_study_meta(meta),
-            view: StudyView::new(Arc::new(df), vec![0; count]),
+            meta: crate::io::journal::convert_projection_meta(projection.meta),
+            view: StudyView::new(df, vec![0; count]),
             pareto_indices: vec![],
         });
         let root = std::path::PathBuf::from(
             std::env::var_os("TUNNY_ANIMATION_ARTIFACTS").expect("artifact root"),
         );
-        app.artifact_map = tunny_core::io::artifacts::resolve_from_metadata(
+        app.artifact_map = tdashboard_io::artifacts::resolve_from_metadata(
             &root,
-            &tunny_core::io::artifacts::parse_artifact_metadata(&path),
+            &tdashboard_io::artifacts::parse_artifact_metadata(&path),
         );
         (app, None)
     } else {

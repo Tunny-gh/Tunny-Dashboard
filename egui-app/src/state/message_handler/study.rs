@@ -175,11 +175,12 @@ impl MessageHandler {
         let trial_numbers: Vec<u32> = (0..n)
             .map(|i| ctx.view.df.get_trial_number(i).unwrap_or(i as u32))
             .collect();
-        app_state.best_trial_history = Some(tunny_core::convergence::build_best_trial_history(
-            &trial_numbers,
-            values,
-            is_minimize,
-        ));
+        app_state.best_trial_history =
+            Some(tdashboard_analysis::convergence::build_best_trial_history(
+                &trial_numbers,
+                values,
+                is_minimize,
+            ));
     }
 
     /// Applies one batch of the streaming load when a Study is selected.
@@ -244,17 +245,15 @@ impl MessageHandler {
             new_df.mark_constrained();
         }
         let arc = std::sync::Arc::new(new_df);
-        tunny_core::dataframe::swap_snapshot(study_id, arc.clone());
 
-        // Pareto is only finalized on the last batch. Activated via select_study since it reads the active DataFrame.
+        // Fixture Pareto uses only the supplied table and final-batch state.
         let (ranks, pareto_indices) = if is_final {
-            let _ = tunny_core::dataframe::select_study(study_id);
             let is_minimize: Vec<bool> = meta
                 .directions
                 .iter()
                 .map(|d| matches!(d, Direction::Minimize))
                 .collect();
-            let pareto = tunny_core::pareto::compute_pareto_ranks(&arc, &is_minimize);
+            let pareto = tdashboard_analysis::pareto::compute_pareto_ranks(&arc, &is_minimize);
             (pareto.ranks, pareto.pareto_indices)
         } else {
             (Vec::new(), Vec::new())
@@ -283,8 +282,6 @@ impl MessageHandler {
         }
 
         if start_fresh {
-            // Activate early so downstream features can reference the active DataFrame.
-            let _ = tunny_core::dataframe::select_study(study_id);
             widget_states.convergence.computing = false;
             widget_states.cluster_scatter = Default::default();
             widget_states.cluster_scatter_3d.clear_runtime_state();

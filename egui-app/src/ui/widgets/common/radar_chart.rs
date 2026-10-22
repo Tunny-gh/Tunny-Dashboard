@@ -413,7 +413,7 @@ mod tests {
     fn build_objectives_first_then_params_and_collects_front() {
         use std::collections::HashMap;
         use std::sync::Arc;
-        use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+        use tdashboard_analysis::dataframe::{DataFrame, TrialRow as CoreRow};
 
         // 3 trials. trial0, 1 are on the front (rank 0), trial2 is rank 1.
         let core_rows: Vec<CoreRow> = (0..3)
@@ -459,7 +459,7 @@ mod tests {
     fn build_skips_axis_without_front_values() {
         use std::collections::HashMap;
         use std::sync::Arc;
-        use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+        use tdashboard_analysis::dataframe::{DataFrame, TrialRow as CoreRow};
 
         let core_rows: Vec<CoreRow> = (0..2)
             .map(|i| CoreRow {

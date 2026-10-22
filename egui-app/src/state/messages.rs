@@ -246,8 +246,8 @@ pub enum AppMessage {
     #[cfg(test)]
     StudySelected {
         meta: StudyMeta,
-        /// Shared store reference key. The UI side obtains Arc<DataFrame> via snapshot(study_id).
-        study_id: u32,
+        /// Explicit fixture input; production uses the stamped Journal handoff.
+        dataframe: Option<std::sync::Arc<tdashboard_analysis::dataframe::DataFrame>>,
         /// Pareto rank (in row index order, computed at the app layer). Goes into StudyView's parallel array.
         pareto_rank: Vec<u32>,
         pareto_indices: Vec<u32>,
@@ -263,7 +263,7 @@ pub enum AppMessage {
         /// Cumulative StudyMeta up to this point.
         meta: StudyMeta,
         /// Trial rows newly completed in this batch (core representation).
-        new_rows: Vec<tunny_core::dataframe::TrialRow>,
+        new_rows: Vec<tdashboard_analysis::dataframe::TrialRow>,
         /// Cumulative parameter column names (sorted).
         param_names: Vec<String>,
         /// Objective column names.

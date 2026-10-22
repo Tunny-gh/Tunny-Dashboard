@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use super::types::OptimizationDirection;
 
@@ -8,11 +8,7 @@ pub(crate) struct StudyBuilder {
     pub(super) name: String,
     pub(super) directions: Vec<OptimizationDirection>,
     pub(super) total_trials: u32,
-    pub(super) completed_trials: u32,
-    pub(super) param_names: HashSet<String>,
     pub(super) objective_names: Vec<String>,
-    pub(super) user_attr_names: HashSet<String>,
-    pub(super) has_constraints: bool,
     /// Declared range (low, high) per parameter (display units, recorded from the first-seen distribution).
     /// Numeric parameters (Float / Int) only. Used as the search range for surrogate optimization.
     pub(super) param_bounds: HashMap<String, (f64, f64)>,

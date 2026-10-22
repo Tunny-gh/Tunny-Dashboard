@@ -191,7 +191,6 @@ pub(super) fn after_query(sql: &str) {
 enum Route {
     Independent,
     Rows,
-    DataFrame,
 }
 
 impl Route {
@@ -200,14 +199,6 @@ impl Route {
             Self::Independent => fixture.view(),
             Self::Rows => {
                 view(crate::io::sqlite::parse_single_study_rows(&fixture.path(), 1).unwrap())
-            }
-            Self::DataFrame => {
-                let (meta, frame, extras) =
-                    crate::io::sqlite::parse_single_study(&fixture.path(), 1).unwrap();
-                json!({
-                    "meta": format!("{meta:?}"), "extras": format!("{extras:?}"),
-                    "contents": frame,
-                })
             }
         }
     }
@@ -235,7 +226,7 @@ fn sqlite_snapshot_interleaved_acquisition() {
     );
     for mode in ["DELETE", "WAL"] {
         for mutation in [Change::Attributes, Change::Transition] {
-            for route in [Route::Independent, Route::Rows, Route::DataFrame] {
+            for route in [Route::Independent, Route::Rows] {
                 let transactional = !matches!(route, Route::Independent);
                 let fixture = Fixture::new(mode);
                 let old = route.read(&fixture);
@@ -416,10 +407,6 @@ fn sqlite_snapshot_errors_release_reader_and_wal_checkpoint() {
                         .unwrap()
                         .contains("param_value is not numeric")
                 );
-                assert!(crate::io::sqlite::parse_single_study(&fixture.path(), 1)
-                    .err()
-                    .unwrap()
-                    .contains("param_value is not numeric"));
             }
             let mut reader = fixture.reader();
             let result: Result<(), String> = reader.with_study_read(|backend| {

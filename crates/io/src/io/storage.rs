@@ -79,3 +79,37 @@ pub fn load_study(storage: &str, key: StudyKey) -> Result<(StudyBatch, String), 
 pub fn read_journal(path: &Path) -> Result<Vec<u8>, String> {
     std::fs::read(path).map_err(|e| format!("failed to read journal file: {e}"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn journal_extension_detection() {
+        assert!(is_journal(Path::new("/tmp/study.log")));
+        assert!(is_journal(Path::new("optuna.journal")));
+        assert!(!is_journal(Path::new("/tmp/study.db")));
+        assert!(!is_journal(Path::new("/tmp/study")));
+    }
+
+    #[test]
+    fn missing_storage_is_error_not_panic() {
+        let key = tdashboard_study::StudyKey {
+            source: tdashboard_study::IdentityAllocator::new()
+                .unwrap()
+                .source()
+                .unwrap(),
+            stored_id: 1,
+        };
+        assert!(scan_studies("/nonexistent/definitely_missing.db").is_err());
+        assert!(load_study("/nonexistent/x.db", key).is_err());
+    }
+
+    #[test]
+    fn journal_error_does_not_echo_storage_string() {
+        let storage = "postgresqll://user:secret_pw@host/audit.journal";
+        let err = scan_studies(storage).unwrap_err();
+        assert!(!err.contains("secret_pw"), "leak: {err}");
+        assert!(!err.contains(storage), "leak: {err}");
+    }
+}

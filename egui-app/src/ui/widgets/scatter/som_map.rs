@@ -622,7 +622,7 @@ mod tests {
     fn view_with_param(values: &[f64]) -> (StudyView, Vec<String>) {
         use std::collections::HashMap;
         use std::sync::Arc;
-        use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+        use tdashboard_analysis::dataframe::{DataFrame, TrialRow as CoreRow};
 
         let core_rows: Vec<CoreRow> = values
             .iter()

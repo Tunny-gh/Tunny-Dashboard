@@ -433,7 +433,7 @@ mod tests {
     fn linkage_and_export_preserve_source_rows_after_filtering() {
         use std::collections::HashMap;
         use std::sync::Arc;
-        use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+        use tdashboard_analysis::dataframe::{DataFrame, TrialRow as CoreRow};
 
         let mut core_rows: Vec<CoreRow> = vec![
             CoreRow {

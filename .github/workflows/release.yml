@@ -188,7 +188,7 @@ jobs:
 
           # build.rs bakes in an absolute -rpath to the build-time libs/ dir,
           # which cannot exist on a user's machine. dyld would just skip it, but
-          # drop it so `otool -l` output describes the shipped layout. rust_core
+          # drop it so `otool -l` output describes the shipped layout. Analysis
           # and egui-app each emit one, and -delete_rpath removes a single entry
           # per call, so try a bounded number of times and stop once it reports
           # that no such rpath is left.

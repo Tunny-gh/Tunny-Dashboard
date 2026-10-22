@@ -18,13 +18,6 @@ mod run;
 #[cfg(test)]
 mod tests;
 
-/// Desktop tests link the production core, whose DataFrame store is global.
-#[cfg(test)]
-pub(crate) fn test_store_guard() -> std::sync::MutexGuard<'static, ()> {
-    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    LOCK.lock().unwrap_or_else(|p| p.into_inner())
-}
-
 pub use reload::can_reload;
 use reload::ReloadRestore;
 

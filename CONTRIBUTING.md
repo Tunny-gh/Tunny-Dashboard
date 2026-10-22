@@ -127,14 +127,15 @@ On Windows, `lib_lightgbm.dll` must be discoverable at runtime. `crates/analysis
 
 `tdashboard-analysis` owns numerical dependencies and native-library linking.
 The `libs/` directory remains at the workspace root, not inside the new crate.
-GUI/MCP, optimization-runner tests and legacy test/example targets retain their final-binary link/rpath
+GUI/MCP and optimization-runner targets retain their final-binary link/rpath
 handling; an rlib's link arguments do not supply every executable's runtime path.
 The exact workspace checks below include the analysis crate and its native tests.
 
 The entry packages are `tunny-dashboard` and `tdashboard-mcp`; their executable
-names remain `TunnyDashboard` and `tunny-mcp`. Neither production entry depends on
-`tunny-core`. The legacy workspace member and GUI dev-only fixture dependency
-remain until D8; workspace tests still cover them.
+names remain `TunnyDashboard` and `tunny-mcp`. The workspace contains these two
+entries and the four responsibility libraries listed above. Cross-boundary
+ingestion/projection fixtures live in `egui-app/tests/`, above I/O and analysis;
+neither library depends on the other, including for tests.
 
 ## Development Commands
 
@@ -151,7 +152,8 @@ cargo test --workspace --locked --profile ci-test
 Local only (quicker feedback, uses the default dev profile):
 
 ```bash
-cargo test -p tunny-core
+cargo test -p tdashboard-study
+cargo test -p tdashboard-io
 cargo test -p tdashboard-analysis
 cargo test -p tunny-dashboard
 ```
@@ -167,8 +169,7 @@ cargo test -- --nocapture
 Always run these before committing. **CI** (see the `lint` job):
 
 ```bash
-cargo fmt --manifest-path rust_core/Cargo.toml --all -- --check
-cargo fmt --manifest-path egui-app/Cargo.toml --all -- --check
+cargo fmt --all -- --check
 ```
 
 Local only:
@@ -204,7 +205,8 @@ cargo run -p tunny-dashboard
 ### Benchmark
 
 ```bash
-cargo bench -p tunny-core
+cargo bench -p tdashboard-analysis
+cargo bench -p tunny-dashboard --bench journal_bench
 ```
 
 ### GUI Verification

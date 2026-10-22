@@ -104,7 +104,7 @@ mod tests {
     use super::*;
     use crate::ui::widgets::distribution::DistributionValue;
     use std::sync::Arc;
-    use tunny_core::dataframe::{DataFrame, TrialRow};
+    use tdashboard_analysis::dataframe::{DataFrame, TrialRow};
 
     #[test]
     fn value_combo_updates_statistics_in_same_frame_and_same_count_refreshes() {

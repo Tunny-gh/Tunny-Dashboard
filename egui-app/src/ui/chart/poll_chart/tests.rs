@@ -3,8 +3,8 @@ use crate::state::app_state::{StudyContext, StudyMeta, StudyView};
 use crate::state::results::ConvergenceHistory;
 use std::sync::Arc;
 use std::time::Duration;
-use tunny_core::dataframe::{DataFrame, TrialRow};
-use tunny_core::indicators::{compute_indicator_histories, MoIndicator, SeriesInput};
+use tdashboard_analysis::dataframe::{DataFrame, TrialRow};
+use tdashboard_analysis::indicators::{compute_indicator_histories, MoIndicator, SeriesInput};
 
 fn study(id: u32, constraints: Vec<Vec<f64>>, constrained: bool) -> StudyContext {
     let objective_names = vec!["x".into(), "y".into()];

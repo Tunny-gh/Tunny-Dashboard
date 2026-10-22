@@ -5,7 +5,7 @@ use crate::state::messages::AppMessage;
 use crate::state::results::ConvergenceHistory;
 use crate::ui::widget_states::WidgetStates;
 #[cfg(test)]
-use tunny_core::dataframe::{DataFrame, TrialRow as CoreTrialRow};
+use tdashboard_analysis::dataframe::{DataFrame, TrialRow as CoreTrialRow};
 
 /// Handler that processes messages from background tasks.
 pub struct MessageHandler;
@@ -123,12 +123,12 @@ impl MessageHandler {
             #[cfg(test)]
             AppMessage::StudySelected {
                 meta,
-                study_id,
+                dataframe,
                 pareto_rank,
                 pareto_indices,
             } => {
                 app_state.clear();
-                match tunny_core::dataframe::snapshot(study_id) {
+                match dataframe {
                     Some(df) => {
                         let view = StudyView::new(df, pareto_rank);
                         // Sync the all_studies entry with Phase 2's complete meta
@@ -148,8 +148,7 @@ impl MessageHandler {
                         Self::refresh_best_trial_history(app_state);
                     }
                     None => {
-                        *load_error =
-                            Some(format!("study_id {} not found in shared store", study_id));
+                        *load_error = Some("No fixture DataFrame supplied".to_string());
                         *is_loading = false;
                         return;
                     }

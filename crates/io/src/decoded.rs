@@ -1,4 +1,4 @@
-//! Owned decoder compatibility records; D4/D7 remove legacy row-view consumers.
+//! Acquisition-only decoded observations, consumed when building domain updates.
 //! No analysis implementation, installed state, table cache or GUI resource.
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -13,8 +13,7 @@ pub struct DistributionMetadata {
     pub categories: HashMap<String, serde_json::Value>,
 }
 
-/// A row holding data for one trial. The intermediate representation used as input for
-/// building a DataFrame.
+/// Format-decoded COMPLETE observations used during CSV/RDB acquisition.
 #[derive(Clone, Default, serde::Serialize)]
 pub struct TrialRow {
     pub distribution_metadata: DistributionMetadata,
@@ -36,42 +35,6 @@ pub struct TrialRow {
     pub user_attrs_json: HashMap<String, serde_json::Value>,
     /// Constraint values in original array order, with invalid positions as NaN.
     pub constraint_values: Vec<f64>,
-}
-
-/// Temporary owned row view for legacy projection callers (D4/D7). This is not
-/// an analysis table and is never installed or retained as Study authority.
-#[derive(serde::Serialize)]
-pub struct DecodedTable {
-    pub rows: Vec<TrialRow>,
-    pub param_names: Vec<String>,
-    pub objective_names: Vec<String>,
-    pub numeric_attrs: Vec<String>,
-    pub string_attrs: Vec<String>,
-    pub constraint_width: usize,
-    pub constrained: bool,
-}
-impl DecodedTable {
-    pub fn from_trials(
-        rows: &[TrialRow],
-        params: &[String],
-        objectives: &[String],
-        numeric: &[String],
-        text: &[String],
-        width: usize,
-    ) -> Self {
-        Self {
-            rows: rows.to_vec(),
-            param_names: params.to_vec(),
-            objective_names: objectives.to_vec(),
-            numeric_attrs: numeric.to_vec(),
-            string_attrs: text.to_vec(),
-            constraint_width: width,
-            constrained: width > 0,
-        }
-    }
-    pub fn mark_constrained(&mut self) {
-        self.constrained = true;
-    }
 }
 
 /// Acquisition-only record, before the caller supplies its source namespace.

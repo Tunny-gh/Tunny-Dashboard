@@ -15,7 +15,7 @@ pub enum InitStrategy {
 
 /// Selection of the feature space fed into PCA.
 ///
-/// Specifies which numeric columns of the active study are used as PCA input.
+/// Specifies which numeric columns of the supplied table are used as PCA input.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PcaSpace {
     /// Parameter columns only.

@@ -29,7 +29,7 @@ pub fn path_as_rdb_url(path: &Path) -> Option<RdbUrl> {
 /// `io::sqlite::scan_sqlite_task`).
 #[cfg(test)]
 pub fn scan_rdb_task(url: RdbUrl) -> AppMessage {
-    match tunny_core::rdb::scan_study_list_url(&url) {
+    match tdashboard_io::rdb::scan_study_list_url(&url) {
         Ok(studies) => {
             let app_studies: Vec<crate::state::app_state::StudyMeta> = studies
                 .into_iter()

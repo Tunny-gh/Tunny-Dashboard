@@ -71,7 +71,7 @@ pub(super) fn heatmap_method(
 mod categorical_tests {
     use super::*;
     use crate::ui::widgets::importance_chart::{core_sensitivity_metric, ImportanceMetric};
-    use tunny_core::dataframe::{DataFrame, TrialRow};
+    use tdashboard_analysis::dataframe::{DataFrame, TrialRow};
 
     #[test]
     fn heatmap_transports_only_numerical_scores_and_explicit_unsupported_names() {
