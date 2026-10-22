@@ -2,7 +2,7 @@
 //!
 //! Like `SurrogateOpt`, it trains a surrogate asynchronously (fit stage only,
 //! see poll_chart.rs), but the robustness analysis itself
-//! (`tunny_core::surrogate_opt::robustness_analysis`) runs on the order of
+//! (`tdashboard_analysis::surrogate_opt::robustness_analysis`) runs on the order of
 //! milliseconds, so it is executed synchronously during the render pass and
 //! the result is cached.
 //!
@@ -24,7 +24,7 @@ mod tests;
 
 use std::sync::Arc;
 
-use tunny_core::surrogate_opt::{
+use tdashboard_analysis::surrogate_opt::{
     RobustnessResult, RobustnessSpec, SurrogateModelKind, TrainedSurrogate,
     MIN_TRIALS_FOR_SURROGATE_OPT,
 };
@@ -420,11 +420,15 @@ pub fn show(
             upper_spec,
         );
         let distribution = match state.noise_dist {
-            NoiseDistKind::Normal => tunny_core::surrogate_opt::NoiseDistribution::Normal,
-            NoiseDistKind::Uniform => tunny_core::surrogate_opt::NoiseDistribution::Uniform,
-            NoiseDistKind::Weibull => tunny_core::surrogate_opt::NoiseDistribution::Weibull {
-                shape: state.weibull_shape,
-            },
+            NoiseDistKind::Normal => tdashboard_analysis::surrogate_opt::NoiseDistribution::Normal,
+            NoiseDistKind::Uniform => {
+                tdashboard_analysis::surrogate_opt::NoiseDistribution::Uniform
+            }
+            NoiseDistKind::Weibull => {
+                tdashboard_analysis::surrogate_opt::NoiseDistribution::Weibull {
+                    shape: state.weibull_shape,
+                }
+            }
         };
         let spec = RobustnessSpec {
             center,
@@ -436,7 +440,7 @@ pub fn show(
             lower_spec,
             upper_spec,
         };
-        match tunny_core::surrogate_opt::robustness_analysis(&trained, &spec) {
+        match tdashboard_analysis::surrogate_opt::robustness_analysis(&trained, &spec) {
             Ok(result) => {
                 // The histogram bar geometry can be reused as long as the
                 // result is unchanged, so build it here exactly once.

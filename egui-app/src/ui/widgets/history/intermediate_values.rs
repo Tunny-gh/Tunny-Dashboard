@@ -5,7 +5,7 @@
 //! intermediate values, so this lets users see at a glance, per state, "after how many trials,
 //! and settling into what shape."
 
-use tunny_core::extras::{StudyExtras, TrialExtra, TrialState};
+use tdashboard_analysis::extras::{StudyExtras, TrialExtra, TrialState};
 
 use super::state_colors::{
     dim, distinct_states_in_order, empty_state, show_state_legend, state_color,

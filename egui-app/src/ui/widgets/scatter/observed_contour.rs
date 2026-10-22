@@ -5,7 +5,7 @@
 //! doesn't train a model, and it masks regions with no data so it **never
 //! shows extrapolation**. X / Y / value (color) can each be either a
 //! parameter or an objective, so it can also honestly depict trade-off
-//! surfaces in objective space. The computation is done by `tunny_core::contour`
+//! surfaces in objective space. The computation is done by `tdashboard_analysis::contour`
 //! on a background thread (see poll_chart.rs).
 
 use std::collections::HashMap;
@@ -407,7 +407,7 @@ fn render_3d(
     // noisy, so smoothing over neighbors turns it into a regional shading.
     let density = if opts.density_shade {
         let blur_radius = (nx / 12).max(2);
-        Some(tunny_core::contour::cell_density_grid(
+        Some(tdashboard_analysis::contour::cell_density_grid(
             &result.points,
             (x_min, x_max),
             (y_min, y_max),
@@ -631,7 +631,7 @@ fn nearest_point(
 }
 
 /// Mask-aware contour lines (marching squares). Segment extraction is
-/// delegated to tunny_core; this only maps grid sample index space to screen
+/// delegated to analysis; this only maps grid sample index space to screen
 /// coordinates and draws.
 fn draw_contour_lines(
     painter: &egui::Painter,
@@ -660,7 +660,7 @@ fn draw_contour_lines(
     let stroke = egui::Stroke::new(0.8, egui::Color32::from_white_alpha(150));
 
     for (a, b) in
-        tunny_core::contour::contour_line_segments(display, v_min, v_max, N_CONTOUR_LEVELS)
+        tdashboard_analysis::contour::contour_line_segments(display, v_min, v_max, N_CONTOUR_LEVELS)
     {
         painter.line_segment([to_screen(a), to_screen(b)], stroke);
     }

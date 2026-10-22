@@ -8,7 +8,7 @@ use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::trial_detail_modal::{
     hit_test_nearest, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
 };
-use tunny_core::indicators::MoIndicator;
+use tdashboard_analysis::indicators::MoIndicator;
 
 /// One indicator-history series (legend name + color + data).
 pub struct ConvergenceSeries {

@@ -39,7 +39,7 @@ pub(super) fn render_front_scatter(
     let any_infeasible = observed
         .map(|o| {
             o.feasible
-                .contains(&tunny_core::dataframe::FeasibilityState::Infeasible)
+                .contains(&tdashboard_analysis::dataframe::FeasibilityState::Infeasible)
         })
         .unwrap_or(false);
     if observed.is_some() {
@@ -52,7 +52,7 @@ pub(super) fn render_front_scatter(
             }
             if observed.is_some_and(|o| {
                 o.feasible
-                    .contains(&tunny_core::dataframe::FeasibilityState::Unverified)
+                    .contains(&tdashboard_analysis::dataframe::FeasibilityState::Unverified)
             }) {
                 ui.colored_label(
                     crate::theme::chart_colors::COLOR_UNVERIFIED(),
@@ -165,9 +165,9 @@ fn classify_observed_2d(
     let mut unverified = Vec::new();
     for i in 0..n {
         let pt = [xc[i], yc[i]];
-        if obs.feasible[i] == tunny_core::dataframe::FeasibilityState::Unverified {
+        if obs.feasible[i] == tdashboard_analysis::dataframe::FeasibilityState::Unverified {
             unverified.push(pt);
-        } else if obs.feasible[i] == tunny_core::dataframe::FeasibilityState::Infeasible {
+        } else if obs.feasible[i] == tdashboard_analysis::dataframe::FeasibilityState::Infeasible {
             infeasible.push(pt);
         } else if obs.pareto_rank[i] == 0 {
             front.push(pt);
@@ -206,9 +206,9 @@ fn classify_observed_3d(
     let mut unverified = Vec::new();
     for i in 0..n {
         let pt = [xc[i], yc[i], zc[i]];
-        if obs.feasible[i] == tunny_core::dataframe::FeasibilityState::Unverified {
+        if obs.feasible[i] == tdashboard_analysis::dataframe::FeasibilityState::Unverified {
             unverified.push(pt);
-        } else if obs.feasible[i] == tunny_core::dataframe::FeasibilityState::Infeasible {
+        } else if obs.feasible[i] == tdashboard_analysis::dataframe::FeasibilityState::Infeasible {
             infeasible.push(pt);
         } else if obs.pareto_rank[i] == 0 {
             front.push(pt);

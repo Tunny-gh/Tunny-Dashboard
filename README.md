@@ -77,11 +77,11 @@ tunny-dashboard/
 │           ├── gh/     # GHX parsing, Rhino.Compute lifecycle and GH optimization
 │           ├── process/ # Generic external-tool objective (command integration)
 │           └── runner/ # Generic real-evaluation loop and recording
-├── rust_core/          # Temporary import/presentation and entry-composition facades
+├── rust_core/          # Legacy facades retained for tests until D8 (not shipped)
 │   └── src/
 │       ├── data/       # Legacy presentation-store facade (derived views only)
 │       └── io/         # Temporary entry composition and CSV encoding adapters
-├── egui-app/           # Desktop application (egui UI)
+├── egui-app/           # tunny-dashboard package (TunnyDashboard executable)
 │   ├── src/
 │   │   ├── io/         # File dialogs, I/O dispatch, export composition
 │   │   ├── state/      # Application state & message handling
@@ -90,7 +90,7 @@ tunny-dashboard/
 │   │   ├── app.rs      # Main app logic
 │   │   └── main.rs     # Entry point
 │   └── Cargo.toml
-├── mcp-server/         # MCP server (tunny-mcp) for LLM/agent integration
+├── mcp-server/         # tdashboard-mcp package (tunny-mcp executable)
 ├── docs/               # adr/, guides/ (execution / integration), planning/, reports/
 └── Cargo.toml          # Workspace configuration
 ```
@@ -199,7 +199,7 @@ report, and page through raw trial data — against journal files, SQLite, or
 PostgreSQL/MySQL storage.
 
 ```bash
-cargo build --release -p tunny-mcp
+cargo build --release -p tdashboard-mcp
 
 # Register with Claude Code:
 claude mcp add tunny -- /path/to/target/release/tunny-mcp

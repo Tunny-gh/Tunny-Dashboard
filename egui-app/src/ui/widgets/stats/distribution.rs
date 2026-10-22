@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use crate::state::types::StudyView;
 use serde_json::Value;
-use tunny_core::dataframe::DataFrame;
-use tunny_core::statistics::{compute_boxplot, compute_violin, BoxPlotStats, ViolinCurve};
+use tdashboard_analysis::dataframe::DataFrame;
+use tdashboard_analysis::statistics::{compute_boxplot, compute_violin, BoxPlotStats, ViolinCurve};
 
 pub const GRID_POINTS: usize = 128;
 pub type ViolinData = (Vec<(String, ViolinCurve)>, Vec<(String, &'static str)>);

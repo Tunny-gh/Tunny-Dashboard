@@ -113,7 +113,7 @@ pub struct SurrogateFitComputeRequest {
     pub objective: String,
     /// The concrete model kind used when `auto_select = false`. It's a placeholder
     /// that's ignored when Auto (core re-selects it via CV).
-    pub model: tunny_core::surrogate_opt::SurrogateModelKind,
+    pub model: tdashboard_analysis::surrogate_opt::SurrogateModelKind,
     /// When true, core cross-validates `AUTO_CANDIDATES` and automatically selects the best model.
     pub auto_select: bool,
     /// Whether to use constraints (when true, packs constraint columns into
@@ -123,13 +123,13 @@ pub struct SurrogateFitComputeRequest {
 
 // ── Surrogate Optimizer compute request (optimize stage) ────────
 pub struct SurrogateOptimizeComputeRequest {
-    pub optimizer: tunny_core::surrogate_opt::OptimizerKind,
+    pub optimizer: tdashboard_analysis::surrogate_opt::OptimizerKind,
 }
 
 // ── Surrogate Optimizer compute request (suggest stage) ──────────
 pub struct SurrogateSuggestComputeRequest {
     /// The acquisition function to use.
-    pub acquisition: tunny_core::surrogate_opt::AcquisitionKind,
+    pub acquisition: tdashboard_analysis::surrogate_opt::AcquisitionKind,
     /// Number of candidates to suggest.
     pub n_candidates: usize,
     /// true = suggest as a minimization problem.
@@ -138,7 +138,7 @@ pub struct SurrogateSuggestComputeRequest {
 
 /// The fit-stage request for multi-objective surrogate optimization.
 pub struct SurrogateMultiFitComputeRequest {
-    pub model: tunny_core::surrogate_opt::SurrogateModelKind,
+    pub model: tdashboard_analysis::surrogate_opt::SurrogateModelKind,
 }
 
 /// The optimize-stage request for multi-objective surrogate optimization (a run
@@ -156,12 +156,12 @@ pub struct SurrogateMultiSuggestComputeRequest {
 #[serde(default)]
 pub struct SurrogateOptState {
     pub selected_objective: usize,
-    pub model: tunny_core::surrogate_opt::SurrogateModelKind,
+    pub model: tdashboard_analysis::surrogate_opt::SurrogateModelKind,
     /// True when "Auto (cross-validated)" is selected in the Model combo.
     /// In that case `model` is treated as a placeholder, and core picks the best
     /// model via CV.
     pub auto_select: bool,
-    pub optimizer: tunny_core::surrogate_opt::OptimizerKind,
+    pub optimizer: tdashboard_analysis::surrogate_opt::OptimizerKind,
     /// The spinner flag for the fit stage.
     #[serde(skip)]
     pub fitting: bool,
@@ -170,13 +170,13 @@ pub struct SurrogateOptState {
     /// `Some` only while `fitting` is true. Referenced by the Cancel button and
     /// progress bar.
     #[serde(skip)]
-    pub fit_progress: Option<tunny_core::surrogate_opt::FitProgress>,
+    pub fit_progress: Option<tdashboard_analysis::surrogate_opt::FitProgress>,
     /// The spinner flag for the optimize stage.
     #[serde(skip)]
     pub optimizing: bool,
     /// The validated training result (kept after fit completes).
     #[serde(skip)]
-    pub trained: Option<std::sync::Arc<tunny_core::surrogate_opt::TrainedSurrogate>>,
+    pub trained: Option<std::sync::Arc<tdashboard_analysis::surrogate_opt::TrainedSurrogate>>,
     #[serde(skip)]
     pub result: Option<crate::state::messages::SurrogateOptUiResult>,
     #[serde(skip)]
@@ -195,7 +195,8 @@ pub struct SurrogateOptState {
     pub pending_multi_optimize: Option<SurrogateMultiOptimizeComputeRequest>,
     /// The trained surrogates (in objective order) after multi-objective fit completes.
     #[serde(skip)]
-    pub multi_trained: Option<std::sync::Arc<Vec<tunny_core::surrogate_opt::TrainedSurrogate>>>,
+    pub multi_trained:
+        Option<std::sync::Arc<Vec<tdashboard_analysis::surrogate_opt::TrainedSurrogate>>>,
     /// The completed result of multi-objective optimization.
     #[serde(skip)]
     pub multi_result: Option<crate::state::messages::SurrogateMultiOptUiResult>,
@@ -227,7 +228,7 @@ pub struct SurrogateOptState {
     pub use_constraints: bool,
     // ── candidate suggestion via acquisition function ─────────────────
     /// The currently selected acquisition function.
-    pub acq_kind: tunny_core::surrogate_opt::AcquisitionKind,
+    pub acq_kind: tdashboard_analysis::surrogate_opt::AcquisitionKind,
     /// Number of candidates to suggest (1-10).
     pub n_suggest_candidates: usize,
     /// The computing-in-progress flag for candidate suggestion.
@@ -260,9 +261,9 @@ impl Default for SurrogateOptState {
     fn default() -> Self {
         Self {
             selected_objective: 0,
-            model: tunny_core::surrogate_opt::SurrogateModelKind::GpFitc,
+            model: tdashboard_analysis::surrogate_opt::SurrogateModelKind::GpFitc,
             auto_select: false,
-            optimizer: tunny_core::surrogate_opt::OptimizerKind::MultiStartLbfgs,
+            optimizer: tdashboard_analysis::surrogate_opt::OptimizerKind::MultiStartLbfgs,
             fitting: false,
             fit_progress: None,
             optimizing: false,
@@ -287,7 +288,7 @@ impl Default for SurrogateOptState {
             show_observed_infeasible: true,
             multi_validation_objective: 0,
             use_constraints: true,
-            acq_kind: tunny_core::surrogate_opt::AcquisitionKind::ExpectedImprovement,
+            acq_kind: tdashboard_analysis::surrogate_opt::AcquisitionKind::ExpectedImprovement,
             n_suggest_candidates: 3,
             suggesting: false,
             pending_suggest: None,
@@ -376,7 +377,7 @@ pub struct SurrogateObservedEntry {
     pub key: SurrogateObservedKey,
     pub obj_history: Option<Vec<f64>>,
     pub observed_cols: Option<Vec<Vec<f64>>>,
-    pub observed_feasible: Vec<tunny_core::dataframe::FeasibilityState>,
+    pub observed_feasible: Vec<tdashboard_analysis::dataframe::FeasibilityState>,
 }
 
 /// The sync signature for a single comparison Study: (df identity, convergence
@@ -390,7 +391,7 @@ type ConvergenceCompSig = (usize, Option<(usize, usize)>, [u8; 4]);
 pub struct ConvergenceSyncKey {
     pub base_df: usize,
     pub history: Option<(usize, usize)>,
-    pub indicator: tunny_core::indicators::MoIndicator,
+    pub indicator: tdashboard_analysis::indicators::MoIndicator,
     pub ref_override: Option<(usize, usize)>,
     pub comparisons: Vec<ConvergenceCompSig>,
 }
@@ -441,7 +442,7 @@ impl RenderChartCache {
         build: impl FnOnce() -> (
             Option<Vec<f64>>,
             Option<Vec<Vec<f64>>>,
-            Vec<tunny_core::dataframe::FeasibilityState>,
+            Vec<tdashboard_analysis::dataframe::FeasibilityState>,
         ),
     ) -> &SurrogateObservedEntry {
         if self.surrogate_observed.as_ref().map(|e| &e.key) != Some(&key) {
@@ -645,7 +646,7 @@ mod tests {
         let mut dst = SurrogateOptState {
             fitting: true,
             optimizing: true,
-            model: tunny_core::surrogate_opt::SurrogateModelKind::Ridge,
+            model: tdashboard_analysis::surrogate_opt::SurrogateModelKind::Ridge,
             selected_objective: 2,
             multi_validation_objective: 1,
             ..Default::default()
@@ -659,7 +660,7 @@ mod tests {
         // Selections are preserved
         assert_eq!(
             dst.model,
-            tunny_core::surrogate_opt::SurrogateModelKind::Ridge
+            tdashboard_analysis::surrogate_opt::SurrogateModelKind::Ridge
         );
         assert_eq!(dst.selected_objective, 2);
         // The UI selection (OOF plot target) is not propagated and is preserved

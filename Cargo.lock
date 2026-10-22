@@ -5725,6 +5725,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tdashboard-mcp"
+version = "0.1.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tdashboard-analysis",
+ "tdashboard-io",
+ "tdashboard-study",
+]
+
+[[package]]
 name = "tdashboard-optimization-runner"
 version = "0.1.1"
 dependencies = [
@@ -6077,7 +6088,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tunny-desktop"
+name = "tunny-dashboard"
 version = "0.1.2"
 dependencies = [
  "arboard",
@@ -6101,18 +6112,6 @@ dependencies = [
  "tempfile",
  "tunny-core",
  "winres",
-]
-
-[[package]]
-name = "tunny-mcp"
-version = "0.1.1"
-dependencies = [
- "serde",
- "serde_json",
- "tdashboard-analysis",
- "tdashboard-io",
- "tdashboard-study",
- "tunny-core",
 ]
 
 [[package]]

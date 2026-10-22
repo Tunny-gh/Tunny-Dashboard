@@ -1,5 +1,5 @@
 use crate::ui::widget_states::WidgetStates;
-use tunny_core::export::{CsvField, CsvWriter};
+use tdashboard_io::csv::{CsvField, CsvWriter};
 
 /// Turns the surrogate optimization's estimated optimum into CSV.
 /// If a multi-objective result exists, the front-point table is output preferentially.

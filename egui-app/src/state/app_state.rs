@@ -5,8 +5,8 @@ use crate::ui::widgets::cluster_scatter::ClusterCacheKey;
 use crate::ui::widgets::mcdm_chart::McdmCacheKey;
 use crate::ui::widgets::report_modal::ReportDialogState;
 use std::collections::HashMap;
+use tdashboard_analysis::indicators::MoIndicator;
 use tdashboard_analysis::shared::{ResultSelections, SharedResult};
-use tunny_core::indicators::MoIndicator;
 
 // ============================================================
 // AppState

@@ -320,7 +320,7 @@ impl ParallelCoordsChart {
         for &(t_idx, in_selection) in draw_targets {
             let feasible = feas.is_feasible(t_idx);
 
-            if feas.state(t_idx) == tunny_core::dataframe::FeasibilityState::Infeasible
+            if feas.state(t_idx) == tdashboard_analysis::dataframe::FeasibilityState::Infeasible
                 && !show_infeasible
             {
                 continue;
@@ -342,7 +342,9 @@ impl ParallelCoordsChart {
                     .unwrap_or(COLOR_PARALLEL_LINE_DEFAULT());
                 let [r, g, b, _] = rgba_key(base_color);
                 rgba_to_color32([r, g, b, 120])
-            } else if feas.state(t_idx) == tunny_core::dataframe::FeasibilityState::Unverified {
+            } else if feas.state(t_idx)
+                == tdashboard_analysis::dataframe::FeasibilityState::Unverified
+            {
                 crate::theme::chart_colors::COLOR_UNVERIFIED()
             } else {
                 COLOR_INFEASIBLE()

@@ -16,7 +16,7 @@ impl AppState {
     /// Recomputes selected_indices based on filter_ranges.
     ///
     /// The actual row filtering is delegated to
-    /// `tunny_core::filter::filter_rows_permissive` (a "pass-through" behavior that does
+    /// `tdashboard_analysis::filter::filter_rows_permissive` (a "pass-through" behavior that does
     /// not exclude rows when a column does not exist).
     pub(crate) fn apply_filters(&mut self) {
         if let Some(ctx) = &self.current_study {
@@ -24,13 +24,13 @@ impl AppState {
                 self.selected_indices = ctx.view.trial_ids.clone();
                 return;
             }
-            let ranges: HashMap<String, tunny_core::filter::Range> = self
+            let ranges: HashMap<String, tdashboard_analysis::filter::Range> = self
                 .filter_ranges
                 .iter()
                 .map(|(param, &(min, max))| {
                     (
                         param.clone(),
-                        tunny_core::filter::Range {
+                        tdashboard_analysis::filter::Range {
                             min: Some(min),
                             max: Some(max),
                         },
@@ -38,7 +38,7 @@ impl AppState {
                 })
                 .collect();
             self.selected_indices =
-                tunny_core::filter::filter_rows_permissive(&ctx.view.df, &ranges)
+                tdashboard_analysis::filter::filter_rows_permissive(&ctx.view.df, &ranges)
                     .into_iter()
                     .map(|i| ctx.view.trial_ids.get(i as usize).copied().unwrap_or(i))
                     .collect();

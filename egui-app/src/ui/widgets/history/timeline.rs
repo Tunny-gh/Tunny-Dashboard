@@ -4,7 +4,7 @@
 //! (Gantt chart), to give an overview of parallel worker count and
 //! scheduling skew.
 
-use tunny_core::extras::{StudyExtras, TrialExtra, TrialState};
+use tdashboard_analysis::extras::{StudyExtras, TrialExtra, TrialState};
 
 use super::state_colors::{
     dim, distinct_states_in_order, empty_state, show_state_legend, state_color,

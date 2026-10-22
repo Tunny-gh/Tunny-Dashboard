@@ -129,7 +129,7 @@ pub fn visible_axis_indices(
 /// (feas.has_constraints() == false); returns `fallback` if no valid value exists.
 pub fn feasible_color_range(
     col: &[f64],
-    feas: tunny_core::dataframe::Feasibility<'_>,
+    feas: tdashboard_analysis::dataframe::Feasibility<'_>,
     fallback: (f64, f64),
 ) -> (f64, f64) {
     let (mn, mx) = col

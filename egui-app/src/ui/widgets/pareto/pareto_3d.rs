@@ -159,14 +159,15 @@ impl Pareto3dChart {
             let (screen_pos, depth) = project_value_3d(&project, [xv, yv, zv], ranges);
             let trial_id = r.trial_id;
 
-            if r.feasible != tunny_core::dataframe::FeasibilityState::Feasible {
+            if r.feasible != tdashboard_analysis::dataframe::FeasibilityState::Feasible {
                 if show_infeasible
-                    || r.feasible == tunny_core::dataframe::FeasibilityState::Unverified
+                    || r.feasible == tdashboard_analysis::dataframe::FeasibilityState::Unverified
                 {
                     infeasible_draw_calls.push(DepthPoint {
                         pos: screen_pos,
                         depth,
-                        color: if r.feasible == tunny_core::dataframe::FeasibilityState::Unverified
+                        color: if r.feasible
+                            == tdashboard_analysis::dataframe::FeasibilityState::Unverified
                         {
                             crate::theme::chart_colors::COLOR_UNVERIFIED()
                         } else {

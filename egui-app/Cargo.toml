@@ -1,5 +1,5 @@
 [package]
-name = "tunny-desktop"
+name = "tunny-dashboard"
 version = "0.1.2"
 edition = "2021"
 
@@ -16,7 +16,6 @@ tdashboard-optimization-runner = { path = "../crates/optimization-runner" }
 tdashboard-analysis = { path = "../crates/analysis" }
 tdashboard-io = { path = "../crates/io" }
 tdashboard-study = { path = "../crates/study" }
-tunny-core = { path = "../rust_core", default-features = false }
 eframe = { version = "0.35", features = ["wgpu", "persistence"] }
 egui = "0.35"
 egui_extras = { version = "0.35", features = ["image", "file", "svg"] }
@@ -30,6 +29,8 @@ open = "5"
 arboard = "3"
 
 [dev-dependencies]
+# Legacy global-store and decoder fixtures are retired in D8, not production APIs.
+tunny-core = { path = "../rust_core", default-features = false }
 tempfile = "3"
 dhat = "0.3"
 # SQLite ライブ更新ポーラーの統合テスト用フィクスチャ DB 作成にのみ使用する。

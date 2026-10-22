@@ -41,7 +41,7 @@ pub(super) fn compute_feasible_point_colors(
     view: &crate::state::app_state::StudyView,
     color_objective: &Option<String>,
     obj_names: &[String],
-    feas: tunny_core::dataframe::Feasibility<'_>,
+    feas: tdashboard_analysis::dataframe::Feasibility<'_>,
     cmap: &crate::theme::colormap::ColorMap,
     feasible_draw: &[u32],
 ) -> Vec<egui::Color32> {

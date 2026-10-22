@@ -12,7 +12,7 @@ use crate::ui::widget_states::{
 };
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::surrogate::MODEL_CHOICES;
-use tunny_core::surrogate_opt::{SurrogateValidationReport, TrainedSurrogate};
+use tdashboard_analysis::surrogate_opt::{SurrogateValidationReport, TrainedSurrogate};
 
 use super::labels::{model_label, verdict, AUTO_MODEL_LABEL};
 use super::{multi_trained_matches, trained_matches};
@@ -278,7 +278,7 @@ fn render_validation(ui: &mut egui::Ui, trained: &Arc<TrainedSurrogate>) {
 /// (candidates that failed to fit/validate show "—").
 fn render_model_selection(
     ui: &mut egui::Ui,
-    selection: &tunny_core::surrogate_opt::ModelSelectionReport,
+    selection: &tdashboard_analysis::surrogate_opt::ModelSelectionReport,
 ) {
     ui.strong(format!(
         "Auto selected: {}",
@@ -289,7 +289,7 @@ fn render_model_selection(
     );
 
     // Sort candidates by descending CV R² (failed candidates = NEG_INFINITY go last).
-    let mut rows: Vec<(tunny_core::surrogate_opt::SurrogateModelKind, f64)> =
+    let mut rows: Vec<(tdashboard_analysis::surrogate_opt::SurrogateModelKind, f64)> =
         selection.scores.clone();
     rows.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 

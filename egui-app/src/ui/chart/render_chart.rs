@@ -433,7 +433,7 @@ pub(crate) fn render_chart(
                         })
                         .collect()
                 });
-                let observed_feasible: Vec<tunny_core::dataframe::FeasibilityState> =
+                let observed_feasible: Vec<tdashboard_analysis::dataframe::FeasibilityState> =
                     if observed_cols.is_some() {
                         let feas = ctx.view.feasibility();
                         (0..ctx.view.row_count()).map(|i| feas.state(i)).collect()

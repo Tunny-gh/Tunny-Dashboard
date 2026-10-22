@@ -5,7 +5,7 @@ fn main() {
     println!("cargo:rerun-if-changed=assets/TunnyIcon.png");
 
     // Propagate LightGBM link settings to the final binary.
-    // rust_core's build.rs emits these for the rlib, but the linker flags
+    // Analysis emits these for the rlib, but the linker flags
     // must also be visible when linking the top-level binary.
     let manifest_dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let libs_dir = manifest_dir.parent().unwrap().join("libs");
@@ -101,9 +101,9 @@ fn collect_license_entries(manifest_dir: &Path) -> Result<String, String> {
     let root_id = metadata
         .packages
         .iter()
-        .find(|p| p.name == "tunny-desktop")
+        .find(|p| p.name == "tunny-dashboard")
         .map(|p| p.id.clone())
-        .ok_or_else(|| "tunny-desktop package not found".to_string())?;
+        .ok_or_else(|| "tunny-dashboard package not found".to_string())?;
 
     // Walk only Normal / Build dependencies from the root to compute the closure
     // included in the distributed artifact (dev-dependencies are excluded since they

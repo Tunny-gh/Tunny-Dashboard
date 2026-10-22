@@ -9,7 +9,7 @@
 //! name, so compatibility is preserved even if the type path changes).
 
 use crate::state::types::{Direction, StudyView};
-use tunny_core::surrogate_opt::TrainedSurrogate;
+use tdashboard_analysis::surrogate_opt::TrainedSurrogate;
 
 /// How the anchor point (candidate design point) is chosen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]

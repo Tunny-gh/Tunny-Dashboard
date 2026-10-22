@@ -1,7 +1,7 @@
 use crate::state::types::StudyView;
 use crate::theme::chart_colors::{COLOR_BAR_ACCENT, COLOR_BAR_NEGATIVE, COLOR_BAR_PRIMARY};
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
-use tunny_core::statistics::{
+use tdashboard_analysis::statistics::{
     compute_histogram, fit_all, quantile, BinRule, FitDistribution, FittedDistribution, Histogram,
 };
 

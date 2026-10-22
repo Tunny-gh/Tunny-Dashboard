@@ -1,5 +1,5 @@
 //! Bridge for RDB (PostgreSQL/MySQL) connection URLs. Mirrors the shape of
-//! `io/sqlite.rs`, only swapping the callees for the `tunny_core::rdb::*_url` family
+//! `io/sqlite.rs`, only swapping the callees for the `tdashboard_io::rdb::*_url` family
 //! (the versions that take an `RdbUrl`).
 //!
 //! Difference from SQLite: SQLite can simply re-query the local file path as-is each

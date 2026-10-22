@@ -106,7 +106,7 @@ jobs:
           codesign --force -s - libs/lib_lightgbm.dylib
 
       - name: Build release binary
-        run: cargo build --release --locked -p tunny-desktop
+        run: cargo build --release --locked -p tunny-dashboard
 
       # --- Assemble the distributable folder ---
       - name: Resolve version

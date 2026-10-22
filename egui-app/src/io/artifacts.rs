@@ -1,7 +1,7 @@
 //! Asynchronous dispatch for scanning the Artifacts folder.
 //!
 //! Pure logic such as path validation, Journal metadata parsing, and legacy layout
-//! scanning has already been moved to `tunny_core::io::artifacts` since it has no
+//! scanning lives in `tdashboard_io::artifacts` since it has no
 //! dependency on egui. This module handles asynchronous execution via
 //! `spawn_task` and sends `AppMessage`, and formats file URIs for egui's loader.
 

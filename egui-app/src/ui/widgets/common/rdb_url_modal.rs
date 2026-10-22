@@ -16,7 +16,7 @@
 
 use egui::RichText;
 
-use tunny_core::rdb::{check_tls_precondition, has_explicit_plaintext_optin, RdbUrl};
+use tdashboard_io::rdb::{check_tls_precondition, has_explicit_plaintext_optin, RdbUrl};
 
 use crate::ui::widgets::common::modal::ModalScaffold;
 

@@ -15,7 +15,7 @@
 
 use std::sync::Arc;
 
-use tunny_core::surrogate_opt::{SurrogateModelKind, MIN_TRIALS_FOR_SURROGATE_OPT};
+use tdashboard_analysis::surrogate_opt::{SurrogateModelKind, MIN_TRIALS_FOR_SURROGATE_OPT};
 
 use crate::state::messages::{SurrogateCompareRow, SurrogateCompareUiResult};
 use crate::theme::chart_colors::{

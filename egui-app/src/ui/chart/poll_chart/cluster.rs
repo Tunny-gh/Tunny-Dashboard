@@ -37,10 +37,10 @@ pub(super) fn run_cluster_compute(
         );
     }
 
-    let init_strategy: tunny_core::clustering::InitStrategy = req.init_strategy.into();
+    let init_strategy: tdashboard_analysis::clustering::InitStrategy = req.init_strategy.into();
     let selected_k = match req.k_mode {
         KSelectionMode::ElbowDefault => {
-            let elbow = tunny_core::clustering::estimate_k_elbow(
+            let elbow = tdashboard_analysis::clustering::estimate_k_elbow(
                 &matrix.flat_data,
                 n_cols,
                 trial_count.min(req.elbow_max_k.clamp(2, 50)),
@@ -61,8 +61,12 @@ pub(super) fn run_cluster_compute(
         );
     }
 
-    let result =
-        tunny_core::clustering::run_kmeans(selected_k, &matrix.flat_data, n_cols, init_strategy);
+    let result = tdashboard_analysis::clustering::run_kmeans(
+        selected_k,
+        &matrix.flat_data,
+        n_cols,
+        init_strategy,
+    );
     if result.labels.len() != trial_count {
         return cluster_failed(
             source,

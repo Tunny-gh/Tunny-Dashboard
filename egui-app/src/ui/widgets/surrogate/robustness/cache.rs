@@ -3,7 +3,7 @@
 //! The scalar/center split and the generation-ID scheme are explained on
 //! `RobustnessScalarKey` and `RobustnessCacheKey` below.
 
-use tunny_core::surrogate_opt::SurrogateModelKind;
+use tdashboard_analysis::surrogate_opt::SurrogateModelKind;
 
 use super::NoiseDistKind;
 

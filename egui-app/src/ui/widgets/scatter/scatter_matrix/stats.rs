@@ -29,7 +29,7 @@ pub(super) fn resolve_color_objective<'a>(
 /// are treated as feasible.
 pub(super) fn split_feasibility_indices(
     n: usize,
-    feas: tunny_core::dataframe::Feasibility<'_>,
+    feas: tdashboard_analysis::dataframe::Feasibility<'_>,
 ) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
     let (f_idx, inf_idx, unverified_idx) = feas.partition_indices(n);
     let feasible: Vec<u32> = f_idx.into_iter().map(|i| i as u32).collect();
@@ -90,13 +90,13 @@ pub(super) fn compute_histogram(data: &[f64], n_bins: usize) -> Vec<usize> {
 
 /// Computes the Pearson correlation coefficient.
 ///
-/// Delegates the actual computation to `tunny_core::math::stats::pearson_correlation`.
+/// Delegates the actual computation to `tdashboard_analysis::math::stats::pearson_correlation`.
 /// For cell display purposes, however, degenerate cases (fewer than 2 elements, or
 /// near-zero variance) return 0.0 instead of NaN, and the result is clamped to
 /// [-1, 1] to account for floating-point error.
 pub(super) fn compute_correlation(x: &[f64], y: &[f64]) -> f64 {
     let n = x.len().min(y.len());
-    let r = tunny_core::math::stats::pearson_correlation(&x[..n], &y[..n]);
+    let r = tdashboard_analysis::math::stats::pearson_correlation(&x[..n], &y[..n]);
     if r.is_nan() {
         0.0
     } else {

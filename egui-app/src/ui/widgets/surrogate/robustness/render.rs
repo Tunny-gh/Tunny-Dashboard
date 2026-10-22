@@ -1,8 +1,8 @@
 //! Rendering of a cached robustness analysis result: histogram bar geometry
 //! construction and the histogram + statistics summary plot.
 
-use tunny_core::statistics::{compute_histogram, BinRule};
-use tunny_core::surrogate_opt::RobustnessResult;
+use tdashboard_analysis::statistics::{compute_histogram, BinRule};
+use tdashboard_analysis::surrogate_opt::RobustnessResult;
 
 use crate::theme::chart_colors::{COLOR_BAR_ACCENT, COLOR_BAR_NEGATIVE, COLOR_BAR_PRIMARY};
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};

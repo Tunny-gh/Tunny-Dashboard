@@ -1,5 +1,5 @@
 use crate::state::app_state::{AppState, McdmResult};
-use tunny_core::export::{CsvField, CsvWriter};
+use tdashboard_io::csv::{CsvField, CsvWriter};
 
 pub(super) fn build_pareto_csv(app_state: &AppState) -> Option<String> {
     let study = app_state.current_study.as_ref()?;

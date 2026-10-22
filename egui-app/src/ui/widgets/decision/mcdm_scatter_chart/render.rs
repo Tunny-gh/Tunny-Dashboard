@@ -73,7 +73,7 @@ pub(super) fn build_display_batches(points: &[ScatterPoint]) -> DisplayBatches {
 pub(super) fn render_scatter_plot(
     ui: &mut egui::Ui,
     batches: &DisplayBatches,
-    infeasible: &[(f64, f64, tunny_core::dataframe::FeasibilityState)],
+    infeasible: &[(f64, f64, tdashboard_analysis::dataframe::FeasibilityState)],
     hit_candidates: &[(u32, usize, [f64; 2])],
     x_label: &str,
     y_label: &str,
@@ -141,8 +141,8 @@ pub(super) fn render_scatter_plot(
             // Draw infeasible solutions in the back
             if has_infeasible {
                 for state in [
-                    tunny_core::dataframe::FeasibilityState::Infeasible,
-                    tunny_core::dataframe::FeasibilityState::Unverified,
+                    tdashboard_analysis::dataframe::FeasibilityState::Infeasible,
+                    tdashboard_analysis::dataframe::FeasibilityState::Unverified,
                 ] {
                     let pts: Vec<[f64; 2]> = infeasible
                         .iter()
@@ -150,7 +150,8 @@ pub(super) fn render_scatter_plot(
                         .map(|&(x, y, _)| [x, y])
                         .collect();
                     if !pts.is_empty() {
-                        let color = if state == tunny_core::dataframe::FeasibilityState::Unverified
+                        let color = if state
+                            == tdashboard_analysis::dataframe::FeasibilityState::Unverified
                         {
                             crate::theme::chart_colors::COLOR_UNVERIFIED()
                         } else {

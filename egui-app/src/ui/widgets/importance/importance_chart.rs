@@ -82,8 +82,8 @@ pub const SOBOL_SAMPLE_COUNT: usize = 1024;
 /// share the same mapping table.
 pub fn core_sensitivity_metric(
     metric: ImportanceMetric,
-) -> Option<Box<dyn tunny_core::sensitivity::SensitivityMetric>> {
-    use tunny_core::sensitivity::{
+) -> Option<Box<dyn tdashboard_analysis::sensitivity::SensitivityMetric>> {
+    use tdashboard_analysis::sensitivity::{
         MdiMetric, PermutationMetric, RfAnovaMetric, RidgeMetric, ShapMetric, SpearmanMetric,
     };
     Some(match metric {

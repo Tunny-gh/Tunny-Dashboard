@@ -75,7 +75,7 @@ fn poll_convergence_indicators(
         Preparation::Convergence { target_points: 50 },
         move |prepared| {
             use crate::state::results::ConvergenceHistory;
-            use tunny_core::indicators::SeriesInput;
+            use tdashboard_analysis::indicators::SeriesInput;
             let series = prepared.data().series();
             let input = &prepared.tables()[0];
             let flags: Vec<_> = input
@@ -95,7 +95,7 @@ fn poll_convergence_indicators(
                     objectives: &s.objectives,
                 })
                 .collect();
-            let hist = tunny_core::indicators::compute_indicator_histories(
+            let hist = tdashboard_analysis::indicators::compute_indicator_histories(
                 &views,
                 &flags,
                 indicator,
@@ -170,7 +170,10 @@ fn poll_importance_chart(
             let key = (metric.cache_id(), obj_idx, feasible_only);
             match metric {
                 ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => {
-                    match tunny_core::sensitivity::compute_sobol_from_df(df, SOBOL_SAMPLE_COUNT) {
+                    match tdashboard_analysis::sensitivity::compute_sobol_from_df(
+                        df,
+                        SOBOL_SAMPLE_COUNT,
+                    ) {
                         Some(r) => AppMessage::SobolDone {
                             key: (obj_idx, feasible_only),
                             result: SobolResult {
@@ -184,7 +187,9 @@ fn poll_importance_chart(
                     }
                 }
                 ImportanceMetric::Ard => {
-                    match tunny_core::surrogate_opt::compute_ard_importance_from_df(df, obj_idx) {
+                    match tdashboard_analysis::surrogate_opt::compute_ard_importance_from_df(
+                        df, obj_idx,
+                    ) {
                         Some(r) => AppMessage::SensitivityDone {
                             key,
                             result: SensitivityResult {
@@ -210,7 +215,7 @@ fn poll_importance_chart(
                 _ => {
                     let core = core_sensitivity_metric(metric)
                         .expect("A non-Sobol/ARD metric has a core method");
-                    let Some(r) = tunny_core::sensitivity::compute_sensitivity_single_obj(
+                    let Some(r) = tdashboard_analysis::sensitivity::compute_sensitivity_single_obj(
                         df,
                         vec![core],
                         obj_idx,
@@ -347,7 +352,7 @@ fn poll_pdp_chart(
         },
         move |p| {
             let data = p.data().pdp();
-            let r = tunny_core::pdp::compute_pdp_from_data(
+            let r = tdashboard_analysis::pdp::compute_pdp_from_data(
                 data.x.clone(),
                 data.y.clone(),
                 data.names.clone(),
@@ -402,7 +407,7 @@ fn poll_pdp_chart_2d(
             feasible_only: req.feasible_only,
             two_dimensional: true,
         },
-        move |p| match tunny_core::pdp::compute_pdp_2d_from_data(
+        move |p| match tdashboard_analysis::pdp::compute_pdp_2d_from_data(
             p.data().pdp(),
             req.n_grid,
             &req.model_type,
@@ -579,7 +584,7 @@ fn poll_observed_contour(
         },
         move |p| {
             let data = p.data().contour();
-            let surface = tunny_core::contour::observed_surface_prepared(
+            let surface = tdashboard_analysis::contour::observed_surface_prepared(
                 &data.geometry,
                 req.n_grid,
                 req.max_edge_ratio,

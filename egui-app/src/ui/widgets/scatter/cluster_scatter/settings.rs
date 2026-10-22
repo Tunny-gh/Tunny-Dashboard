@@ -46,7 +46,7 @@ impl KMeansInitStrategy {
     }
 }
 
-impl From<KMeansInitStrategy> for tunny_core::clustering::InitStrategy {
+impl From<KMeansInitStrategy> for tdashboard_analysis::clustering::InitStrategy {
     fn from(s: KMeansInitStrategy) -> Self {
         match s {
             KMeansInitStrategy::KMeansPlusPlus => Self::KMeansPlusPlus,

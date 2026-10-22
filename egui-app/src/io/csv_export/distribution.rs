@@ -3,7 +3,7 @@ use crate::state::app_state::AppState;
 use crate::state::layout_state::ChartId;
 use crate::state::types::Direction;
 use crate::ui::widget_states::WidgetStates;
-use tunny_core::export::{CsvField, CsvWriter};
+use tdashboard_io::csv::{CsvField, CsvWriter};
 
 /// Recomputes the histogram with the current column selection / bin settings and turns
 /// it into CSV. Applies the same fallback as when the widget renders (objective ->
@@ -28,7 +28,7 @@ pub(super) fn build_histogram_csv(app_state: &AppState, widgets: &WidgetStates) 
         .histogram
         .rule
         .to_core(widgets.histogram.manual_bins);
-    let hist = tunny_core::statistics::compute_histogram(values, rule)?;
+    let hist = tdashboard_analysis::statistics::compute_histogram(values, rule)?;
 
     let mut w = CsvWriter::new();
     w.header(["bin_start", "bin_end", "count"]);
@@ -175,7 +175,7 @@ pub(super) fn build_correlation_matrix_csv(
     if columns.is_empty() {
         return None;
     }
-    let matrix = tunny_core::statistics::compute_correlation_matrix(
+    let matrix = tdashboard_analysis::statistics::compute_correlation_matrix(
         &columns,
         widgets.correlation_matrix.method,
     )?;

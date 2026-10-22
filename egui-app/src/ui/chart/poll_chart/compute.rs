@@ -14,7 +14,7 @@ pub(crate) fn numeric_param_names(ctx: &StudyContext) -> Vec<String> {
 pub(super) fn compute_sensitivity_heatmap(
     metric: crate::ui::widgets::importance_chart::ImportanceMetric,
     feasible_only: bool,
-    df: &tunny_core::dataframe::DataFrame,
+    df: &tdashboard_analysis::dataframe::DataFrame,
 ) -> AppMessage {
     use crate::state::results::HeatmapMatrix;
     use crate::ui::widgets::importance_chart::SOBOL_SAMPLE_COUNT;
@@ -42,7 +42,7 @@ pub(super) fn compute_sensitivity_heatmap(
 /// Spearman uses `spearman[param][0]`, Ridge uses `ridge[0].beta[param]`. Sobol doesn't go through this path.
 #[cfg(test)]
 fn single_obj_param_score(
-    r: &tunny_core::sensitivity::SensitivityResult,
+    r: &tdashboard_analysis::sensitivity::SensitivityResult,
     metric: crate::ui::widgets::importance_chart::ImportanceMetric,
     param_idx: usize,
 ) -> f64 {
