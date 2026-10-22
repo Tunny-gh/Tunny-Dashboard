@@ -358,7 +358,7 @@ impl OptimizationHistoryChart {
 /// Returns (feasible, infeasible, unverified) in [trial_idx, value] format.
 pub fn partition_history_by_feasibility(
     values: &[f64],
-    feas: tunny_core::dataframe::Feasibility<'_>,
+    feas: tdashboard_analysis::dataframe::Feasibility<'_>,
 ) -> HistoryPartitions {
     let mut feasible: Vec<[f64; 2]> = Vec::with_capacity(values.len());
     let mut infeasible: Vec<[f64; 2]> = Vec::with_capacity(values.len());
@@ -366,7 +366,7 @@ pub fn partition_history_by_feasibility(
     for (i, &v) in values.iter().enumerate() {
         if feas.is_feasible(i) {
             feasible.push([i as f64, v]);
-        } else if feas.state(i) == tunny_core::dataframe::FeasibilityState::Unverified {
+        } else if feas.state(i) == tdashboard_analysis::dataframe::FeasibilityState::Unverified {
             unverified.push([i as f64, v]);
         } else {
             infeasible.push([i as f64, v]);

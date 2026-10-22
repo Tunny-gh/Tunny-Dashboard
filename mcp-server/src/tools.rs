@@ -14,9 +14,9 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Map, Value};
+use tdashboard_analysis::report::{render_markdown, Outcome};
 use tdashboard_analysis::{ReportLang, ReportOptions, ReportSource};
-use tunny_core::io::journal::parser::OptimizationDirection;
-use tunny_core::report::{render_markdown, Outcome};
+use tdashboard_io::journal::parser::OptimizationDirection;
 
 use crate::storage;
 

@@ -4,7 +4,7 @@ pub mod response_surface;
 pub mod robustness;
 pub mod surrogate_opt;
 
-use tunny_core::surrogate_opt::SurrogateModelKind;
+use tdashboard_analysis::surrogate_opt::SurrogateModelKind;
 
 /// Model choices (in combo display order). The single source of truth shared by the
 /// three widgets `surrogate_opt` / `robustness` / `response_surface`. When adding a new

@@ -1,7 +1,9 @@
 use crate::state::types::StudyView;
 use crate::theme::chart_colors::{COLOR_CHART_TEXT, COLOR_GRID_STROKE};
 use crate::theme::color_compute::diverging_colormap;
-use tunny_core::statistics::{compute_correlation_matrix, CorrelationMatrix, CorrelationMethod};
+use tdashboard_analysis::statistics::{
+    compute_correlation_matrix, CorrelationMatrix, CorrelationMethod,
+};
 
 fn method_label(method: CorrelationMethod) -> &'static str {
     match method {

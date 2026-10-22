@@ -1,7 +1,7 @@
 use super::require_study;
 use crate::state::app_state::AppState;
 use crate::ui::widget_states::WidgetStates;
-use tunny_core::export::{CsvField, CsvWriter};
+use tdashboard_io::csv::{CsvField, CsvWriter};
 
 pub(super) fn build_importance_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
     if widgets.importance.computing {

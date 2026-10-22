@@ -2,7 +2,7 @@
 //!
 //! Contains only display-only pure functions and constants (no side effects).
 
-use tunny_core::surrogate_opt::{AcquisitionKind, OptimizerKind, SurrogateModelKind};
+use tdashboard_analysis::surrogate_opt::{AcquisitionKind, OptimizerKind, SurrogateModelKind};
 
 /// Label for the "Auto" entry in the model combo.
 pub(super) const AUTO_MODEL_LABEL: &str = "Auto (cross-validated)";

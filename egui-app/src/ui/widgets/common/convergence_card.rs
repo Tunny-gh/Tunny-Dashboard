@@ -32,8 +32,11 @@ pub fn show_convergence_card(ui: &mut egui::Ui, app_state: &AppState) {
                 };
                 ui.label(format!("Best: {:.6}", best_value));
                 ui.label(format!("Best Trial: #{best_trial_id}"));
-                let rate =
-                    tunny_core::convergence::compute_improvement_rate(history, 100, is_minimize);
+                let rate = tdashboard_analysis::convergence::compute_improvement_rate(
+                    history,
+                    100,
+                    is_minimize,
+                );
                 ui.label(format!("Improvement (last 100): {:.1}%", rate * 100.0));
             }
         }

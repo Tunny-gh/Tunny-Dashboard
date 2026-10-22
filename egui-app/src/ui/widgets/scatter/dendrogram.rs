@@ -1,6 +1,6 @@
 //! Dendrogram widget for hierarchical clustering (Ward's method).
 //!
-//! Builds the merge tree with `tunny_core::clustering::ward_linkage` and shows the
+//! Builds the merge tree with `tdashboard_analysis::clustering::ward_linkage` and shows the
 //! clusters obtained by cutting at the $k$ slider via leaf coloring. Training cost is
 //! low ($O(n^2)$, including the 800-row subsample cap), so this is a SYNC widget. See
 //! theory/{en,ja}/clustering/hierarchical.md for the theoretical background.
@@ -11,7 +11,9 @@
 use crate::state::types::StudyView;
 use crate::theme::chart_colors::COLOR_EMPTY_STATE;
 use crate::theme::colormap::ColorMap;
-use tunny_core::clustering::{cut_tree, dendrogram_nodes, ward_linkage, HierarchicalResult, Merge};
+use tdashboard_analysis::clustering::{
+    cut_tree, dendrogram_nodes, ward_linkage, HierarchicalResult, Merge,
+};
 
 /// Feature space used for the distance matrix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]

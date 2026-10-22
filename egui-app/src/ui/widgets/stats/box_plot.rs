@@ -3,7 +3,7 @@ use crate::theme::chart_colors::{COLOR_BAR_NEGATIVE, COLOR_BAR_PRIMARY};
 use crate::ui::widgets::common::axis_labels::{draw_plot_x_labels, plot_x_label_band};
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::distribution::{DistributionCache, DistributionSelection};
-use tunny_core::statistics::BoxPlotStats;
+use tdashboard_analysis::statistics::BoxPlotStats;
 
 /// Width assumed for the y axis on the very first frame, before the plot has reported
 /// its actual frame. From the second frame on, the measured width is used instead.

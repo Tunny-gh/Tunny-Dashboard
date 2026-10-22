@@ -2,7 +2,7 @@
 //!
 //! Same two-stage structure as `robustness.rs`: the surrogate fit runs
 //! asynchronously (via poll_chart), while slice evaluation from the fitted
-//! model (`tunny_core::surrogate_opt::surface_slice_at`) is on the order of
+//! model (`tdashboard_analysis::surrogate_opt::surface_slice_at`) is on the order of
 //! milliseconds, so it runs synchronously in the render pass and is cached.
 //! Displays, as a 3D mesh, a slice through the 2-parameter plane passing
 //! through the anchor point (Best trial / a pinned trial) — this is not a PDP
@@ -15,7 +15,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use tunny_core::surrogate_opt::{
+use tdashboard_analysis::surrogate_opt::{
     SurfaceSlice, SurrogateModelKind, TrainedSurrogate, MIN_TRIALS_FOR_SURROGATE_OPT,
 };
 
@@ -377,7 +377,7 @@ impl ResponseSurfaceChart {
 
         let key = cache_key(self.fit_generation, x_idx, y_idx, &anchor, effective_grid);
         if self.cache.as_ref().map(|(k, _)| k) != Some(&key) {
-            self.cache = tunny_core::surrogate_opt::surface_slice_at(
+            self.cache = tdashboard_analysis::surrogate_opt::surface_slice_at(
                 &trained,
                 &anchor,
                 x_idx,

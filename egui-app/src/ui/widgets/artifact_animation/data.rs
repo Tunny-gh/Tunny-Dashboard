@@ -6,7 +6,7 @@ use std::sync::{
 
 use crate::io::artifacts::ArtifactEntry;
 use crate::state::types::{Direction, StudyContext};
-use tunny_core::dataframe::FeasibilityState;
+use tdashboard_analysis::dataframe::FeasibilityState;
 
 #[derive(Clone, Debug)]
 pub(super) struct Frame {
@@ -216,7 +216,7 @@ impl Prefix {
             .iter()
             .map(|&r| data.objectives[r].clone())
             .collect();
-        let sorted = tunny_core::pareto::nd_sort(&objectives, &data.minimize);
+        let sorted = tdashboard_analysis::pareto::nd_sort(&objectives, &data.minimize);
         let mut ranks: HashMap<_, _> = feasible.into_iter().zip(sorted).collect();
         let next = ranks.values().copied().max().unwrap_or(0) + 1;
         let sums = data.study.view.numeric_column("constraint_sum");

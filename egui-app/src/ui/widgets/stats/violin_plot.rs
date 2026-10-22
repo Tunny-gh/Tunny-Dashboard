@@ -6,7 +6,7 @@ use crate::theme::chart_colors::{COLOR_BAR_ACCENT, COLOR_BAR_PRIMARY};
 use crate::ui::widgets::common::axis_labels::{draw_plot_x_labels, plot_x_label_band};
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::distribution::{DistributionCache, DistributionSelection, ViolinData};
-use tunny_core::statistics::ViolinCurve;
+use tdashboard_analysis::statistics::ViolinCurve;
 
 /// Width assumed for the y axis on the very first frame, before the plot has reported
 /// its actual frame. From the second frame on, the measured width is used instead.
@@ -259,7 +259,7 @@ mod tests {
             &[0.0, 1.0, 2.0, 3.0, 4.0][..],
             &[0.0, 0.1, 0.2, 5.0, 10.0][..],
         ] {
-            let curve = tunny_core::statistics::compute_violin(
+            let curve = tdashboard_analysis::statistics::compute_violin(
                 values,
                 super::super::distribution::GRID_POINTS,
             )

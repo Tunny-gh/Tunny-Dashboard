@@ -57,6 +57,76 @@ fn enable_recording_reuse_checkbox(mut render: impl FnMut(&egui::Context)) {
 }
 
 #[test]
+fn d7_live_filter_session_and_csv_export_keep_trial_identity() {
+    use crate::io::{export, session};
+    let _guard = test_store_guard();
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("entry.log");
+    std::fs::write(&source, concat!(
+        "{\"op_code\":0,\"study_name\":\"other\",\"directions\":[1]}\n",
+        "{\"op_code\":0,\"study_name\":\"entry\",\"directions\":[1]}\n",
+        "{\"op_code\":4,\"study_id\":0}\n",
+        "{\"op_code\":4,\"study_id\":1}\n",
+        "{\"op_code\":4,\"study_id\":1,\"state\":1,\"params\":{\"x\":2},\"distributions\":{},\"values\":[20]}\n",
+        "{\"op_code\":4,\"study_id\":1,\"state\":1,\"params\":{\"x\":3},\"distributions\":{},\"values\":[30]}\n",
+    )).unwrap();
+    let mut app = artifact_test_app(None);
+    app.open_path(source);
+    poll_until(&mut app, |a| a.app_state.all_studies.len() == 2);
+    select_artifact_study(&mut app, 1);
+    app.app_state.set_filter("x", 2.5, 3.5);
+    assert_eq!(app.app_state.selected_indices, vec![3]);
+    app.app_state.pinned_trials = vec![2];
+    app.app_state.convergence_indicator = tdashboard_analysis::indicators::MoIndicator::IgdPlus;
+    let session_path = directory.path().join("entry-session.json");
+    session::write_session_to_path(
+        &LayoutState::default(),
+        &Default::default(),
+        &session::ViewSettings::capture(&app.app_state),
+        &session_path,
+    )
+    .unwrap();
+    app.app_state.filter_ranges.clear();
+    app.app_state.pinned_trials.clear();
+    app.app_state.convergence_indicator = tdashboard_analysis::indicators::MoIndicator::Hypervolume;
+    app.apply_toolbar_actions(vec![ToolbarAction::LoadSession(session_path)]);
+    assert_eq!(app.app_state.filter_ranges.get("x"), Some(&(2.5, 3.5)));
+    assert_eq!(app.app_state.selected_indices, vec![3]);
+    assert_eq!(app.app_state.pinned_trials, vec![2]);
+    assert_eq!(
+        app.app_state.convergence_indicator,
+        tdashboard_analysis::indicators::MoIndicator::IgdPlus
+    );
+    let study = app.app_state.current_study.as_ref().unwrap();
+    let rows = export::select_row_indices_for_export(
+        &study.view,
+        &app.app_state.selected_indices,
+        study.pareto_indices(),
+        &export::ExportTarget::SelectedOnly,
+    );
+    assert_eq!(rows, vec![1]);
+    let csv_path = directory.path().join("selected.csv");
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    export::spawn_view_csv_export(
+        study.view.clone(),
+        rows,
+        study.meta.param_names.clone(),
+        study.meta.objective_names.clone(),
+        csv_path.clone(),
+        tx,
+    );
+    assert!(matches!(
+        rx.recv_timeout(std::time::Duration::from_secs(30)).unwrap(),
+        AppMessage::CsvExportDone
+    ));
+    let csv = std::fs::read_to_string(csv_path).unwrap();
+    let lines: Vec<_> = csv.lines().collect();
+    assert_eq!(lines.len(), 2);
+    assert!(lines[0].starts_with("trial_id,trial_number,x,obj0,"));
+    assert!(lines[1].starts_with("3,2,3,30,"), "{csv}");
+}
+
+#[test]
 fn d6_process_launch_progress_cancel_completion_and_reload() {
     use tdashboard_optimization_runner::process::*;
     for cancel in [false, true] {

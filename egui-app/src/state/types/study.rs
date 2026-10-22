@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use tunny_core::dataframe::DataFrame;
+use tdashboard_analysis::dataframe::DataFrame;
 
 use crate::ui::widgets::range_math::value_range;
 
@@ -361,7 +361,7 @@ impl StudyView {
 
     /// Feasibility view. Centralizes whether the `is_feasible` column exists, its threshold, and
     /// the "no column = all rows feasible" fallback logic.
-    pub fn feasibility(&self) -> tunny_core::dataframe::Feasibility<'_> {
+    pub fn feasibility(&self) -> tdashboard_analysis::dataframe::Feasibility<'_> {
         self.df.feasibility()
     }
 

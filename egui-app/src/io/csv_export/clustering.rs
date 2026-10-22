@@ -3,8 +3,8 @@ use crate::state::app_state::AppState;
 use crate::state::layout_state::ChartId;
 use crate::state::results::ClusterResult;
 use crate::ui::widget_states::WidgetStates;
-use tunny_core::clustering::PcaResult;
-use tunny_core::export::{CsvField, CsvWriter};
+use tdashboard_analysis::clustering::PcaResult;
+use tdashboard_io::csv::{CsvField, CsvWriter};
 
 pub(super) fn build_cluster_csv(
     chart_id: &ChartId,

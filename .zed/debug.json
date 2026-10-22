@@ -13,7 +13,7 @@
     "env": { "RUST_LOG": "debug", "RUST_BACKTRACE": "1" },
     "build": {
       "command": "cargo",
-      "args": ["build", "-p", "tunny-desktop", "--bin", "TunnyDashboard"]
+      "args": ["build", "-p", "tunny-dashboard", "--bin", "TunnyDashboard"]
     }
   },
   {
@@ -26,7 +26,7 @@
     "env": { "RUST_LOG": "debug", "RUST_BACKTRACE": "1" },
     "build": {
       "command": "cargo",
-      "args": ["build", "-p", "tunny-desktop", "--bin", "TunnyDashboard"]
+      "args": ["build", "-p", "tunny-dashboard", "--bin", "TunnyDashboard"]
     }
   }
 ]

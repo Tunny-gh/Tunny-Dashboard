@@ -1,7 +1,7 @@
 //! Manual E2E verification tests for RDB (PostgreSQL) URL support.
 //!
 //! CI has no real DB, so these are excluded via `#[ignore]` and run manually locally:
-//! `cargo test -p tunny-desktop --test rdb_integration -- --ignored`
+//! `cargo test -p tunny-dashboard --test rdb_integration -- --ignored`
 //!
 //! Prerequisite: 3 studies (mo_constrained / pruned_lc / messy_states) must already be
 //! seeded at `postgresql://tunny:tunnypass@127.0.0.1:5432/tunny_test`.

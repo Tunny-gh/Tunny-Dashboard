@@ -3,7 +3,7 @@
 //! Both widgets color-code by trial state (RUNNING/COMPLETE/PRUNED/FAIL/WAITING),
 //! so color resolution and legend drawing are factored out here to avoid duplication.
 
-use tunny_core::extras::TrialState;
+use tdashboard_analysis::extras::TrialState;
 
 use crate::theme::chart_colors::{
     COLOR_EMPTY_STATE, COLOR_STATE_COMPLETE, COLOR_STATE_FAIL, COLOR_STATE_PRUNED,

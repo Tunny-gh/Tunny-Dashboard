@@ -16,7 +16,7 @@ flow instead.)
 > process **definition** (below) and saving it back to JSON.
 > **Optimize ▸ Optimize Tool…** loads a saved definition, lets you set each
 > parameter's search range, the objective directions, and the sampler, and runs
-> it with the live monitoring you already know. The same definition and run can also be driven through the `tunny-core`
+> it with the live monitoring you already know. The same definition and run can also be driven through the `tdashboard-optimization-runner`
 > library.
 
 ## How it works

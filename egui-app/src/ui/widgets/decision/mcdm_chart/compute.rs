@@ -70,7 +70,7 @@ impl McdmCacheKey {
     }
 }
 
-/// Returns normalized weights (delegates to `tunny_core::mcdm::normalize_weights`).
+/// Returns normalized weights (delegates to `tdashboard_analysis::mcdm::normalize_weights`).
 pub fn normalize_weights(weights: &[f64]) -> Result<Vec<f64>, String> {
-    tunny_core::mcdm::normalize_weights(weights)
+    tdashboard_analysis::mcdm::normalize_weights(weights)
 }

@@ -81,14 +81,14 @@ pub fn cluster_ui_error(
 // ============================================================
 
 /// Rendering result for Observed Contour. Holds the grid interpolated only
-/// from observed trial points (`tunny_core::contour::ObservedSurface`), plus
+/// from observed trial points (`tdashboard_analysis::contour::ObservedSurface`), plus
 /// the observed points used for overlay display.
 #[derive(Debug, Clone)]
 pub struct ObservedContourResult {
     pub x_name: String,
     pub y_name: String,
     pub value_name: String,
-    pub surface: tunny_core::contour::ObservedSurface,
+    pub surface: tdashboard_analysis::contour::ObservedSurface,
     /// Observed points for overlay display (feasible filter already applied). `[x, y, value]`.
     pub points: Vec<[f64; 3]>,
     /// trial_id in the same order as `points` (for point-click → detail view).
@@ -103,7 +103,7 @@ pub struct ObservedContourResult {
 #[derive(Debug, Clone)]
 pub struct SurrogateSuggestUiResult {
     /// Suggested candidates (acquisition function optimization results).
-    pub candidates: Vec<tunny_core::surrogate_opt::SuggestedCandidate>,
+    pub candidates: Vec<tdashboard_analysis::surrogate_opt::SuggestedCandidate>,
     /// Parameter names (same order as `candidates[*].params`).
     pub param_names: Vec<String>,
     /// Objective name (for display).
@@ -114,7 +114,7 @@ pub struct SurrogateSuggestUiResult {
 #[derive(Debug, Clone)]
 pub struct SurrogateMultiSuggestUiResult {
     /// Suggested candidates (EHVI optimization results).
-    pub candidates: Vec<tunny_core::surrogate_opt::MultiSuggestedCandidate>,
+    pub candidates: Vec<tdashboard_analysis::surrogate_opt::MultiSuggestedCandidate>,
     /// Parameter names (same order as `candidates[*].params`).
     pub param_names: Vec<String>,
     /// Objective names (same order as `candidates[*].predicted_values`).
@@ -122,7 +122,7 @@ pub struct SurrogateMultiSuggestUiResult {
 }
 
 /// UI display result for multi-objective surrogate optimization.
-/// The computation runs in the background via `tunny_core::surrogate_opt`,
+/// The computation runs in the background via `tdashboard_analysis::surrogate_opt`,
 /// and parameter names, objective names, and directions are attached and
 /// repacked here.
 #[derive(Debug, Clone)]
@@ -130,13 +130,13 @@ pub struct SurrogateMultiOptUiResult {
     pub param_names: Vec<String>,
     pub objective_names: Vec<String>,
     /// Predicted Pareto front (sorted ascending by the first objective).
-    pub front: Vec<tunny_core::surrogate_opt::ParetoFrontPoint>,
+    pub front: Vec<tdashboard_analysis::surrogate_opt::ParetoFrontPoint>,
     /// Coefficient of determination on training data, per objective.
     pub r_squared: Vec<f64>,
 }
 
 /// UI display result for surrogate optimization.
-/// The computation runs in the background via `tunny_core::surrogate_opt`,
+/// The computation runs in the background via `tdashboard_analysis::surrogate_opt`,
 /// and the parameter name/value mapping and direction (minimize/maximize)
 /// are attached and repacked here.
 #[derive(Debug, Clone)]
@@ -170,7 +170,7 @@ pub struct SurrogateOptUiResult {
 /// the UI side.
 #[derive(Debug, Clone)]
 pub struct SurrogateCompareRow {
-    pub kind: tunny_core::surrogate_opt::SurrogateModelKind,
+    pub kind: tdashboard_analysis::surrogate_opt::SurrogateModelKind,
     pub cv_r2_mean: f64,
     pub cv_r2_std: f64,
     pub holdout_r2: f64,
@@ -190,8 +190,8 @@ pub struct SurrogateCompareUiResult {
     pub rows: Vec<SurrogateCompareRow>,
     /// 1D prediction slices for successfully fitted models (passing through the anchor point).
     pub slices: Vec<(
-        tunny_core::surrogate_opt::SurrogateModelKind,
-        tunny_core::surrogate_opt::LineSlice,
+        tdashboard_analysis::surrogate_opt::SurrogateModelKind,
+        tdashboard_analysis::surrogate_opt::LineSlice,
     )>,
     /// Observed data (x, y) for the parameter being sliced.
     pub observed: Vec<(f64, f64)>,
@@ -333,8 +333,8 @@ pub enum AppMessage {
     IndicatorHistoryDone {
         /// Snapshot used by the job; results from replaced snapshots are stale.
         #[cfg(test)]
-        source_df: std::sync::Arc<tunny_core::dataframe::DataFrame>,
-        indicator: tunny_core::indicators::MoIndicator,
+        source_df: std::sync::Arc<tdashboard_analysis::dataframe::DataFrame>,
+        indicator: tdashboard_analysis::indicators::MoIndicator,
         /// Indicator history for the base Study.
         base: ConvergenceHistory,
         /// Indicator history for comparison Studies (same order as comparison_studies).
@@ -373,13 +373,15 @@ pub enum AppMessage {
     ObservedContourDone(ObservedContourResult),
     ObservedContourFailed(String),
     /// Surrogate fitting + validation has completed (the optimization stage is a separate message).
-    SurrogateFitDone(std::sync::Arc<tunny_core::surrogate_opt::TrainedSurrogate>),
+    SurrogateFitDone(std::sync::Arc<tdashboard_analysis::surrogate_opt::TrainedSurrogate>),
     SurrogateFitFailed(String),
     /// Surrogate fitting was cancelled by user action.
     SurrogateFitCancelled,
     SurrogateOptDone(SurrogateOptUiResult),
     /// Multi-objective surrogate fitting + validation has completed (holds training results for all objectives).
-    SurrogateMultiFitDone(std::sync::Arc<Vec<tunny_core::surrogate_opt::TrainedSurrogate>>),
+    SurrogateMultiFitDone(
+        std::sync::Arc<Vec<tdashboard_analysis::surrogate_opt::TrainedSurrogate>>,
+    ),
     SurrogateMultiFitFailed(String),
     /// Multi-objective surrogate fitting was cancelled by user action.
     SurrogateMultiFitCancelled,
@@ -394,11 +396,11 @@ pub enum AppMessage {
     /// EHVI-based multi-objective candidate suggestion failed.
     SurrogateMultiSuggestFailed(String),
     /// Surrogate fitting for robustness analysis has completed.
-    RobustnessFitDone(std::sync::Arc<tunny_core::surrogate_opt::TrainedSurrogate>),
+    RobustnessFitDone(std::sync::Arc<tdashboard_analysis::surrogate_opt::TrainedSurrogate>),
     /// Surrogate fitting for robustness analysis failed.
     RobustnessFitFailed(String),
     /// Surrogate fitting for the response surface 3D viewer has completed.
-    ResponseSurfaceFitDone(std::sync::Arc<tunny_core::surrogate_opt::TrainedSurrogate>),
+    ResponseSurfaceFitDone(std::sync::Arc<tdashboard_analysis::surrogate_opt::TrainedSurrogate>),
     /// Surrogate fitting for the response surface 3D viewer failed.
     ResponseSurfaceFitFailed(String),
     /// Compare Surrogates: fitting + comparison of all model kinds has

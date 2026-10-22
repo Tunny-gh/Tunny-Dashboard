@@ -139,12 +139,12 @@ priority.
 ### 8. LLM / MCP Integration ✅
 
 Optimus productizing LLM post-processing in 2024 signals the industry direction.
-Leverage the structural advantage of `tunny-core` being headless by exposing it as an
+Leverage the headless Study, I/O and Analysis libraries through an
 MCP server, becoming "an optimization analysis tool that agents can query in natural
 language."
 
-- [x] `tunny-mcp` binary (stdio JSON-RPC, MCP tools implementation, with `serde` as
-      its only dependency)
+- [x] `tunny-mcp` binary in the `tdashboard-mcp` package (stdio JSON-RPC, MCP tools
+      composing the extracted libraries)
 - [x] Tools: `list_studies` / `study_summary` / `study_report` (LLM-oriented Markdown
       / structured JSON, Japanese/English) / `trials` (paginated raw data)
 - [x] Support for all storage backends (journal / SQLite / PostgreSQL / MySQL, with

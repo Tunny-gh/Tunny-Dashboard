@@ -2,7 +2,7 @@
 //!
 //! Trains a response surface (surrogate model) from the sampled results (the trial
 //! set), then runs optimization on that surface and shows the estimated optimum.
-//! The computation is done in the background by `tunny_core::surrogate_opt` (see
+//! The computation is done in the background by `tdashboard_analysis::surrogate_opt` (see
 //! poll_chart.rs).
 //!
 //! 2-stage flow:
@@ -35,7 +35,7 @@ mod suggest;
 mod tables;
 
 use crate::ui::widget_states::SurrogateOptState;
-use tunny_core::surrogate_opt::{TrainedSurrogate, MIN_TRIALS_FOR_SURROGATE_OPT};
+use tdashboard_analysis::surrogate_opt::{TrainedSurrogate, MIN_TRIALS_FOR_SURROGATE_OPT};
 
 use fit::{render_fit_column, render_fit_column_multi};
 use optimize::{render_optimize_column, render_optimize_column_multi};
@@ -55,7 +55,7 @@ pub struct ObservedData<'a> {
     /// Each trial's Pareto rank (0 = observed front).
     pub pareto_rank: &'a [u32],
     /// Each trial's explicit constraint evaluation state.
-    pub feasible: &'a [tunny_core::dataframe::FeasibilityState],
+    pub feasible: &'a [tdashboard_analysis::dataframe::FeasibilityState],
 }
 
 /// `param_names` contains numeric parameters only (categorical columns are not

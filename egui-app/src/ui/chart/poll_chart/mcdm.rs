@@ -25,7 +25,7 @@ pub(super) fn dispatch_mcdm_entropy(
         crate::state::analysis_job::DeliverySlot::Entropy(source),
         obj_names.to_vec(),
         tdashboard_analysis::preparation::Preparation::Entropy,
-        move |prepared| match tunny_core::entropy::compute_entropy_weights(
+        move |prepared| match tdashboard_analysis::entropy::compute_entropy_weights(
             &prepared.data().objectives().values,
             prepared.data().objectives().rows.len(),
             prepared.data().objectives().names.len(),
@@ -159,7 +159,7 @@ fn compute_mcdm_result(
     };
 
     match method {
-        McdmMethod::Topsis => tunny_core::topsis::compute_topsis(
+        McdmMethod::Topsis => tdashboard_analysis::topsis::compute_topsis(
             objectives,
             n_pareto,
             n_objectives,
@@ -174,7 +174,7 @@ fn compute_mcdm_result(
             })
         })
         .map_err(|e| format!("TOPSIS computation failed: {e}")),
-        McdmMethod::Vikor => tunny_core::vikor::compute_vikor(
+        McdmMethod::Vikor => tdashboard_analysis::vikor::compute_vikor(
             objectives,
             n_pareto,
             n_objectives,
@@ -199,7 +199,7 @@ fn compute_mcdm_result(
         })
         .map_err(|e| format!("VIKOR computation failed: {e}")),
         McdmMethod::PrometheeI | McdmMethod::PrometheeII => {
-            tunny_core::promethee::compute_promethee(
+            tdashboard_analysis::promethee::compute_promethee(
                 objectives,
                 n_pareto,
                 n_objectives,

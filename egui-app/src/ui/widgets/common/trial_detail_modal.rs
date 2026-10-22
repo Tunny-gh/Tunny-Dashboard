@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use tunny_core::dataframe::Feasibility;
+use tdashboard_analysis::dataframe::Feasibility;
 
 use crate::io::artifacts::{file_image_uri, ArtifactEntry, ArtifactFileType};
 use crate::state::types::{format_user_attribute, StudyView};

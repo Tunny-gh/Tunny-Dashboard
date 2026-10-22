@@ -50,12 +50,12 @@ impl ObservedKind {
 /// Returns the observed-point classification from feasibility and Pareto rank (same
 /// rule as the other scatter plots)
 pub fn classify_observed(
-    feasible: tunny_core::dataframe::FeasibilityState,
+    feasible: tdashboard_analysis::dataframe::FeasibilityState,
     pareto_rank: u32,
 ) -> ObservedKind {
-    if feasible == tunny_core::dataframe::FeasibilityState::Unverified {
+    if feasible == tdashboard_analysis::dataframe::FeasibilityState::Unverified {
         ObservedKind::Unverified
-    } else if feasible == tunny_core::dataframe::FeasibilityState::Infeasible {
+    } else if feasible == tdashboard_analysis::dataframe::FeasibilityState::Infeasible {
         ObservedKind::Infeasible
     } else if pareto_rank == 0 {
         ObservedKind::Pareto

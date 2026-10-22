@@ -2,7 +2,7 @@
 //!
 //! Format selection, language, and Top-N are finalized here, and clicking
 //! Export lets the caller (`app.rs`) choose a base path via an rfd save
-//! dialog, then runs `tunny_core::report::build_study_report` on a
+//! dialog, then runs `tdashboard_analysis::report::generate_prepared_report` on a
 //! background thread (`crate::io::report_export::spawn_report_export`).
 //! The generating/complete/failed state is held by `ReportDialogState`
 //! itself, so the pure logic (validation, file name derivation) can be
@@ -11,7 +11,7 @@
 use std::path::{Path, PathBuf};
 
 use egui::RichText;
-use tunny_core::report::ReportLang;
+use tdashboard_analysis::report::ReportLang;
 
 use crate::ui::widgets::common::modal::ModalScaffold;
 

@@ -8,7 +8,7 @@ use crate::ui::widget_states::{
     SurrogateOptimizeComputeRequest, SurrogateSuggestComputeRequest,
 };
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
-use tunny_core::surrogate_opt::{AcquisitionKind, SurrogateModelKind};
+use tdashboard_analysis::surrogate_opt::{AcquisitionKind, SurrogateModelKind};
 
 use super::front_view::render_front_scatter;
 use super::labels::{acq_label, optimizer_label, OPTIMIZER_CHOICES};

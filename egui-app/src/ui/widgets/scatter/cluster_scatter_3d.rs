@@ -208,13 +208,13 @@ impl ClusterScatter3D {
 
             if !feas.is_feasible(i) {
                 if show_infeasible
-                    || feas.state(i) == tunny_core::dataframe::FeasibilityState::Unverified
+                    || feas.state(i) == tdashboard_analysis::dataframe::FeasibilityState::Unverified
                 {
                     infeasible_pts.push(DepthPoint {
                         pos,
                         depth,
                         color: if feas.state(i)
-                            == tunny_core::dataframe::FeasibilityState::Unverified
+                            == tdashboard_analysis::dataframe::FeasibilityState::Unverified
                         {
                             crate::theme::chart_colors::COLOR_UNVERIFIED()
                         } else {

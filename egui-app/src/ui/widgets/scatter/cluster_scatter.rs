@@ -199,7 +199,7 @@ impl ClusterScatter {
         let mut unverified_pts = Vec::new();
         let mut other_pts: Vec<[f64; 2]> = Vec::new();
         for (i, &[x, y]) in plot_points.iter().enumerate() {
-            if feas.state(i) == tunny_core::dataframe::FeasibilityState::Unverified {
+            if feas.state(i) == tdashboard_analysis::dataframe::FeasibilityState::Unverified {
                 unverified_pts.push([x as f64, y as f64]);
                 continue;
             }

@@ -1,7 +1,7 @@
 //! SOM (Self-Organizing Map) widget.
 //!
 //! Trains a batch SOM on the standardized feature space
-//! (`tunny_core::clustering::train_som`) and switches between displaying the
+//! (`tdashboard_analysis::clustering::train_som`) and switches between displaying the
 //! U-matrix, component planes, and hit counts. Training takes on the order of
 //! milliseconds to tens of milliseconds, so this is a SYNC widget (computed directly
 //! and cached in the render pass, without going through poll_chart). See
@@ -19,7 +19,7 @@ use crate::theme::color_compute::contrasting_text_color;
 use crate::theme::colormap::ColorMap;
 use crate::ui::widgets::common::heatmap::draw_colorbar_simple;
 use crate::ui::widgets::common::range_math::{expand_degenerate, normalize01, value_range};
-use tunny_core::clustering::{train_som, SomResult, SomSpec};
+use tdashboard_analysis::clustering::{train_som, SomResult, SomSpec};
 
 /// Feature space used for training.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]

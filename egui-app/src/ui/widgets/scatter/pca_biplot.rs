@@ -17,9 +17,9 @@ use crate::theme::color_compute::{key_to_color32, rgba_key};
 use crate::theme::colormap::ColorMap;
 use crate::ui::widgets::common::plot_nav::{apply_wheel_zoom, UnifiedNav};
 use crate::ui::widgets::common::range_math::finite_value_range;
-use tunny_core::clustering::PcaResult;
+use tdashboard_analysis::clustering::PcaResult;
 
-/// The target space for PCA. Since `tunny_core::clustering::PcaSpace` doesn't
+/// The target space for PCA. Since `tdashboard_analysis::clustering::PcaSpace` doesn't
 /// implement serde, this mirror enum is provided for UI-state persistence and
 /// converted via `to_core`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
@@ -39,11 +39,11 @@ impl PcaSpaceOption {
         }
     }
 
-    pub fn to_core(self) -> tunny_core::clustering::PcaSpace {
+    pub fn to_core(self) -> tdashboard_analysis::clustering::PcaSpace {
         match self {
-            PcaSpaceOption::Param => tunny_core::clustering::PcaSpace::Param,
-            PcaSpaceOption::Objective => tunny_core::clustering::PcaSpace::Objective,
-            PcaSpaceOption::All => tunny_core::clustering::PcaSpace::All,
+            PcaSpaceOption::Param => tdashboard_analysis::clustering::PcaSpace::Param,
+            PcaSpaceOption::Objective => tdashboard_analysis::clustering::PcaSpace::Objective,
+            PcaSpaceOption::All => tdashboard_analysis::clustering::PcaSpace::All,
         }
     }
 
@@ -169,17 +169,20 @@ impl PcaBiplotChart {
         let pca_valid =
             pca_key.0.is_some() && self.cache.as_ref().is_some_and(|c| c.pca_key == pca_key);
         if !pca_valid {
-            self.cache =
-                tunny_core::clustering::run_pca_standardized(&view.df, 2, self.space.to_core())
-                    .map(|result| {
-                        let draw = compute_pca_draw(&result, &self.color_objective, view, cmap);
-                        PcaBiplotCache {
-                            pca_key,
-                            result,
-                            draw_key,
-                            draw,
-                        }
-                    });
+            self.cache = tdashboard_analysis::clustering::run_pca_standardized(
+                &view.df,
+                2,
+                self.space.to_core(),
+            )
+            .map(|result| {
+                let draw = compute_pca_draw(&result, &self.color_objective, view, cmap);
+                PcaBiplotCache {
+                    pca_key,
+                    result,
+                    draw_key,
+                    draw,
+                }
+            });
         } else if self.cache.as_ref().is_some_and(|c| c.draw_key != draw_key) {
             if let Some(c) = self.cache.as_mut() {
                 c.draw = compute_pca_draw(&c.result, &self.color_objective, view, cmap);

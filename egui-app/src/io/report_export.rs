@@ -14,7 +14,7 @@ use std::sync::mpsc::SyncSender;
 use tdashboard_analysis::dataframe::DataFrame;
 #[cfg(test)]
 use tdashboard_analysis::extras::StudyExtras;
-use tunny_core::report::ReportLang;
+use tdashboard_analysis::report::ReportLang;
 
 #[cfg(test)]
 use crate::state::app_state::{Direction, StudyMeta};
@@ -118,8 +118,8 @@ fn write_report(
             overwritten.push(path.clone());
         }
         let content = match format {
-            ReportFormat::Html => tunny_core::report::render_html(report, lang),
-            ReportFormat::Markdown => tunny_core::report::render_markdown(report, lang),
+            ReportFormat::Html => tdashboard_analysis::report::render_html(report, lang),
+            ReportFormat::Markdown => tdashboard_analysis::report::render_markdown(report, lang),
             ReportFormat::Json => serde_json::to_string_pretty(&report)
                 .map_err(|e| format!("Failed to serialize report as JSON: {e}"))?,
         };
@@ -217,7 +217,11 @@ mod tests {
             "test journal".into(),
             ReportLang::En,
             10,
-            vec![ReportFormat::Json],
+            vec![
+                ReportFormat::Html,
+                ReportFormat::Markdown,
+                ReportFormat::Json,
+            ],
             path.clone(),
             tx,
         );
@@ -236,10 +240,16 @@ mod tests {
             AppMessage::ReportExportDone { .. }
         ));
         let report: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(report["overview"]["complete_trials"], 2);
         assert_eq!(report["overview"]["total_trials"], 3);
         assert_eq!(report["outcome"]["MultiObj"]["pareto_size"], 1);
+        assert!(std::fs::read_to_string(path.with_extension("html"))
+            .unwrap()
+            .contains("<!DOCTYPE html>"));
+        assert!(std::fs::read_to_string(path.with_extension("md"))
+            .unwrap()
+            .contains("## "));
     }
 
     #[test]

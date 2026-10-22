@@ -4,7 +4,7 @@
   {
     "label": "Run TunnyDashboard",
     "command": "cargo",
-    "args": ["run", "-p", "tunny-desktop"],
+    "args": ["run", "-p", "tunny-dashboard"],
     "env": { "RUST_LOG": "info", "RUST_BACKTRACE": "1" },
     "use_new_terminal": false,
     "allow_concurrent_runs": false,
@@ -17,7 +17,7 @@
     "args": [
       "run",
       "-p",
-      "tunny-desktop",
+      "tunny-dashboard",
       "--",
       "-i",
       "$ZED_WORKTREE_ROOT/rust_core/fixtures/test.log"

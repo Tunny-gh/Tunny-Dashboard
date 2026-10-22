@@ -51,7 +51,7 @@ fn surrogate_stage_fit(
     widgets.surrogate_opt.error_message = None;
 
     // Shared progress/cancellation handle (shared between the UI and the training thread).
-    let progress = tunny_core::surrogate_opt::FitProgress::new();
+    let progress = tdashboard_analysis::surrogate_opt::FitProgress::new();
     widgets.surrogate_opt.fit_progress = Some(progress.clone());
 
     let tx = tx.clone();
@@ -76,7 +76,7 @@ fn surrogate_stage_fit(
         },
         move |prepared| {
             let data = prepared.data().fit();
-            let fit_core_req = tunny_core::surrogate_opt::SurrogateFitRequest {
+            let fit_core_req = tdashboard_analysis::surrogate_opt::SurrogateFitRequest {
                 x_matrix: data.x.clone(),
                 y: data.ys[0].clone(),
                 param_names: data.names.clone(),
@@ -87,7 +87,7 @@ fn surrogate_stage_fit(
                 priority_rows: vec![],
                 param_bounds: Some(data.bounds.clone()),
             };
-            match tunny_core::surrogate_opt::fit_surrogate_with_validation_tracked(
+            match tdashboard_analysis::surrogate_opt::fit_surrogate_with_validation_tracked(
                 &fit_core_req,
                 &progress,
             ) {
@@ -122,7 +122,7 @@ fn surrogate_stage_multi_fit(
     widgets.surrogate_opt.error_message = None;
 
     // Shared progress/cancellation handle (shared between the UI and the training thread).
-    let progress = tunny_core::surrogate_opt::FitProgress::new();
+    let progress = tdashboard_analysis::surrogate_opt::FitProgress::new();
     widgets.surrogate_opt.fit_progress = Some(progress.clone());
 
     let tx = tx.clone();
@@ -139,7 +139,7 @@ fn surrogate_stage_multi_fit(
             let data = prepared.data().fit();
             // Train all objectives with Pareto-front concentration
             // (concentrates inducing points on non-dominated trials when N exceeds the GP inducing-point cap).
-            match tunny_core::surrogate_opt::fit_multi_surrogates_tracked(
+            match tdashboard_analysis::surrogate_opt::fit_multi_surrogates_tracked(
                 &data.x,
                 &data.ys,
                 &data.names,
@@ -204,14 +204,14 @@ fn surrogate_stage_optimize(
             let minimize = prepared.model_directions()[0];
             use crate::state::messages::SurrogateOptUiResult;
             let param_names_owned = trained.param_names.clone();
-            let spec = tunny_core::surrogate_opt::SurrogateOptimizeSpec {
+            let spec = tdashboard_analysis::surrogate_opt::SurrogateOptimizeSpec {
                 minimize,
                 optimizer: opt_req.optimizer,
                 slice_params,
-                n_grid: tunny_core::surrogate_opt::DEFAULT_SLICE_GRID,
+                n_grid: tdashboard_analysis::surrogate_opt::DEFAULT_SLICE_GRID,
             };
             let constraint_names = trained.constraint_names.clone();
-            let r = tunny_core::surrogate_opt::optimize_on_trained(trained, &spec);
+            let r = tdashboard_analysis::surrogate_opt::optimize_on_trained(trained, &spec);
             let predicted_constraints: Vec<(String, f64)> = constraint_names
                 .into_iter()
                 .zip(r.predicted_constraints)
@@ -272,14 +272,14 @@ fn surrogate_stage_multi_optimize(
                 .map(|m| m.objective_name.clone())
                 .collect();
             use crate::state::messages::SurrogateMultiOptUiResult;
-            let refs: Vec<&tunny_core::surrogate_opt::TrainedSurrogate> =
+            let refs: Vec<&tdashboard_analysis::surrogate_opt::TrainedSurrogate> =
                 multi_trained.iter().collect();
-            let spec = tunny_core::surrogate_opt::SurrogateMultiOptimizeSpec {
+            let spec = tdashboard_analysis::surrogate_opt::SurrogateMultiOptimizeSpec {
                 minimize: prepared.model_directions().to_vec(),
                 slice_params,
-                n_grid: tunny_core::surrogate_opt::DEFAULT_SLICE_GRID,
+                n_grid: tdashboard_analysis::surrogate_opt::DEFAULT_SLICE_GRID,
             };
-            match tunny_core::surrogate_opt::optimize_multi_on_trained(&refs, &spec) {
+            match tdashboard_analysis::surrogate_opt::optimize_multi_on_trained(&refs, &spec) {
                 Ok(r) => {
                     let param_names = refs
                         .first()
@@ -335,7 +335,7 @@ fn surrogate_stage_suggest(
             let param_names = trained.param_names.clone();
             let objective_name = trained.objective_name.clone();
             use crate::state::messages::SurrogateSuggestUiResult;
-            match tunny_core::surrogate_opt::suggest_candidates(
+            match tdashboard_analysis::surrogate_opt::suggest_candidates(
                 trained,
                 suggest_req.n_candidates,
                 suggest_req.acquisition,
@@ -390,7 +390,7 @@ fn surrogate_stage_multi_suggest(
                 .map(|m| m.objective_name.clone())
                 .collect();
             use crate::state::messages::SurrogateMultiSuggestUiResult;
-            match tunny_core::surrogate_opt::suggest_candidates_multi(
+            match tdashboard_analysis::surrogate_opt::suggest_candidates_multi(
                 multi_trained,
                 prepared.model_directions(),
                 multi_suggest_req.n_candidates,
@@ -437,7 +437,7 @@ pub(super) fn poll_robustness(
         },
         move |prepared| {
             let data = prepared.data().fit();
-            let fit_core_req = tunny_core::surrogate_opt::SurrogateFitRequest {
+            let fit_core_req = tdashboard_analysis::surrogate_opt::SurrogateFitRequest {
                 x_matrix: data.x.clone(),
                 y: data.ys[0].clone(),
                 param_names: data.names.clone(),
@@ -448,7 +448,7 @@ pub(super) fn poll_robustness(
                 priority_rows: vec![],
                 param_bounds: Some(data.bounds.clone()),
             };
-            match tunny_core::surrogate_opt::fit_surrogate_with_validation(&fit_core_req) {
+            match tdashboard_analysis::surrogate_opt::fit_surrogate_with_validation(&fit_core_req) {
                 Ok(t) => AppMessage::RobustnessFitDone(std::sync::Arc::new(t)),
                 Err(e) => AppMessage::RobustnessFitFailed(e),
             }
@@ -484,7 +484,7 @@ pub(super) fn poll_response_surface(
         },
         move |prepared| {
             let data = prepared.data().fit();
-            let fit_core_req = tunny_core::surrogate_opt::SurrogateFitRequest {
+            let fit_core_req = tdashboard_analysis::surrogate_opt::SurrogateFitRequest {
                 x_matrix: data.x.clone(),
                 y: data.ys[0].clone(),
                 param_names: data.names.clone(),
@@ -496,7 +496,7 @@ pub(super) fn poll_response_surface(
                 priority_rows: vec![],
                 param_bounds: Some(data.bounds.clone()),
             };
-            match tunny_core::surrogate_opt::fit_surrogate_with_validation(&fit_core_req) {
+            match tdashboard_analysis::surrogate_opt::fit_surrogate_with_validation(&fit_core_req) {
                 Ok(t) => AppMessage::ResponseSurfaceFitDone(std::sync::Arc::new(t)),
                 Err(e) => AppMessage::ResponseSurfaceFitFailed(e),
             }
@@ -546,7 +546,7 @@ pub(super) fn poll_surrogate_compare(
             let mut slices = Vec::new();
 
             for kind in kinds {
-                let fit_core_req = tunny_core::surrogate_opt::SurrogateFitRequest {
+                let fit_core_req = tdashboard_analysis::surrogate_opt::SurrogateFitRequest {
                     x_matrix: x_matrix.clone(),
                     y: y.clone(),
                     param_names: numeric_params.clone(),
@@ -558,7 +558,9 @@ pub(super) fn poll_surrogate_compare(
                     priority_rows: vec![],
                     param_bounds: Some(param_bounds.clone()),
                 };
-                match tunny_core::surrogate_opt::fit_surrogate_with_validation(&fit_core_req) {
+                match tdashboard_analysis::surrogate_opt::fit_surrogate_with_validation(
+                    &fit_core_req,
+                ) {
                     Ok(trained) => {
                         let v = &trained.validation;
                         rows.push(SurrogateCompareRow {
@@ -570,7 +572,7 @@ pub(super) fn poll_surrogate_compare(
                             train_r2: v.train_r2,
                             error: None,
                         });
-                        if let Some(slice) = tunny_core::surrogate_opt::line_slice_at(
+                        if let Some(slice) = tdashboard_analysis::surrogate_opt::line_slice_at(
                             &trained,
                             &anchor,
                             slice_param,

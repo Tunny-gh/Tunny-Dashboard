@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use crate::state::app_state::{AppState, ColormapName};
 use crate::state::layout_state::LayoutState;
 use crate::ui::widget_states::WidgetStates;
-use tunny_core::indicators::MoIndicator;
+use tdashboard_analysis::indicators::MoIndicator;
 
 /// Session file format version.
 /// Not incremented for backward-compatible additions (adding fields);

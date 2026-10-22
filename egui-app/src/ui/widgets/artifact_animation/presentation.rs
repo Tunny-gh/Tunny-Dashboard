@@ -3,7 +3,7 @@ use crate::theme::chart_colors::{
     COLOR_HIGHLIGHT_PT, COLOR_INFEASIBLE, COLOR_NON_PARETO, COLOR_OPT_PRUNED, COLOR_OPT_TRIAL,
     COLOR_PARETO, COLOR_UNVERIFIED,
 };
-use tunny_core::dataframe::FeasibilityState;
+use tdashboard_analysis::dataframe::FeasibilityState;
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(default)]

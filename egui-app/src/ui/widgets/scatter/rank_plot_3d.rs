@@ -50,7 +50,7 @@ struct Rank3DPoint {
 
 struct Rank3DCache {
     // Retain the source so its address cannot be reused by another study.
-    source: Arc<tunny_core::dataframe::DataFrame>,
+    source: Arc<tdashboard_analysis::dataframe::DataFrame>,
     objective: (usize, bool),
     ranks: Vec<f64>,
     point_key: ([usize; 3], u64),

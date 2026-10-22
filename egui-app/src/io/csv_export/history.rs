@@ -1,7 +1,7 @@
 use crate::state::app_state::AppState;
 use crate::state::types::Direction;
 use crate::ui::widget_states::WidgetStates;
-use tunny_core::export::{CsvField, CsvWriter};
+use tdashboard_io::csv::{CsvField, CsvWriter};
 
 pub(super) fn build_optimization_history_csv(
     app_state: &AppState,

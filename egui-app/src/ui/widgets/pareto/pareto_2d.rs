@@ -80,7 +80,7 @@ impl Default for ParetoScatter2D {
 pub(crate) struct ClassifiedRow {
     pub trial_id: u32,
     pub row: usize,
-    pub feasible: tunny_core::dataframe::FeasibilityState,
+    pub feasible: tdashboard_analysis::dataframe::FeasibilityState,
     /// pareto_rank (only meaningful when feasible; 0 for infeasible).
     pub rank: u32,
 }
@@ -128,11 +128,11 @@ fn build_point_cache(
     for r in classify_rows(view) {
         let pt = coord(r.row);
         displayed_points.push((r.trial_id, r.row, pt));
-        if r.feasible == tunny_core::dataframe::FeasibilityState::Unverified {
+        if r.feasible == tdashboard_analysis::dataframe::FeasibilityState::Unverified {
             unverified_pts.push(pt);
             continue;
         }
-        if r.feasible == tunny_core::dataframe::FeasibilityState::Infeasible {
+        if r.feasible == tdashboard_analysis::dataframe::FeasibilityState::Infeasible {
             infeasible_pts.push(pt);
             continue;
         }

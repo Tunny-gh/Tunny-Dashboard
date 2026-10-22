@@ -194,7 +194,7 @@ pub(super) type ScatterPoint = (f64, f64, Color32, u32);
 /// Return type alias for `compute_scatter_points`.
 type ScatterPointsResult = (
     Vec<ScatterPoint>,
-    Vec<(f64, f64, tunny_core::dataframe::FeasibilityState)>,
+    Vec<(f64, f64, tdashboard_analysis::dataframe::FeasibilityState)>,
     ScatterMetadata,
 );
 

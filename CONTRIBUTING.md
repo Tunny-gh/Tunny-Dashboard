@@ -83,7 +83,7 @@ Alternatively, download from [LightGBM GitHub Releases](https://github.com/micro
 ### Development Build
 
 ```bash
-cargo run -p tunny-desktop
+cargo run -p tunny-dashboard
 ```
 
 Builds and runs the desktop application in debug mode.
@@ -102,8 +102,8 @@ Builds an optimized release binary. The executable will be at:
 ### Build Specific Workspace Members
 
 ```bash
-# Build only the core library
-cargo build -p tunny-core
+# Build only the Study model and explicit management
+cargo build -p tdashboard-study
 
 # Build only storage/format I/O (no numerical native-library dependency)
 cargo build -p tdashboard-io
@@ -115,10 +115,10 @@ cargo build -p tdashboard-analysis
 cargo build -p tdashboard-optimization-runner
 
 # Build only the desktop app
-cargo build -p tunny-desktop
+cargo build -p tunny-dashboard
 
 # Build only the MCP server
-cargo build -p tunny-mcp
+cargo build -p tdashboard-mcp
 ```
 
 ### Runtime (Windows)
@@ -130,6 +130,11 @@ The `libs/` directory remains at the workspace root, not inside the new crate.
 GUI/MCP, optimization-runner tests and legacy test/example targets retain their final-binary link/rpath
 handling; an rlib's link arguments do not supply every executable's runtime path.
 The exact workspace checks below include the analysis crate and its native tests.
+
+The entry packages are `tunny-dashboard` and `tdashboard-mcp`; their executable
+names remain `TunnyDashboard` and `tunny-mcp`. Neither production entry depends on
+`tunny-core`. The legacy workspace member and GUI dev-only fixture dependency
+remain until D8; workspace tests still cover them.
 
 ## Development Commands
 
@@ -148,7 +153,7 @@ Local only (quicker feedback, uses the default dev profile):
 ```bash
 cargo test -p tunny-core
 cargo test -p tdashboard-analysis
-cargo test -p tunny-desktop
+cargo test -p tunny-dashboard
 ```
 
 Run tests with output:
@@ -169,7 +174,7 @@ cargo fmt --manifest-path egui-app/Cargo.toml --all -- --check
 Local only:
 
 ```bash
-cargo fmt -p tunny-mcp -- --check
+cargo fmt -p tdashboard-mcp -- --check
 ```
 
 To apply formatting instead of just checking it, drop `-- --check` from any of the above.
@@ -193,7 +198,7 @@ cargo audit --ignore RUSTSEC-2026-0194 --ignore RUSTSEC-2026-0195
 ### Run the Application
 
 ```bash
-cargo run -p tunny-desktop
+cargo run -p tunny-dashboard
 ```
 
 ### Benchmark
@@ -209,7 +214,7 @@ yet (including clean environments and CI). Pass the undocumented
 `--no-beta-notice` flag when driving the app for screenshots or automated checks:
 
 ```bash
-cargo run -p tunny-desktop -- --no-beta-notice -i path/to/study.db
+cargo run -p tunny-dashboard -- --no-beta-notice -i path/to/study.db
 ```
 
 Artifact Animation also has an opt-in native wgpu screenshot/GIF check. It opens
@@ -219,7 +224,7 @@ cropping through the production capture path. Run it on an interactive desktop
 
 ```powershell
 $env:TUNNY_NATIVE_CAPTURE_CHECK = "1"
-cargo test -p tunny-desktop --locked --profile ci-test --test artifact_animation_native
+cargo test -p tunny-dashboard --locked --profile ci-test --test artifact_animation_native
 Remove-Item Env:\TUNNY_NATIVE_CAPTURE_CHECK
 ```
 

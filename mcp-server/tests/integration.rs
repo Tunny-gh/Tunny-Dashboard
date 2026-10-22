@@ -72,6 +72,230 @@ fn notif(method: &str) -> String {
     .unwrap()
 }
 
+fn stdio(requests: &[String]) -> Vec<Value> {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_tunny-mcp"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    for request in requests {
+        writeln!(stdin, "{request}").unwrap();
+    }
+    drop(stdin);
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("stdout must contain only JSON-RPC"))
+        .collect()
+}
+
+fn check_constrained_storage(storage: &std::path::Path) {
+    use serde_json::json;
+    let calls = [
+        ("list_studies", json!({})),
+        ("study_summary", json!({})),
+        ("study_report", json!({"format":"json"})),
+        ("study_report", json!({"format":"markdown","lang":"ja"})),
+        ("trials", json!({"limit":2000})),
+        ("trials", json!({"offset":1,"limit":2})),
+        ("trials", json!({"offset":5,"limit":2})),
+        ("trials", json!({"limit":0})),
+        ("trials", json!({"study_id":999})),
+    ];
+    let requests: Vec<_> = calls
+        .iter()
+        .enumerate()
+        .map(|(index, (name, extra))| {
+            let mut args = json!({"storage":storage.to_string_lossy(),"study_id":1});
+            args.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            req(
+                index as i64 + 1,
+                "tools/call",
+                json!({"name":name,"arguments":args}),
+            )
+        })
+        .collect();
+    let responses = stdio(&requests);
+    assert_eq!(responses.len(), requests.len());
+    for (index, response) in responses.iter().enumerate() {
+        assert_eq!(response["id"], index + 1);
+        assert_eq!(response["jsonrpc"], "2.0");
+        assert_eq!(response["result"]["isError"], index == 8, "{response}");
+    }
+    let text = |index: usize| {
+        responses[index]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+    };
+    let payload = |index: usize| -> Value { serde_json::from_str(text(index)).unwrap() };
+    let list = payload(0);
+    let target = list["studies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["study_id"] == 1)
+        .unwrap();
+    assert_eq!(target["name"], "constrained");
+    assert_eq!(target["directions"], json!(["minimize", "minimize"]));
+    let summary = payload(1);
+    assert_eq!(summary["overview"]["total_trials"], 6);
+    assert_eq!(summary["overview"]["complete_trials"], 5);
+    assert_eq!(summary["pareto"]["front_size"], 0);
+    let report = payload(2);
+    let outcome = &report["outcome"]["MultiObj"];
+    assert_eq!(outcome["pareto_size"], 0);
+    let candidates = outcome["pareto_table"].as_array().unwrap();
+    assert_eq!(candidates.len(), 4);
+    for (number, feasibility) in [
+        (0, "Feasibility unverified"),
+        (1, "Infeasible"),
+        (2, "Feasibility unverified"),
+        (4, "Feasibility unverified"),
+    ] {
+        let trial = candidates
+            .iter()
+            .find(|t| t["trial_number"] == number)
+            .unwrap();
+        assert_eq!(trial["feasibility"], feasibility);
+    }
+    // The RUNNING trial supplies width 3: trial #4's two negative values do not
+    // establish feasibility. Infinite objective #3 is not a report candidate.
+    assert_eq!(report["overview"]["state_counts"]["RUNNING"], 1);
+    assert!(text(3).contains("constrained"));
+    assert!(!text(3).contains("NaN"));
+    let trials = payload(4);
+    let rows = trials["trials"].as_array().unwrap();
+    assert_eq!(trials["total_complete_trials"], 5);
+    assert_eq!(trials["returned"], 5);
+    assert_eq!(
+        rows.iter()
+            .map(|r| r["trial_number"].as_u64().unwrap())
+            .collect::<Vec<_>>(),
+        vec![0, 1, 2, 3, 4]
+    );
+    assert_eq!(rows[3]["objectives"]["obj0"], Value::Null);
+    assert_eq!(rows[3]["params"]["x"], Value::Null);
+    assert_eq!(rows[3]["constraints"].as_object().unwrap().len(), 3);
+    assert!(rows[3]["constraints"]
+        .as_object()
+        .unwrap()
+        .values()
+        .any(Value::is_null));
+    let page = payload(5);
+    assert_eq!(page["offset"], 1);
+    assert_eq!(page["returned"], 2);
+    assert_eq!(page["trials"], json!([rows[1], rows[2]]));
+    assert_eq!(payload(6)["returned"], 0);
+    assert_eq!(payload(7)["returned"], 0);
+    assert!(text(8).contains("999"));
+}
+
+#[test]
+fn d7_journal_stdio_preserves_ids_all_state_constraints_and_nonfinite_json() {
+    use serde_json::json;
+    let directory = make_temp_dir();
+    let path = directory.join("constrained.log");
+    let mut lines = vec![
+        json!({"op_code":0,"worker_id":"w","study_name":"other","directions":[1]}).to_string(),
+        json!({"op_code":0,"worker_id":"w","study_name":"constrained","directions":[1,1]})
+            .to_string(),
+    ];
+    for number in 0..6 {
+        // Interleaving another Study makes global IDs unlike Study trial numbers.
+        lines.push(json!({"op_code":4,"worker_id":"w","study_id":0}).to_string());
+        lines.push(json!({"op_code":4,"worker_id":"w","study_id":1}).to_string());
+        let id = number * 2 + 1;
+        let constraints = match number {
+            0 => Some("[-1]"),
+            1 => Some("[1]"),
+            2 => None,
+            3 => Some("[NaN,-1]"),
+            4 => Some("[-1,-1]"),
+            _ => Some("[-1,-1,-1]"),
+        };
+        if let Some(values) = constraints {
+            lines.push(format!(r#"{{"op_code":9,"worker_id":"w","trial_id":{id},"system_attr":{{"constraints":{values}}}}}"#));
+        }
+        if number < 5 {
+            let x = if number == 3 {
+                "Infinity".into()
+            } else {
+                number.to_string()
+            };
+            lines.push(format!(r#"{{"op_code":5,"worker_id":"w","trial_id":{id},"param_name":"x","param_value_internal":{x},"distribution":{{"name":"FloatDistribution","low":0,"high":10}}}}"#));
+            let first = if number == 3 {
+                "Infinity".into()
+            } else {
+                (number + 1).to_string()
+            };
+            let second = if number == 4 { 2 } else { 5 - number };
+            lines.push(format!(r#"{{"op_code":6,"worker_id":"w","trial_id":{id},"state":1,"values":[{first},{second}]}}"#));
+        }
+    }
+    std::fs::write(&path, lines.join("\n")).unwrap();
+    check_constrained_storage(&path);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+#[ignore = "requires TUNNY_FIXTURE_PYTHON (Python 3 standard-library SQLite fixture writer)"]
+fn d7_sqlite_stdio_preserves_ids_all_state_constraints_and_nonfinite_json() {
+    let directory = make_temp_dir();
+    let path = directory.join("constrained.db");
+    let output =
+        Command::new(std::env::var_os("TUNNY_FIXTURE_PYTHON").expect("Python 3 executable"))
+            .arg(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/create_sqlite_fixture.py"
+            ))
+            .arg(&path)
+            .output()
+            .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    check_constrained_storage(&path);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn d7_stdio_masks_credentials_in_rejected_storage_requests() {
+    use serde_json::json;
+    for scheme in ["postgresql", "mysql"] {
+        let storage = format!("{scheme}://user:d7-secret@db.invalid/study?sslmode=require");
+        let requests: Vec<_> = ["list_studies", "study_summary", "study_report", "trials"]
+            .iter()
+            .enumerate()
+            .map(|(i, name)| {
+                req(
+                    i as i64,
+                    "tools/call",
+                    json!({"name":name,"arguments":{"storage":storage,"study_id":1}}),
+                )
+            })
+            .collect();
+        let responses = stdio(&requests);
+        assert_eq!(responses.len(), 4);
+        for response in responses {
+            assert_eq!(response["result"]["isError"], true);
+            assert!(!response.to_string().contains("d7-secret"));
+            assert!(!response.to_string().contains(&storage));
+        }
+    }
+}
+
 #[test]
 #[ignore = "requires the disposable genuine Optuna server fixtures"]
 fn d3_live_servers_keep_stdio_ingestion_pagination_and_masked_reports() {
