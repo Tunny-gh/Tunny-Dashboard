@@ -3,6 +3,190 @@ use super::*;
 use crate::state::app_state::StudyMeta;
 
 #[test]
+fn d6_process_launch_progress_cancel_completion_and_reload() {
+    use tdashboard_optimization_runner::process::*;
+    for cancel in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("run.log");
+        let command = if cfg!(windows) {
+            CommandSpec {
+                program: "cmd.exe".into(),
+                args: vec!["/C".into(), "echo f=3".into()],
+                ..CommandSpec::new("cmd.exe")
+            }
+        } else {
+            CommandSpec {
+                program: "sh".into(),
+                args: vec!["-c".into(), "echo f=3".into()],
+                ..CommandSpec::new("sh")
+            }
+        };
+        let def = ProcessDefinition {
+            param_names: vec!["x".into()],
+            input: InputSpec::Env,
+            command,
+            objectives: vec![OutputSpec {
+                name: "f".into(),
+                source: OutputSource::Stdout,
+                extractor: Extractor::Regex {
+                    pattern: "f=([0-9]+)".into(),
+                },
+            }],
+            constraints: vec![],
+            pre_command: None,
+            post_command: None,
+        };
+        let mut dialog = crate::state::app_state::ProcessOptDialogState::new(
+            def,
+            &dir.path().join("definition.json"),
+        );
+        dialog.journal_path = path.to_string_lossy().into_owned();
+        dialog.sampler_is_random = true;
+        dialog.n_trials = if cancel { 1000 } else { 3 };
+        let mut app = artifact_test_app(None);
+        app.start_process_run(dialog);
+        assert!(app.app_state.process_opt_dialog.is_none());
+        let progress = app.app_state.gh_opt_run.as_ref().unwrap().progress.clone();
+        if cancel {
+            progress.request_cancel();
+        }
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {
+            app.show_ghx_opt_overlay(&ctx)
+        });
+        poll_until(&mut app, |a| {
+            !a.is_loading
+                && !a.reload_when_idle
+                && a.app_state
+                    .gh_opt_run
+                    .as_ref()
+                    .is_some_and(|r| r.finished.is_some())
+        });
+        let finished = app
+            .app_state
+            .gh_opt_run
+            .as_ref()
+            .unwrap()
+            .finished
+            .as_ref()
+            .unwrap();
+        assert!(finished.is_ok(), "{finished:?}");
+        let study = app.app_state.current_study.as_ref().unwrap();
+        assert_eq!(study.view.row_count(), progress.snapshot().done);
+        if cancel {
+            assert!(progress.is_cancelled());
+            assert!(finished.as_ref().unwrap().contains("cancelled"));
+            assert!(study.view.row_count() < 1000);
+        } else {
+            assert_eq!(study.view.row_count(), 3);
+            let input = study.view.input().unwrap();
+            assert!(
+                input.stamp().input.generation >= 2,
+                "Completion must reload the recorded journal"
+            );
+        }
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {
+            app.show_ghx_opt_overlay(&ctx)
+        });
+    }
+}
+
+#[test]
+fn d6_gh_launch_mock_compute_completion_and_reload() {
+    use std::io::{BufRead, Read, Write};
+    use tdashboard_optimization_runner::gh::*;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+            .unwrap();
+        let mut reader = std::io::BufReader::new(stream);
+        let mut length = 0;
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            assert!(!line.is_empty());
+            if line.trim().is_empty() {
+                break;
+            }
+            if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                length = value.trim().parse::<usize>().unwrap();
+            }
+        }
+        let mut body = vec![0; length];
+        reader.read_exact(&mut body).unwrap();
+        let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(request["values"][0]["ParamName"], "RH_IN:x");
+        let reply = r#"{"values":[{"ParamName":"RH_OUT:f","InnerTree":{"{0}":[{"type":"System.Double","data":"7.5"}]}}]}"#;
+        write!(
+            reader.get_mut(),
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+            reply.len()
+        )
+        .unwrap();
+    });
+    let problem = GhProblem {
+        variables: vec![GhVariable {
+            instance_guid: "slider".into(),
+            name: "x".into(),
+            low: 0.0,
+            high: 10.0,
+            value: 5.0,
+            digits: 2,
+            is_integer: false,
+            gene_pool: None,
+        }],
+        objectives: vec![GhObjective {
+            source_guid: "objective".into(),
+            name: "f".into(),
+        }],
+        constraints: vec![],
+        attributes: vec![],
+        tunny_instance_guid: "tunny".into(),
+        tunny_component: "Tunny".into(),
+        warnings: vec![],
+    };
+    // Minimal archive: this mock verifies Dashboard orchestration, not GH solving.
+    let xml = r#"<Archive><chunks count="1"><chunk name="Definition"><chunks count="1"><chunk name="DefinitionObjects"><items count="1"><item name="ObjectCount" type_name="gh_int32" type_code="3">0</item></items><chunks count="0"></chunks></chunk></chunks></chunk></chunks></Archive>"#;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("gh.log");
+    let mut dialog = crate::state::app_state::GhOptDialogState::new(
+        dir.path().join("test.ghx"),
+        xml.into(),
+        problem,
+    );
+    dialog.compute_use_exe = false;
+    dialog.compute_url = format!("http://{address}");
+    dialog.journal_path = path.to_string_lossy().into_owned();
+    dialog.sampler = crate::state::app_state::GhSamplerChoice::Random;
+    dialog.n_trials = 1;
+    let mut app = artifact_test_app(None);
+    app.start_ghx_run(dialog);
+    assert!(app.app_state.gh_opt_dialog.is_none());
+    assert!(std::fs::read_to_string(path.with_extension("compute.ghx"))
+        .unwrap()
+        .contains("RH_IN:x"));
+    poll_until(&mut app, |a| {
+        !a.is_loading
+            && !a.reload_when_idle
+            && a.app_state
+                .gh_opt_run
+                .as_ref()
+                .is_some_and(|r| r.finished.is_some())
+    });
+    server.join().unwrap();
+    let run = app.app_state.gh_opt_run.as_ref().unwrap();
+    assert!(run.finished.as_ref().unwrap().is_ok());
+    assert_eq!(run.progress.snapshot().done, 1);
+    let study = app.app_state.current_study.as_ref().unwrap();
+    assert_eq!(study.view.row_count(), 1);
+    assert_eq!(study.view.numeric_column("f").unwrap(), &[7.5]);
+    assert!(study.view.input().unwrap().stamp().input.generation >= 2);
+}
+
+#[test]
 fn d5_pdp_1d_rerun_delivers_success_to_both_rebound_canvas_consumers() {
     check_pdp_rebound_consumers(false);
 }

@@ -16,7 +16,7 @@ pub struct GhOptDialogState {
     /// The original full .ghx XML text (passed as-is to `build_compute_definition` on Run).
     pub ghx_text: String,
     /// Extraction result from `extract_problem` (variables, objectives, warnings).
-    pub problem: tunny_core::gh::GhProblem,
+    pub problem: tdashboard_optimization_runner::gh::GhProblem,
     /// Per-objective maximize flag (same order and length as `problem.objectives`, default false = Minimize).
     pub maximize: Vec<bool>,
     /// Study name used to keep it unique within the journal (default: "<ghx stem>-<last 6 digits of unix seconds>").
@@ -70,7 +70,7 @@ pub struct GhOptDialogState {
 }
 
 /// Sampler selection for a .ghx optimization run (maps onto
-/// `tunny_core::gh::GhSampler`).
+/// `tdashboard_optimization_runner::gh::GhSampler`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum GhSamplerChoice {
     Nsga2,
@@ -105,13 +105,13 @@ impl GhSamplerChoice {
         }
     }
 
-    pub fn to_core(self) -> tunny_core::gh::GhSampler {
+    pub fn to_core(self) -> tdashboard_optimization_runner::gh::GhSampler {
         match self {
-            GhSamplerChoice::Nsga2 => tunny_core::gh::GhSampler::Nsga2,
-            GhSamplerChoice::Random => tunny_core::gh::GhSampler::Random,
-            GhSamplerChoice::BoGpFitc => tunny_core::gh::GhSampler::BoGpFitc,
-            GhSamplerChoice::BoGpVfe => tunny_core::gh::GhSampler::BoGpVfe,
-            GhSamplerChoice::CmaEs => tunny_core::gh::GhSampler::CmaEs,
+            GhSamplerChoice::Nsga2 => tdashboard_optimization_runner::gh::GhSampler::Nsga2,
+            GhSamplerChoice::Random => tdashboard_optimization_runner::gh::GhSampler::Random,
+            GhSamplerChoice::BoGpFitc => tdashboard_optimization_runner::gh::GhSampler::BoGpFitc,
+            GhSamplerChoice::BoGpVfe => tdashboard_optimization_runner::gh::GhSampler::BoGpVfe,
+            GhSamplerChoice::CmaEs => tdashboard_optimization_runner::gh::GhSampler::CmaEs,
         }
     }
 }
@@ -224,7 +224,11 @@ impl GhComputePrefs {
 
 impl GhOptDialogState {
     /// Builds the dialog state with defaults right after .ghx extraction.
-    pub fn new(ghx_path: PathBuf, ghx_text: String, problem: tunny_core::gh::GhProblem) -> Self {
+    pub fn new(
+        ghx_path: PathBuf,
+        ghx_text: String,
+        problem: tdashboard_optimization_runner::gh::GhProblem,
+    ) -> Self {
         let stem = ghx_path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -283,7 +287,7 @@ impl GhOptDialogState {
 /// substitutes a placeholder for `progress`.
 #[derive(Clone)]
 pub struct GhOptRunState {
-    pub progress: tunny_core::surrogate_opt::FitProgress,
+    pub progress: tdashboard_analysis::surrogate_opt::FitProgress,
     pub journal_path: PathBuf,
     pub study_name: String,
     /// `None` = running. `Some` = finished (success message or error string).

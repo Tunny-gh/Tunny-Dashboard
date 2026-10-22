@@ -21,7 +21,7 @@ pub enum GhxOptAction {
 
 /// Computes NSGA-II's total evaluation count (population size rounded up to an even number ×
 /// (generation count + 1)). The rounding rule is the same as the implementation on the
-/// `tunny_core::gh::runner` side (`(pop.max(4) + 1) & !1`).
+/// `tdashboard_optimization_runner::gh::runner` side (`(pop.max(4) + 1) & !1`).
 fn nsga2_total_evaluations(population_size: usize, generations: usize) -> usize {
     let even_pop = (population_size.max(4) + 1) & !1;
     even_pop * (generations + 1)
@@ -384,9 +384,9 @@ pub fn show(ctx: &egui::Context, state: &mut GhOptDialogState) -> Option<GhxOptA
 mod tests {
     use super::*;
 
-    fn make_problem(objectives: usize) -> tunny_core::gh::GhProblem {
-        tunny_core::gh::GhProblem {
-            variables: vec![tunny_core::gh::GhVariable {
+    fn make_problem(objectives: usize) -> tdashboard_optimization_runner::gh::GhProblem {
+        tdashboard_optimization_runner::gh::GhProblem {
+            variables: vec![tdashboard_optimization_runner::gh::GhVariable {
                 instance_guid: "g".to_string(),
                 name: "x".to_string(),
                 low: 0.0,
@@ -397,7 +397,7 @@ mod tests {
                 gene_pool: None,
             }],
             objectives: (0..objectives)
-                .map(|i| tunny_core::gh::GhObjective {
+                .map(|i| tdashboard_optimization_runner::gh::GhObjective {
                     source_guid: format!("guid-{i}"),
                     name: format!("f{i}"),
                 })

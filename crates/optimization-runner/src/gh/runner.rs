@@ -21,11 +21,11 @@ use std::sync::Mutex;
 
 use rayon::prelude::*;
 
-use crate::io::journal::writer::JournalWriter;
-use crate::math::rng::SeededRng;
-use crate::surrogate_opt::optimizers::cma_es::{cma_es_minimize_until, CmaEsConfig};
-use crate::surrogate_opt::optimizers::nsga2::{nsga2_minimize, Nsga2Config};
-use crate::surrogate_opt::FitProgress;
+use tdashboard_analysis::math::rng::SeededRng;
+use tdashboard_analysis::surrogate_opt::optimizers::cma_es::{cma_es_minimize_until, CmaEsConfig};
+use tdashboard_analysis::surrogate_opt::optimizers::nsga2::{nsga2_minimize, Nsga2Config};
+use tdashboard_analysis::surrogate_opt::FitProgress;
+use tdashboard_io::journal::writer::JournalWriter;
 
 use super::compute::GhEvaluator;
 use super::problem::GhProblem;

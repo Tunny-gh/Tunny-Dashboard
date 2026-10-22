@@ -680,8 +680,9 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn process_optimization_runs_standalone_and_writes_journal() {
-        use crate::io::journal::parser::{parse_single_study, OptimizationDirection};
         use crate::runner::{prepare_run, run_prepared, RunConfig, Sampler};
+        use crate::test_support::parse_single_study;
+        use tdashboard_io::journal::parser::OptimizationDirection;
 
         let dir = tempfile::tempdir().unwrap();
         let journal = dir.path().join("study_optuna.log");
@@ -743,7 +744,7 @@ mod tests {
         };
 
         let prep = prepare_run(&journal, &problem, &cfg).unwrap();
-        let progress = crate::surrogate_opt::FitProgress::new();
+        let progress = tdashboard_analysis::surrogate_opt::FitProgress::new();
         let summary = run_prepared(&prep, &problem, &evaluator, &cfg, &progress).unwrap();
         assert_eq!(summary.completed, 12);
         assert_eq!(summary.failed, 0);

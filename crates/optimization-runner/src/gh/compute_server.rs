@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use crate::surrogate_opt::FitProgress;
+use tdashboard_analysis::surrogate_opt::FitProgress;
 
 /// Result of interpreting user input (a URL or an EXE path).
 #[derive(Debug, Clone, PartialEq, Eq)]

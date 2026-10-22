@@ -78,11 +78,11 @@ fn colormap_name_labels_not_empty() {
 }
 
 // ── Default derivation for GhOptDialogState::new ──────────────────
-fn make_gh_problem(n_objectives: usize) -> tunny_core::gh::GhProblem {
-    tunny_core::gh::GhProblem {
+fn make_gh_problem(n_objectives: usize) -> tdashboard_optimization_runner::gh::GhProblem {
+    tdashboard_optimization_runner::gh::GhProblem {
         variables: vec![],
         objectives: (0..n_objectives)
-            .map(|i| tunny_core::gh::GhObjective {
+            .map(|i| tdashboard_optimization_runner::gh::GhObjective {
                 source_guid: format!("guid-{i}"),
                 name: format!("f{i}"),
             })
@@ -174,7 +174,7 @@ fn gh_methods_labels_restrictions_and_persisted_settings() {
         GhSamplerChoice::ALL.map(|method| method.label()),
         ["NSGA-II", "CMA-ES", "BO-GP-FITC", "BO-GP-VFE", "Random"]
     );
-    use tunny_core::gh::GhSampler;
+    use tdashboard_optimization_runner::gh::GhSampler;
     assert_eq!(
         GhSamplerChoice::ALL.map(|method| method.to_core()),
         [

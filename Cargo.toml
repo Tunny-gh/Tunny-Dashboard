@@ -1,5 +1,5 @@
 [workspace]
-members = ["rust_core", "egui-app", "mcp-server", "crates/study", "crates/io", "crates/analysis"]
+members = ["rust_core", "egui-app", "mcp-server", "crates/study", "crates/io", "crates/analysis", "crates/optimization-runner"]
 resolver = "2"
 
 [profile.release]

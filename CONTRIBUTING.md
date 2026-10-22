@@ -111,6 +111,9 @@ cargo build -p tdashboard-io
 # Build only explicit-input numerical analysis (requires LightGBM)
 cargo build -p tdashboard-analysis
 
+# Build real-evaluation loops and external integrations (requires LightGBM)
+cargo build -p tdashboard-optimization-runner
+
 # Build only the desktop app
 cargo build -p tunny-desktop
 
@@ -124,7 +127,7 @@ On Windows, `lib_lightgbm.dll` must be discoverable at runtime. `crates/analysis
 
 `tdashboard-analysis` owns numerical dependencies and native-library linking.
 The `libs/` directory remains at the workspace root, not inside the new crate.
-GUI/MCP and legacy test/example targets retain their final-binary link/rpath
+GUI/MCP, optimization-runner tests and legacy test/example targets retain their final-binary link/rpath
 handling; an rlib's link arguments do not supply every executable's runtime path.
 The exact workspace checks below include the analysis crate and its native tests.
 

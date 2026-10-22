@@ -117,7 +117,7 @@ impl TunnyApp {
     /// (`handle_dropped_files`) and the .ghx path in `open_path`.
     fn open_ghx_path(&mut self, path: std::path::PathBuf) {
         match std::fs::read_to_string(&path) {
-            Ok(text) => match tunny_core::gh::extract_problem(&text) {
+            Ok(text) => match tdashboard_optimization_runner::gh::extract_problem(&text) {
                 Ok(problem) => {
                     let mut dialog =
                         crate::state::app_state::GhOptDialogState::new(path, text, problem);
@@ -136,13 +136,16 @@ impl TunnyApp {
     /// tool optimization setup modal. Parse / read errors surface via `load_error`.
     pub(super) fn open_process_definition(&mut self, path: std::path::PathBuf) {
         match std::fs::read_to_string(&path) {
-            Ok(text) => match tunny_core::process::ProcessDefinition::from_json(&text) {
-                Ok(def) => {
-                    let dialog = crate::state::app_state::ProcessOptDialogState::new(def, &path);
-                    self.app_state.process_opt_dialog = Some(dialog);
+            Ok(text) => {
+                match tdashboard_optimization_runner::process::ProcessDefinition::from_json(&text) {
+                    Ok(def) => {
+                        let dialog =
+                            crate::state::app_state::ProcessOptDialogState::new(def, &path);
+                        self.app_state.process_opt_dialog = Some(dialog);
+                    }
+                    Err(e) => self.load_error = Some(format!("{}: {e}", path.display())),
                 }
-                Err(e) => self.load_error = Some(format!("{}: {e}", path.display())),
-            },
+            }
             Err(e) => self.load_error = Some(format!("{}: {e}", path.display())),
         }
     }
@@ -206,19 +209,21 @@ impl TunnyApp {
             return; // Cancelled.
         };
         match std::fs::read_to_string(&path) {
-            Ok(text) => match tunny_core::process::ProcessDefinition::from_json(&text) {
-                Ok(def) => {
-                    *builder = crate::state::app_state::ProcessDefBuilderState::from_definition(
-                        &def,
-                        Some(path.clone()),
-                    );
-                    builder.status = Some(format!("Loaded {}", path.display()));
+            Ok(text) => {
+                match tdashboard_optimization_runner::process::ProcessDefinition::from_json(&text) {
+                    Ok(def) => {
+                        *builder = crate::state::app_state::ProcessDefBuilderState::from_definition(
+                            &def,
+                            Some(path.clone()),
+                        );
+                        builder.status = Some(format!("Loaded {}", path.display()));
+                    }
+                    Err(e) => {
+                        builder.error = Some(format!("{}: {e}", path.display()));
+                        builder.status = None;
+                    }
                 }
-                Err(e) => {
-                    builder.error = Some(format!("{}: {e}", path.display()));
-                    builder.status = None;
-                }
-            },
+            }
             Err(e) => {
                 builder.error = Some(format!("{}: {e}", path.display()));
                 builder.status = None;

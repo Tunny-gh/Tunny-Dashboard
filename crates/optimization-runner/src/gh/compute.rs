@@ -590,4 +590,100 @@ mod tests {
         }
         assert!(peak.load(Ordering::SeqCst) <= 2);
     }
+
+    #[test]
+    fn mocked_compute_run_records_success_and_http_failure() {
+        use crate::gh::{extract_problem, prepare_gh_run, run_prepared, GhRunConfig, GhSampler};
+        use tdashboard_analysis::surrogate_opt::FitProgress;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            for failure in [false, true] {
+                let (stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+                    .unwrap();
+                let mut reader = BufReader::new(stream);
+                let mut length = 0;
+                loop {
+                    let mut line = String::new();
+                    reader.read_line(&mut line).unwrap();
+                    assert!(!line.is_empty(), "request ended before headers");
+                    if line.trim().is_empty() {
+                        break;
+                    }
+                    if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        length = value.trim().parse::<usize>().unwrap();
+                    }
+                }
+                let mut body = vec![0; length];
+                reader.read_exact(&mut body).unwrap();
+                let body: Value = serde_json::from_slice(&body).unwrap();
+                assert_eq!(body["values"][0]["ParamName"], "RH_IN:span");
+                let status = if failure {
+                    "500 Internal Server Error"
+                } else {
+                    "200 OK"
+                };
+                let reply = if failure {
+                    "compute failed"
+                } else {
+                    r#"{"values":[{"ParamName":"RH_OUT:weight","InnerTree":{"{0}":[{"type":"System.Double","data":"-42.5"}]}},{"ParamName":"RH_OUT:constraint:g","InnerTree":{"{0}":[{"type":"System.Double","data":"2.0"}]}}]}"#
+                };
+                write!(
+                    reader.get_mut(),
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                    reply.len()
+                )
+                .unwrap();
+            }
+        });
+        let mut problem = extract_problem(&crate::gh::fixtures::sample_ghx()).unwrap();
+        problem.variables.truncate(1);
+        problem.objectives.truncate(1);
+        problem.attributes.clear();
+        let def = ComputeDefinition {
+            ghx: "<Archive/>".into(),
+            input_params: vec!["RH_IN:span".into()],
+            input_value_counts: vec![1],
+            output_params: vec!["RH_OUT:weight".into()],
+            constraint_params: vec!["RH_OUT:constraint:g".into()],
+            attr_params: vec![],
+        };
+        let evaluator = ComputeEvaluator::new(
+            &ComputeConfig {
+                server_url: format!("http://{address}"),
+                timeout_secs: 10,
+                max_parallel: 1,
+                ..Default::default()
+            },
+            &def,
+        );
+        let config = GhRunConfig {
+            sampler: GhSampler::Random,
+            n_trials: 2,
+            directions: vec![tdashboard_io::journal::parser::OptimizationDirection::Minimize],
+            ..Default::default()
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("run.log");
+        let prep = prepare_gh_run(&path, &problem, &config).unwrap();
+        let summary =
+            run_prepared(&prep, &problem, &evaluator, &config, &FitProgress::new()).unwrap();
+        server.join().unwrap();
+        assert_eq!((summary.completed, summary.failed), (1, 1));
+        let (_, df, extras) =
+            crate::test_support::parse_single_study(&std::fs::read(path).unwrap(), 0).unwrap();
+        assert_eq!(df.get_numeric_column("weight").unwrap(), &[-42.5]);
+        assert_eq!(df.get_numeric_column("c1").unwrap(), &[2.0]);
+        assert_eq!(extras.trials.len(), 2);
+        assert_eq!(
+            extras
+                .trials
+                .iter()
+                .filter(|t| t.state == tdashboard_analysis::data::extras::TrialState::Fail)
+                .count(),
+            1
+        );
+    }
 }

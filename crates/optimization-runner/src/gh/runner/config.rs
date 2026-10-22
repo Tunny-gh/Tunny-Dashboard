@@ -1,6 +1,6 @@
 //! Run configuration: the sampler kind and `GhRunConfig`.
 
-use crate::io::journal::parser::OptimizationDirection;
+use tdashboard_io::journal::parser::OptimizationDirection;
 
 /// The kind of sampler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

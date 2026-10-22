@@ -68,17 +68,19 @@ tunny-dashboard/
 ├── crates/
 │   ├── study/          # All-state Study model and caller-owned management
 │   ├── io/             # Formats, owned load/update batches, writers, artifact resolution
-│   └── analysis/       # Explicit-input analysis, derived tables, sessions and provenance
+│   ├── analysis/       # Explicit-input analysis, derived tables, sessions and provenance
 │       └── src/        # Clustering/PCA/SOM, Pareto/indicators, MCDM, sensitivity,
 │                       # PDP, statistics, GP/LightGBM, surrogate optimization,
 │                       # report computation and pure HTML/Markdown/JSON/SVG output
-├── rust_core/          # Temporary import/presentation facades and real-evaluation loops
+│   └── optimization-runner/ # Distinct real-evaluation paths (no Python/Optuna)
+│       └── src/
+│           ├── gh/     # GHX parsing, Rhino.Compute lifecycle and GH optimization
+│           ├── process/ # Generic external-tool objective (command integration)
+│           └── runner/ # Generic real-evaluation loop and recording
+├── rust_core/          # Temporary import/presentation and entry-composition facades
 │   └── src/
 │       ├── data/       # Legacy presentation-store facade (derived views only)
-│       ├── gh/         # Grasshopper (.ghx) → Rhino.Compute execution
-│       ├── io/         # Temporary entry composition and CSV encoding adapters
-│       ├── process/    # Generic external-tool objective (command integration)
-│       └── runner/     # Generic real-evaluation loop (no Python/Optuna)
+│       └── io/         # Temporary entry composition and CSV encoding adapters
 ├── egui-app/           # Desktop application (egui UI)
 │   ├── src/
 │   │   ├── io/         # File dialogs, I/O dispatch, export composition

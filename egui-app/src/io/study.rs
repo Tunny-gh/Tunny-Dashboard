@@ -33,7 +33,7 @@ pub fn fixture_chunk(
         user_attr_numeric_names: p.dataframe.user_attr_numeric_col_names().to_vec(),
         user_attr_string_names: p.dataframe.user_attr_string_col_names().to_vec(),
         max_constraints: p.dataframe.constraint_col_names().len(),
-        meta: crate::io::journal::convert_study_meta(tunny_core::journal_parser::io_meta(p.meta)),
+        meta: crate::io::journal::convert_projection_meta(p.meta),
         new_rows: p.trial_rows,
         is_first: true,
         is_final: true,

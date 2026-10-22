@@ -467,7 +467,7 @@ fn command_editor(ui: &mut egui::Ui, id: egui::Id, cmd: &mut CommandEdit) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tunny_core::process::{
+    use tdashboard_optimization_runner::process::{
         CommandSpec, CsvColumn, CsvRow, Extractor, InputSpec, OutputSource, OutputSpec,
         ProcessDefinition,
     };

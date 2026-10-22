@@ -30,9 +30,7 @@ impl MessageHandler {
         };
         let projection = journal.analysis.borrow_mut().project(input.clone());
         let complete = input.load_state().phase == tdashboard_study::LoadPhase::Complete;
-        let meta = crate::io::journal::convert_study_meta(tunny_core::journal_parser::io_meta(
-            projection.meta.clone(),
-        ));
+        let meta = crate::io::journal::convert_projection_meta(projection.meta.clone());
         let front = if complete {
             let front = journal
                 .analysis

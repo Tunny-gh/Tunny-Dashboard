@@ -581,7 +581,7 @@ mod tests {
 
     fn make_run_state(finished: Option<Result<String, String>>) -> GhOptRunState {
         GhOptRunState {
-            progress: tunny_core::surrogate_opt::FitProgress::new(),
+            progress: tdashboard_analysis::surrogate_opt::FitProgress::new(),
             journal_path: std::path::PathBuf::from("/tmp/model_optuna.log"),
             study_name: "model-000001".to_string(),
             finished,

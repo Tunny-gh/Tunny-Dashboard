@@ -23,12 +23,12 @@ use std::sync::Mutex;
 
 use rayon::prelude::*;
 
-use crate::io::journal::parser::OptimizationDirection;
-use crate::io::journal::writer::{JournalWriter, ParamDistribution};
-use crate::math::rng::SeededRng;
-use crate::surrogate_opt::optimizers::nsga2::{nsga2_minimize, Nsga2Config};
-use crate::surrogate_opt::FitProgress;
+use tdashboard_analysis::math::rng::SeededRng;
+use tdashboard_analysis::surrogate_opt::optimizers::nsga2::{nsga2_minimize, Nsga2Config};
+use tdashboard_analysis::surrogate_opt::FitProgress;
 use tdashboard_io::extras::TrialState;
+use tdashboard_io::journal::parser::OptimizationDirection;
+use tdashboard_io::journal::writer::{JournalWriter, ParamDistribution};
 
 /// Fitness returned to the sampler on evaluation failure / cancellation.
 /// Strictly worse than any constraint-violating fitness so the search never
@@ -497,7 +497,7 @@ fn round_variable(var: &Variable, raw: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::io::journal::parser::parse_single_study;
+    use crate::test_support::parse_single_study;
 
     struct FnEvaluator<F: Fn(&[f64]) -> Result<Evaluation, String> + Sync>(F);
     impl<F: Fn(&[f64]) -> Result<Evaluation, String> + Sync> Evaluator for FnEvaluator<F> {
@@ -600,5 +600,185 @@ mod tests {
             run_prepared(&prep, &problem, &eval, &cfg(Sampler::Random), &progress).unwrap();
         assert_eq!(summary.completed, 0);
         assert_eq!(summary.failed, 8);
+    }
+
+    #[test]
+    fn seeds_bounds_rounding_and_method_objective_combinations() {
+        for sampler in [Sampler::Random, Sampler::Nsga2] {
+            for multi in [false, true] {
+                let mut problem = two_var_problem();
+                problem.constraint_names.clear();
+                problem.attribute_names.clear();
+                let mut config = cfg(sampler);
+                if multi {
+                    problem.objective_names.push("second".into());
+                    config.directions.push(OptimizationDirection::Maximize);
+                }
+                let run = |seed| {
+                    let dir = tempfile::tempdir().unwrap();
+                    let path = dir.path().join("run.log");
+                    let mut config = config.clone();
+                    config.seed = seed;
+                    let prep = prepare_run(&path, &problem, &config).unwrap();
+                    let eval = FnEvaluator(|v: &[f64]| {
+                        Ok(Evaluation {
+                            objectives: if multi {
+                                vec![v[0] + v[1], v[0] - v[1]]
+                            } else {
+                                vec![v[0] + v[1]]
+                            },
+                            constraints: vec![],
+                            attributes: vec![],
+                        })
+                    });
+                    run_prepared(&prep, &problem, &eval, &config, &FitProgress::new()).unwrap();
+                    let (_, df, _) = parse_single_study(&std::fs::read(path).unwrap(), 0).unwrap();
+                    let mut points = df
+                        .get_numeric_column("x")
+                        .unwrap()
+                        .iter()
+                        .zip(df.get_numeric_column("n").unwrap())
+                        .map(|(&x, &n)| {
+                            assert!((0.0..=10.0).contains(&x));
+                            assert!((x * 100.0 - (x * 100.0).round()).abs() < 1e-9);
+                            assert!((1.0..=5.0).contains(&n));
+                            assert_eq!(n, n.round());
+                            (x, n)
+                        })
+                        .collect::<Vec<_>>();
+                    points.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    points
+                };
+                assert_eq!(run(3), run(3));
+                assert_ne!(run(3), run(4));
+            }
+        }
+    }
+
+    #[test]
+    fn penalty_fitness_does_not_replace_recorded_values_or_global_ids() {
+        let problem = two_var_problem();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("run.log");
+        let config = cfg(Sampler::Random);
+        let prep = prepare_run(&path, &problem, &config).unwrap();
+        let progress = FitProgress::new();
+        let eval = FnEvaluator(|_: &[f64]| {
+            Ok(Evaluation {
+                objectives: vec![-123.0],
+                constraints: vec![2.0],
+                attributes: vec![None],
+            })
+        });
+        let recorder = TrialRecorder {
+            writer: &prep.writer,
+            study_id: prep.study_id,
+            problem: &problem,
+            directions: &config.directions,
+            evaluator: &eval,
+            progress: &progress,
+            completed: AtomicUsize::new(0),
+            failed: AtomicUsize::new(0),
+            io_error: Mutex::new(None),
+        };
+        assert_eq!(
+            recorder.eval_signed(&[0.5, 0.5]),
+            vec![CONSTRAINT_PENALTY_BASE + 2.0]
+        );
+        let mut second_config = config.clone();
+        second_config.study_name = "second".into();
+        let second = prepare_run(&path, &problem, &second_config).unwrap();
+        assert_eq!(second.study_id(), 1);
+        run_prepared(&second, &problem, &eval, &config, &progress).unwrap();
+        let bytes = std::fs::read(path).unwrap();
+        let (_, df, _) = parse_single_study(&bytes, 0).unwrap();
+        assert_eq!(df.get_numeric_column("f").unwrap(), &[-123.0]);
+        assert_eq!(df.get_numeric_column("c1").unwrap(), &[2.0]);
+        let (_, _, extras) = parse_single_study(&bytes, 1).unwrap();
+        let mut ids = extras.trials.iter().map(|t| t.trial_id).collect::<Vec<_>>();
+        ids.sort();
+        assert_eq!(ids, (1..=8).collect::<Vec<_>>());
+        assert_eq!(extras.trials.iter().map(|t| t.trial_number).min(), Some(0));
+    }
+
+    #[test]
+    fn cancellation_and_journal_failures_stop_new_evaluations() {
+        for sampler in [Sampler::Random, Sampler::Nsga2] {
+            for during in [false, true] {
+                let problem = two_var_problem();
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("run.log");
+                let config = cfg(sampler);
+                let prep = prepare_run(&path, &problem, &config).unwrap();
+                let progress = FitProgress::new();
+                let calls = AtomicUsize::new(0);
+                let eval = FnEvaluator(|_: &[f64]| {
+                    calls.fetch_add(1, Ordering::Relaxed);
+                    progress.request_cancel();
+                    Ok(Evaluation {
+                        objectives: vec![1.0],
+                        constraints: vec![0.0],
+                        attributes: vec![None],
+                    })
+                });
+                if !during {
+                    progress.request_cancel();
+                }
+                let pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(1)
+                    .build()
+                    .unwrap();
+                let summary = pool
+                    .install(|| run_prepared(&prep, &problem, &eval, &config, &progress))
+                    .unwrap();
+                assert!(summary.cancelled);
+                assert_eq!(summary.completed, usize::from(during));
+                assert_eq!(calls.load(Ordering::Relaxed), usize::from(during));
+                let (_, _, extras) = parse_single_study(&std::fs::read(&path).unwrap(), 0).unwrap();
+                assert_eq!(extras.trials.len(), usize::from(during));
+            }
+            for finish_failure in [false, true] {
+                let problem = two_var_problem();
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("run.log");
+                let config = cfg(sampler);
+                assert!(prepare_run(dir.path(), &problem, &config).is_err());
+                let prep = prepare_run(&path, &problem, &config).unwrap();
+                let replace = || {
+                    prep.writer
+                        .lock()
+                        .unwrap()
+                        .replace_file_for_test(std::fs::File::open(&path).unwrap())
+                };
+                if !finish_failure {
+                    replace();
+                }
+                let calls = AtomicUsize::new(0);
+                let eval = FnEvaluator(|_: &[f64]| {
+                    calls.fetch_add(1, Ordering::Relaxed);
+                    replace();
+                    Ok(Evaluation {
+                        objectives: vec![1.0],
+                        constraints: vec![0.0],
+                        attributes: vec![None],
+                    })
+                });
+                let pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(1)
+                    .build()
+                    .unwrap();
+                let err = pool
+                    .install(|| run_prepared(&prep, &problem, &eval, &config, &FitProgress::new()))
+                    .unwrap_err();
+                assert!(err.contains("writing to the journal failed"), "{err}");
+                assert_eq!(calls.load(Ordering::Relaxed), usize::from(finish_failure));
+                let (_, _, extras) = parse_single_study(&std::fs::read(path).unwrap(), 0).unwrap();
+                assert_eq!(extras.trials.len(), usize::from(finish_failure));
+                assert!(extras
+                    .trials
+                    .iter()
+                    .all(|t| t.state == tdashboard_analysis::data::extras::TrialState::Running));
+            }
+        }
     }
 }
