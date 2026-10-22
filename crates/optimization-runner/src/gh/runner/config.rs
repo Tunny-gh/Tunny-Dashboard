@@ -22,6 +22,8 @@ pub enum GhSampler {
 #[derive(Debug, Clone)]
 pub struct GhRunConfig {
     pub study_name: String,
+    /// Reuse a compatible Study for recording only; each optimizer starts fresh.
+    pub load_if_exists: bool,
     /// Optimization direction per objective (same count and order as `GhProblem.objectives`)
     pub directions: Vec<OptimizationDirection>,
     pub sampler: GhSampler,
@@ -55,6 +57,7 @@ impl Default for GhRunConfig {
     fn default() -> Self {
         Self {
             study_name: "gh-optimization".to_string(),
+            load_if_exists: false,
             directions: Vec::new(),
             sampler: GhSampler::Nsga2,
             n_trials: 50,

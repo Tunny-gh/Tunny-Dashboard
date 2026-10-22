@@ -46,6 +46,63 @@ fn sum_diff_evaluator() -> impl GhEvaluator {
 }
 
 #[test]
+fn recording_reuse_is_explicit_compatible_and_starts_a_fresh_invocation() {
+    let mut problem = extract_problem(&sample_ghx()).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("run.log");
+    let mut cfg = test_cfg(GhSampler::Random);
+    assert!(!cfg.load_if_exists);
+    let prep = prepare_gh_run(&path, &problem, &cfg).unwrap();
+    let first = run_prepared(
+        &prep,
+        &problem,
+        &sum_diff_evaluator(),
+        &cfg,
+        &FitProgress::new(),
+    )
+    .unwrap();
+    drop(prep);
+    let prefix = std::fs::read(&path).unwrap();
+    assert!(prepare_gh_run(&path, &problem, &cfg)
+        .err()
+        .unwrap()
+        .contains("already exists"));
+    cfg.load_if_exists = true;
+    cfg.directions.swap(0, 1);
+    assert!(prepare_gh_run(&path, &problem, &cfg).is_err());
+    cfg.directions.pop();
+    let second_objective = problem.objectives.pop().unwrap();
+    assert!(prepare_gh_run(&path, &problem, &cfg).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), prefix);
+    problem.objectives.push(second_objective);
+    cfg.directions = vec![
+        OptimizationDirection::Minimize,
+        OptimizationDirection::Maximize,
+    ];
+    problem.objectives[0].name = "new label".into();
+    let prep = prepare_gh_run(&path, &problem, &cfg).unwrap();
+    assert_eq!(prep.study_id(), first.study_id);
+    assert_eq!(std::fs::read(&path).unwrap(), prefix);
+    let progress = FitProgress::new();
+    let second = run_prepared(&prep, &problem, &sum_diff_evaluator(), &cfg, &progress).unwrap();
+    assert_eq!(second.completed, first.completed);
+    assert_eq!(progress.snapshot().done, second.completed);
+    let bytes = std::fs::read(&path).unwrap();
+    assert!(bytes.starts_with(&prefix));
+    let (meta, df, extras) = parse_single_study(&bytes, 0).unwrap();
+    assert_eq!(meta.objective_names, vec!["weight", "disp"]);
+    assert_eq!(extras.trials.last().unwrap().trial_number, 11);
+    let mut first_points = df.get_numeric_column("span").unwrap()[..6].to_vec();
+    let mut second_points = df.get_numeric_column("span").unwrap()[6..].to_vec();
+    first_points.sort_by(f64::total_cmp);
+    second_points.sort_by(f64::total_cmp);
+    assert_eq!(first_points, second_points);
+    drop(prep);
+    cfg.study_name = "other".into();
+    assert_eq!(prepare_gh_run(&path, &problem, &cfg).unwrap().study_id(), 1);
+}
+
+#[test]
 fn random_sampler_records_all_trials() {
     let problem = extract_problem(&sample_ghx()).unwrap();
     let dir = tempfile::tempdir().unwrap();

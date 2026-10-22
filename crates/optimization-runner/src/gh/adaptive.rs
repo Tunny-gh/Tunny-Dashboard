@@ -511,10 +511,38 @@ mod tests {
                 assert!(summary.completed <= cfg.adaptive_initial + cfg.adaptive_batch);
                 assert_eq!(summary.adaptive_diagnostics.len(), 2);
                 assert!(!progress.snapshot().stage.contains("Adaptive"));
-                let (meta, df, _) =
-                    parse_single_study(&std::fs::read(journal).unwrap(), 0).unwrap();
+                let prefix = std::fs::read(&journal).unwrap();
+                let (meta, df, _) = parse_single_study(&prefix, 0).unwrap();
                 assert_eq!(meta.completed_trials as usize, summary.completed);
                 assert_eq!(df.row_count(), summary.completed);
+                drop(prep);
+                cfg.load_if_exists = true;
+                let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
+                let progress = FitProgress::new();
+                let reused = run_prepared(&prep, &problem, &eval, &cfg, &progress).unwrap();
+                assert_eq!(reused.study_id, summary.study_id);
+                assert_eq!(reused.completed, summary.completed);
+                assert_eq!(progress.snapshot().done, reused.completed);
+                assert_eq!(
+                    reused.adaptive_diagnostics[0].trials_completed,
+                    summary.adaptive_diagnostics[0].trials_completed
+                );
+                assert_eq!(
+                    reused.adaptive_diagnostics[0].metric,
+                    summary.adaptive_diagnostics[0].metric
+                );
+                let bytes = std::fs::read(&journal).unwrap();
+                assert!(bytes.starts_with(&prefix));
+                let (_, combined, _) = parse_single_study(&bytes, 0).unwrap();
+                let mut old = df.get_numeric_column("span").unwrap().to_vec();
+                let mut new =
+                    combined.get_numeric_column("span").unwrap()[summary.completed..].to_vec();
+                old.sort_by(f64::total_cmp);
+                new.sort_by(f64::total_cmp);
+                assert_eq!(
+                    old, new,
+                    "Recording reuse must not train on or deduplicate against historical trials"
+                );
             }
         }
     }

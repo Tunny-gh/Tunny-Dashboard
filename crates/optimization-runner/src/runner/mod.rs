@@ -129,6 +129,8 @@ pub enum Sampler {
 #[derive(Debug, Clone)]
 pub struct RunConfig {
     pub study_name: String,
+    /// Reuse a compatible Study for recording only; each optimizer starts fresh.
+    pub load_if_exists: bool,
     /// Direction per objective (same count/order as `Problem.objective_names`).
     pub directions: Vec<OptimizationDirection>,
     pub sampler: Sampler,
@@ -142,6 +144,7 @@ impl Default for RunConfig {
     fn default() -> Self {
         Self {
             study_name: "optimization".to_string(),
+            load_if_exists: false,
             directions: Vec::new(),
             sampler: Sampler::Nsga2,
             n_trials: 50,
@@ -161,7 +164,7 @@ pub struct RunSummary {
     pub cancelled: bool,
 }
 
-/// A prepared run: the journal writer with the study already created.
+/// A prepared run: the journal writer with the recording Study resolved.
 pub struct PreparedRun {
     writer: Mutex<JournalWriter>,
     study_id: u32,
@@ -173,9 +176,11 @@ impl PreparedRun {
     }
 }
 
-/// Opens the journal and creates the study (synchronous, lightweight). The
+/// Opens the journal and creates or explicitly reuses the recording Study. The
 /// study exists immediately, so the caller can open the journal for live
-/// updates before [`run_prepared`] starts.
+/// updates before [`run_prepared`] starts. Duplicate names default to an error;
+/// `load_if_exists` requires matching objective count and ordered directions.
+/// Reuse preserves existing labels and records, but starts a fresh optimizer.
 pub fn prepare_run(
     journal_path: &Path,
     problem: &Problem,
@@ -192,8 +197,12 @@ pub fn prepare_run(
         return Err("no variables".to_string());
     }
     let mut writer = JournalWriter::open(journal_path)?;
-    let study_id =
-        writer.create_study(&cfg.study_name, &cfg.directions, &problem.objective_names)?;
+    let study_id = writer.create_study_with_options(
+        &cfg.study_name,
+        &cfg.directions,
+        &problem.objective_names,
+        cfg.load_if_exists,
+    )?;
     Ok(PreparedRun {
         writer: Mutex::new(writer),
         study_id,
@@ -521,12 +530,75 @@ mod tests {
     fn cfg(sampler: Sampler) -> RunConfig {
         RunConfig {
             study_name: "generic".to_string(),
+            load_if_exists: false,
             directions: vec![OptimizationDirection::Minimize],
             sampler,
             n_trials: 8,
             population_size: 4,
             generations: 1,
             seed: 3,
+        }
+    }
+
+    #[test]
+    fn recording_reuse_is_explicit_compatible_and_starts_a_fresh_invocation() {
+        for sampler in [Sampler::Random, Sampler::Nsga2] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("run.log");
+            let mut problem = two_var_problem();
+            let mut config = cfg(sampler);
+            assert!(!RunConfig::default().load_if_exists);
+            let calls = AtomicUsize::new(0);
+            let eval = FnEvaluator(|v: &[f64]| {
+                calls.fetch_add(1, Ordering::Relaxed);
+                Ok(Evaluation {
+                    objectives: vec![v[0]],
+                    constraints: vec![0.0],
+                    attributes: vec![None],
+                })
+            });
+            let prep = prepare_run(&path, &problem, &config).unwrap();
+            let first = run_prepared(&prep, &problem, &eval, &config, &FitProgress::new()).unwrap();
+            drop(prep);
+            let prefix = std::fs::read(&path).unwrap();
+            assert!(prepare_run(&path, &problem, &config)
+                .err()
+                .unwrap()
+                .contains("already exists"));
+            config.load_if_exists = true;
+            config.directions[0] = OptimizationDirection::Maximize;
+            assert!(prepare_run(&path, &problem, &config).is_err());
+            config.directions.push(OptimizationDirection::Minimize);
+            problem.objective_names.push("extra".into());
+            assert!(prepare_run(&path, &problem, &config).is_err());
+            assert_eq!(calls.load(Ordering::Relaxed), first.completed);
+            assert_eq!(std::fs::read(&path).unwrap(), prefix);
+            config.directions = vec![OptimizationDirection::Minimize];
+            problem.objective_names = vec!["new label".into()];
+            let prep = prepare_run(&path, &problem, &config).unwrap();
+            assert_eq!(prep.study_id(), first.study_id);
+            assert_eq!(std::fs::read(&path).unwrap(), prefix);
+            let progress = FitProgress::new();
+            let second = run_prepared(&prep, &problem, &eval, &config, &progress).unwrap();
+            assert_eq!(second.completed, first.completed);
+            assert_eq!(progress.snapshot().done, second.completed);
+            let bytes = std::fs::read(&path).unwrap();
+            assert!(bytes.starts_with(&prefix));
+            let (meta, df, extras) = parse_single_study(&bytes, first.study_id).unwrap();
+            assert_eq!(meta.objective_names, vec!["f"]);
+            assert_eq!(df.row_count(), first.completed + second.completed);
+            assert_eq!(
+                extras.trials.last().unwrap().trial_number as usize,
+                df.row_count() - 1
+            );
+            let mut first_points = df.get_numeric_column("x").unwrap()[..first.completed].to_vec();
+            let mut second_points = df.get_numeric_column("x").unwrap()[first.completed..].to_vec();
+            first_points.sort_by(f64::total_cmp);
+            second_points.sort_by(f64::total_cmp);
+            assert_eq!(first_points, second_points);
+            drop(prep);
+            config.study_name = "other".into();
+            assert_eq!(prepare_run(&path, &problem, &config).unwrap().study_id(), 1);
         }
     }
 

@@ -39,6 +39,7 @@ impl TunnyApp {
             .collect();
         let run_cfg = GhRunConfig {
             study_name: dialog.study_name.clone(),
+            load_if_exists: dialog.load_if_exists,
             directions,
             sampler: dialog.sampler.to_core(),
             n_trials: dialog.n_trials,
@@ -173,6 +174,7 @@ impl TunnyApp {
             .collect();
         let cfg = RunConfig {
             study_name: dialog.study_name.clone(),
+            load_if_exists: dialog.load_if_exists,
             directions,
             sampler: if dialog.sampler_is_random {
                 Sampler::Random

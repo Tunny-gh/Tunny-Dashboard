@@ -36,6 +36,8 @@ pub struct ProcessOptDialogState {
     pub seed: u64,
     /// Study name (default: `<definition stem>-<last 6 unix seconds>`).
     pub study_name: String,
+    /// Explicit recording-only reuse; defaults to false.
+    pub load_if_exists: bool,
     /// Output journal path (default: `<stem>_optuna.log` beside the definition).
     pub journal_path: String,
     /// Error text for a failed Run (invalid ranges / journal open / study create).
@@ -87,6 +89,7 @@ impl ProcessOptDialogState {
             generations: 10,
             seed: 42,
             study_name,
+            load_if_exists: false,
             journal_path,
             error: None,
         }

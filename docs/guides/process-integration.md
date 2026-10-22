@@ -158,6 +158,22 @@ shows the command read-only and lets you fill in the rest:
   generations, with the total evaluation count shown) — plus the seed;
 - the **journal path** and **study name** (pre-filled next to the definition).
 
+Study names must be unique within a Journal by default. To add new results to an
+existing Study, enable **Add results to existing Study (if present)** (default
+OFF). The requested objective count and ordered Minimize/Maximize directions
+must match; otherwise preparation errors before any evaluation. Existing
+objective names and trials are retained, even if requested labels differ. If the
+name is absent, a new Study is created.
+
+This is recording-only reuse, not optimization resume: each invocation starts a
+fresh optimizer without historical training, populations, or deduplication.
+Budgets, progress and summary counts cover only new trials; global Journal IDs
+and Study-local numbers continue. Serialize writers to the same Journal,
+including preparation. Append preparation rejects malformed/incomplete records,
+invalid references and unsupported operations (including Study deletion), without
+repairing or renumbering the file. Valid-looking wrong membership cannot always
+be detected. This is not a filesystem transaction or durability guarantee.
+
 Press **Run** and the study appears in the study list immediately, with Live
 Update on so trials stream in while the run proceeds. A progress overlay shows
 the count and a **Cancel** button; on completion it reports how many trials
@@ -192,6 +208,7 @@ let evaluator = ProcessEvaluator::new(def)?;
 // 3. Configure and run — the Dashboard drives the sampling, your command evaluates.
 let cfg = RunConfig {
     study_name: "beam".into(),
+    load_if_exists: false, // set true only to add results to a compatible existing Study
     directions: vec![OptimizationDirection::Minimize], // one per objective
     sampler: Sampler::Nsga2,
     population_size: 16,
@@ -199,7 +216,7 @@ let cfg = RunConfig {
     ..RunConfig::default()
 };
 let progress = FitProgress::new();
-let prep = prepare_run(&journal_path, &problem, &cfg)?;   // creates the study
+let prep = prepare_run(&journal_path, &problem, &cfg)?;   // creates or explicitly reuses the study
 let summary = run_prepared(&prep, &problem, &evaluator, &cfg, &progress)?;
 ```
 

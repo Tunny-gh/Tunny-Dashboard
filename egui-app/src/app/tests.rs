@@ -2,6 +2,60 @@ use super::files::has_discardable_state;
 use super::*;
 use crate::state::app_state::StudyMeta;
 
+fn enable_recording_reuse_checkbox(mut render: impl FnMut(&egui::Context)) {
+    let ctx = egui::Context::default();
+    let mut frame = |events| {
+        ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1200.0, 1600.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| render(ui.ctx()),
+        )
+    };
+    for _ in 0..2 {
+        let _ = frame(vec![]);
+    }
+    let output = frame(vec![]);
+    let pos = output
+        .shapes
+        .iter()
+        .find_map(|s| match &s.shape {
+            egui::Shape::Text(t)
+                if t.galley.text() == "Add results to existing Study (if present)" =>
+            {
+                Some(t.pos + t.galley.size() * 0.5)
+            }
+            _ => None,
+        })
+        .expect("The production dialog must expose the explicit reuse checkbox");
+    let text = output
+        .shapes
+        .iter()
+        .filter_map(|s| match &s.shape {
+            egui::Shape::Text(t) => Some(t.galley.text()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("not a history-aware resume"));
+    for pressed in [true, false] {
+        let _ = frame(vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]);
+    }
+}
+
 #[test]
 fn d6_process_launch_progress_cancel_completion_and_reload() {
     use tdashboard_optimization_runner::process::*;
@@ -43,6 +97,8 @@ fn d6_process_launch_progress_cancel_completion_and_reload() {
         dialog.journal_path = path.to_string_lossy().into_owned();
         dialog.sampler_is_random = true;
         dialog.n_trials = if cancel { 1000 } else { 3 };
+        assert!(!dialog.load_if_exists);
+        let mut reuse_dialog = dialog.clone();
         let mut app = artifact_test_app(None);
         app.start_process_run(dialog);
         assert!(app.app_state.process_opt_dialog.is_none());
@@ -88,6 +144,58 @@ fn d6_process_launch_progress_cancel_completion_and_reload() {
         let _ = ctx.run_ui(egui::RawInput::default(), |_| {
             app.show_ghx_opt_overlay(&ctx)
         });
+        if !cancel {
+            let prefix = std::fs::read(&path).unwrap();
+            for mismatch in [false, true] {
+                let mut rejected = reuse_dialog.clone();
+                rejected.load_if_exists = mismatch;
+                rejected.maximize[0] = mismatch;
+                let mut failed_app = artifact_test_app(None);
+                failed_app.start_process_run(rejected);
+                assert!(failed_app.app_state.gh_opt_run.is_none());
+                let state = failed_app.app_state.process_opt_dialog.as_mut().unwrap();
+                assert!(state.error.as_ref().unwrap().contains(if mismatch {
+                    "directions"
+                } else {
+                    "already exists"
+                }));
+                let _ = ctx.run_ui(egui::RawInput::default(), |_| {
+                    crate::ui::widgets::process_opt_modal::show(&ctx, state);
+                });
+                assert_eq!(std::fs::read(&path).unwrap(), prefix);
+            }
+            enable_recording_reuse_checkbox(|ctx| {
+                crate::ui::widgets::process_opt_modal::show(ctx, &mut reuse_dialog);
+            });
+            assert!(reuse_dialog.load_if_exists);
+            reuse_dialog.def.objectives[0].name = "changed label".into();
+            let _ = ctx.run_ui(egui::RawInput::default(), |_| {
+                crate::ui::widgets::process_opt_modal::show(&ctx, &mut reuse_dialog);
+            });
+            app.start_process_run(reuse_dialog);
+            assert!(app.app_state.process_opt_dialog.is_none());
+            poll_until(&mut app, |a| {
+                !a.is_loading
+                    && !a.reload_when_idle
+                    && a.app_state
+                        .gh_opt_run
+                        .as_ref()
+                        .is_some_and(|r| r.finished.is_some())
+            });
+            let run = app.app_state.gh_opt_run.as_ref().unwrap();
+            assert!(run
+                .finished
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .contains("3 trials succeeded"));
+            assert_eq!(run.progress.snapshot().done, 3);
+            let study = app.app_state.current_study.as_ref().unwrap();
+            assert_eq!(study.view.row_count(), 6);
+            assert_eq!(study.view.numeric_column("f").unwrap(), &[3.0; 6]);
+            assert!(std::fs::read(&path).unwrap().starts_with(&prefix));
+        }
     }
 }
 
@@ -98,34 +206,36 @@ fn d6_gh_launch_mock_compute_completion_and_reload() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let server = std::thread::spawn(move || {
-        let (stream, _) = listener.accept().unwrap();
-        stream
-            .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+        for _ in 0..2 {
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+                .unwrap();
+            let mut reader = std::io::BufReader::new(stream);
+            let mut length = 0;
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                assert!(!line.is_empty());
+                if line.trim().is_empty() {
+                    break;
+                }
+                if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = value.trim().parse::<usize>().unwrap();
+                }
+            }
+            let mut body = vec![0; length];
+            reader.read_exact(&mut body).unwrap();
+            let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(request["values"][0]["ParamName"], "RH_IN:x");
+            let reply = r#"{"values":[{"ParamName":"RH_OUT:f","InnerTree":{"{0}":[{"type":"System.Double","data":"7.5"}]}}]}"#;
+            write!(
+                reader.get_mut(),
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                reply.len()
+            )
             .unwrap();
-        let mut reader = std::io::BufReader::new(stream);
-        let mut length = 0;
-        loop {
-            let mut line = String::new();
-            reader.read_line(&mut line).unwrap();
-            assert!(!line.is_empty());
-            if line.trim().is_empty() {
-                break;
-            }
-            if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
-                length = value.trim().parse::<usize>().unwrap();
-            }
         }
-        let mut body = vec![0; length];
-        reader.read_exact(&mut body).unwrap();
-        let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(request["values"][0]["ParamName"], "RH_IN:x");
-        let reply = r#"{"values":[{"ParamName":"RH_OUT:f","InnerTree":{"{0}":[{"type":"System.Double","data":"7.5"}]}}]}"#;
-        write!(
-            reader.get_mut(),
-            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
-            reply.len()
-        )
-        .unwrap();
     });
     let problem = GhProblem {
         variables: vec![GhVariable {
@@ -162,6 +272,8 @@ fn d6_gh_launch_mock_compute_completion_and_reload() {
     dialog.journal_path = path.to_string_lossy().into_owned();
     dialog.sampler = crate::state::app_state::GhSamplerChoice::Random;
     dialog.n_trials = 1;
+    assert!(!dialog.load_if_exists);
+    let mut reuse_dialog = dialog.clone();
     let mut app = artifact_test_app(None);
     app.start_ghx_run(dialog);
     assert!(app.app_state.gh_opt_dialog.is_none());
@@ -176,7 +288,6 @@ fn d6_gh_launch_mock_compute_completion_and_reload() {
                 .as_ref()
                 .is_some_and(|r| r.finished.is_some())
     });
-    server.join().unwrap();
     let run = app.app_state.gh_opt_run.as_ref().unwrap();
     assert!(run.finished.as_ref().unwrap().is_ok());
     assert_eq!(run.progress.snapshot().done, 1);
@@ -184,6 +295,57 @@ fn d6_gh_launch_mock_compute_completion_and_reload() {
     assert_eq!(study.view.row_count(), 1);
     assert_eq!(study.view.numeric_column("f").unwrap(), &[7.5]);
     assert!(study.view.input().unwrap().stamp().input.generation >= 2);
+    let prefix = std::fs::read(&path).unwrap();
+    let ctx = egui::Context::default();
+    for mismatch in [false, true] {
+        let mut rejected = reuse_dialog.clone();
+        rejected.load_if_exists = mismatch;
+        rejected.maximize[0] = mismatch;
+        let mut failed_app = artifact_test_app(None);
+        failed_app.start_ghx_run(rejected);
+        assert!(failed_app.app_state.gh_opt_run.is_none());
+        let state = failed_app.app_state.gh_opt_dialog.as_mut().unwrap();
+        assert!(state.error.as_ref().unwrap().contains(if mismatch {
+            "directions"
+        } else {
+            "already exists"
+        }));
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {
+            crate::ui::widgets::ghx_opt_modal::show(&ctx, state);
+        });
+        assert_eq!(std::fs::read(&path).unwrap(), prefix);
+    }
+    enable_recording_reuse_checkbox(|ctx| {
+        crate::ui::widgets::ghx_opt_modal::show(ctx, &mut reuse_dialog);
+    });
+    assert!(reuse_dialog.load_if_exists);
+    // Keep the Compute output contract unchanged; the writer already tests ignored requested labels.
+    let _ = ctx.run_ui(egui::RawInput::default(), |_| {
+        crate::ui::widgets::ghx_opt_modal::show(&ctx, &mut reuse_dialog);
+    });
+    app.start_ghx_run(reuse_dialog);
+    assert!(app.app_state.gh_opt_dialog.is_none());
+    poll_until(&mut app, |a| {
+        !a.is_loading
+            && !a.reload_when_idle
+            && a.app_state
+                .gh_opt_run
+                .as_ref()
+                .is_some_and(|r| r.finished.is_some())
+    });
+    server.join().unwrap();
+    let run = app.app_state.gh_opt_run.as_ref().unwrap();
+    assert_eq!(run.progress.snapshot().done, 1);
+    assert!(run
+        .finished
+        .as_ref()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .contains("1 trials succeeded"));
+    let study = app.app_state.current_study.as_ref().unwrap();
+    assert_eq!(study.view.numeric_column("f").unwrap(), &[7.5, 7.5]);
+    assert!(std::fs::read(&path).unwrap().starts_with(&prefix));
 }
 
 #[test]

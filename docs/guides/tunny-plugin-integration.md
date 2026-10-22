@@ -59,6 +59,28 @@ Semantics the dashboard implements, matching Tunny's published behavior:
   columns (`c1`…`cN`, `is_feasible`, `constraint_sum`) are renamed with a
   warning.
 
+### Recording into an existing Study
+
+Study-name collisions within a Journal error by default. Both the GH API's
+`GhRunConfig::load_if_exists` and the GUI's **Add results to existing Study (if
+present)** option default to false/OFF. Explicit reuse requires the same objective
+count and ordered directions before evaluation and keeps existing objective names
+and trials. Requested labels do not rename historical objectives. An absent name
+creates a new Study.
+
+Reuse adds results, not a history-aware resume: optimizers start fresh, BO uses a
+new bootstrap/training dataset, and no historical population or candidate
+deduplication is loaded. Budget/progress/summary counts describe the new invocation;
+global Journal IDs and Study-local numbers continue. Serialize writers to a path,
+including preparation. Invalid identity references, malformed prefixes and
+unsupported operations such as Study deletion reject append without repair.
+Valid-looking wrong membership may be unknowable. Duplicate-name, objective-count,
+ordered-direction and existing-prefix validation errors do not append Journal
+records. Preparation I/O failures can leave partial writes: CREATE_STUDY and
+metric metadata are written sequentially, without rollback. GH preparation can
+already have written the `.compute.ghx` sidecar even on a validation error; no
+transaction or concurrent-writer guarantee is implied.
+
 ### Samplers available from the dashboard
 
 - NSGA-II (with constrained domination) and Random.

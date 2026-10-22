@@ -13,6 +13,10 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Added
 
+- Generic-process and Grasshopper optimization can explicitly add new results to
+  an existing Study through `load_if_exists` or the default-OFF GUI option. Each
+  invocation starts a fresh optimizer; this is not history-aware resume.
+
 - Artifact Animation is an independently configurable canvas widget for PNG/JPEG
   trial artifacts, with Study-local playback, optional trial values and cached
   trial-prefix Pareto/history plots on fixed axes. Export GIF captures the same
@@ -20,6 +24,14 @@ and `Security` as needed — omit headings that have nothing under them.
   and background encoding; controls and surrounding panels are excluded.
 
 ### Fixed
+
+- Journal recording rejects duplicate Study names by default instead of returning
+  an ID that cannot be read back. Explicit reuse requires matching objective
+  counts and ordered directions, preserves existing objective names and trials,
+  and continues global and Study-local numbering. Legitimate rejected Optuna
+  creation attempts do not consume Study IDs. Unsafe append prefixes are rejected
+  without automatic repair; no parallel-writer or complete corruption detection
+  guarantee is added.
 
 - Reports select finite objective rows before computing nondominance, so
   recorded infinities cannot eliminate finite front candidates. Constrained

@@ -46,24 +46,27 @@ pub(in crate::gh) use validate::{denormalize, round_variable};
 
 use validate::normalize_current;
 
-/// Result of `prepare_gh_run`. Holds a journal writer with the study already created.
+/// Result of `prepare_gh_run`. Holds a writer with the recording Study resolved.
 pub struct PreparedGhRun {
     writer: Mutex<JournalWriter>,
     study_id: u32,
 }
 
 impl PreparedGhRun {
-    /// ID of the created study (a sequential number within the journal).
+    /// ID of the created or explicitly reused Study within the Journal.
     pub fn study_id(&self) -> u32 {
         self.study_id
     }
 }
 
-/// Opens the journal and creates the study (synchronous, lightweight).
+/// Opens the journal and creates or explicitly reuses the recording Study.
 ///
 /// Immediately after this call, the study already exists in the journal, so the caller
 /// can open the journal to pick up live updates before starting `run_prepared` in the
 /// background.
+/// Duplicate names default to an error. `load_if_exists` requires matching
+/// objective count and ordered directions and preserves existing objective names.
+/// Reuse adds new records; no historical optimizer or training state is loaded.
 pub fn prepare_gh_run(
     journal_path: &Path,
     problem: &GhProblem,
@@ -82,7 +85,12 @@ pub fn prepare_gh_run(
     validate_method(problem, cfg)?;
     let mut writer = JournalWriter::open(journal_path)?;
     let objective_names: Vec<String> = problem.objectives.iter().map(|o| o.name.clone()).collect();
-    let study_id = writer.create_study(&cfg.study_name, &cfg.directions, &objective_names)?;
+    let study_id = writer.create_study_with_options(
+        &cfg.study_name,
+        &cfg.directions,
+        &objective_names,
+        cfg.load_if_exists,
+    )?;
     Ok(PreparedGhRun {
         writer: Mutex::new(writer),
         study_id,

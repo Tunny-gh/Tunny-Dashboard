@@ -21,6 +21,8 @@ pub struct GhOptDialogState {
     pub maximize: Vec<bool>,
     /// Study name used to keep it unique within the journal (default: "<ghx stem>-<last 6 digits of unix seconds>").
     pub study_name: String,
+    /// Explicit recording-only reuse; defaults to false.
+    pub load_if_exists: bool,
     /// Output journal path (default: "<stem>_optuna.log" in the same directory as the ghx).
     pub journal_path: String,
     /// true = launch a local rhino.compute EXE (the Dashboard starts/stops the
@@ -252,6 +254,7 @@ impl GhOptDialogState {
             problem,
             maximize,
             study_name,
+            load_if_exists: false,
             journal_path,
             compute_use_exe: true,
             compute_url: "http://localhost:6500".to_string(),
