@@ -355,6 +355,9 @@ pub fn show(ctx: &egui::Context, state: &mut GhOptDialogState) -> Option<GhxOptA
                 );
             });
 
+            ui.checkbox(&mut state.load_if_exists, "Add results to existing Study (if present)");
+            ui.label("Starts a fresh optimizer, not a history-aware resume. Budget counts new trials only. Objective count and directions must match; existing objective names are kept.");
+
             if let Some(err) = &state.error {
                 ui.add_space(4.0);
                 ui.colored_label(crate::theme::ERROR_COLOR(), err);

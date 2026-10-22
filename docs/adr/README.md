@@ -95,3 +95,4 @@ order:
 | 0021 | [Study, analysis, and I/O boundary contracts](0021-study-analysis-and-io-boundary-contracts.md) | Accepted | 2026-10-16 |
 | 0022 | [Retain recorded Journal attributes for postprocessing](0022-retain-recorded-journal-attributes-for-postprocessing.md) | Accepted | 2026-10-18 |
 | 0023 | [Include supported attribute changes in RDB fingerprints](0023-include-supported-attribute-changes-in-rdb-fingerprints.md) | Accepted | 2026-10-18 |
+| 0024 | [Require explicit opt-in to reuse Journal Studies](0024-require-explicit-opt-in-to-reuse-journal-studies.md) | Accepted | 2026-10-22 |

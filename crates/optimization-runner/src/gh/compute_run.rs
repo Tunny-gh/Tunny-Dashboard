@@ -107,6 +107,28 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_rejection_keeps_journal_but_does_not_roll_back_sidecar() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("run.log");
+        let ghx = sample_ghx();
+        let problem = extract_problem(&ghx).unwrap();
+        let cfg = config();
+        drop(prepare_compute_run(&path, &ghx, &problem, &cfg).unwrap());
+        let prefix = std::fs::read(&path).unwrap();
+        let sidecar = path.with_extension("compute.ghx");
+        std::fs::remove_file(&sidecar).unwrap();
+        let err = prepare_compute_run(&path, &ghx, &problem, &cfg)
+            .err()
+            .unwrap();
+        assert!(err.contains("already exists"));
+        assert_eq!(std::fs::read(&path).unwrap(), prefix);
+        assert!(
+            sidecar.exists(),
+            "Definition persistence precedes Journal validation, not a filesystem transaction"
+        );
+    }
+
+    #[test]
     fn preparation_preserves_error_order_and_best_effort_definition_write() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("run.log");

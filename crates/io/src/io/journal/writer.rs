@@ -17,7 +17,6 @@ use serde_json::Value;
 
 use crate::extras::TrialState;
 use crate::io::datetime::format_naive_datetime;
-use crate::io::journal::count_created_trials;
 use crate::io::journal::parser::OptimizationDirection;
 
 /// Default value for worker_id (included in every record for compatibility with the original Optuna reader).
@@ -37,9 +36,8 @@ pub enum ParamDistribution {
 pub struct JournalWriter {
     file: File,
     path: PathBuf,
-    /// The next study_id to assign (existing op0 count in the file + op0 count written by this writer).
-    next_study_id: u32,
-    /// The next global trial_id to assign (existing op4 count in the file + op4 count written by this writer).
+    studies: Vec<(String, Vec<OptimizationDirection>)>,
+    /// Next global trial ID after validating the existing prefix's references.
     next_trial_id: u32,
     worker_id: String,
 }
@@ -51,8 +49,11 @@ impl JournalWriter {
         self.file = file;
     }
 
-    /// Opens the file in append mode (creating it if absent). Scans existing content
-    /// to assign the next study_id / trial_id. Uses the default worker_id
+    /// Opens in append mode after validating the existing prefix's identities.
+    /// Rejects malformed records, invalid references and unsupported operations;
+    /// it cannot detect valid-looking references to an unintended Study.
+    /// Callers must serialize all writers to this path, including open/preparation.
+    /// Uses the default worker_id
     /// (`"tunny-dashboard"`).
     pub fn open(path: &Path) -> Result<Self, String> {
         Self::open_with_worker_id(path, DEFAULT_WORKER_ID)
@@ -71,8 +72,7 @@ impl JournalWriter {
             }
         };
 
-        let next_study_id = count_created_studies(&existing);
-        let next_trial_id = count_created_trials(&existing);
+        let identity = read_append_identity(&existing)?;
 
         let file = OpenOptions::new()
             .create(true)
@@ -83,12 +83,13 @@ impl JournalWriter {
         Ok(JournalWriter {
             file,
             path: path.to_path_buf(),
-            next_study_id,
-            next_trial_id,
+            studies: identity.studies,
+            next_trial_id: identity.next_trial_id,
             worker_id: worker_id.to_string(),
         })
     }
 
+    /// Creates a new Study, rejecting an existing name without writing records.
     /// Writes op0 (and op3 if objective_names is non-empty), and returns study_id.
     pub fn create_study(
         &mut self,
@@ -96,8 +97,41 @@ impl JournalWriter {
         directions: &[OptimizationDirection],
         objective_names: &[String],
     ) -> Result<u32, String> {
-        let study_id = self.next_study_id;
-        self.next_study_id += 1;
+        self.create_study_with_options(study_name, directions, objective_names, false)
+    }
+
+    /// Resolves a recording destination, optionally reusing a compatible Study.
+    /// With `load_if_exists`, an existing name returns its ID only if the objective
+    /// count and ordered directions match. Requested names do not relabel it.
+    /// Reuse writes no metadata and does not restore optimizer state.
+    pub fn create_study_with_options(
+        &mut self,
+        study_name: &str,
+        directions: &[OptimizationDirection],
+        objective_names: &[String],
+        load_if_exists: bool,
+    ) -> Result<u32, String> {
+        if let Some((id, (_, stored))) = self
+            .studies
+            .iter()
+            .enumerate()
+            .find(|(_, (name, _))| name == study_name)
+        {
+            if !load_if_exists {
+                return Err(format!(
+                    "Study '{study_name}' already exists; enable load_if_exists to add new results"
+                ));
+            }
+            if stored != directions {
+                return Err(format!("Study '{study_name}' objective count or ordered directions do not match the requested objectives"));
+            }
+            return Ok(id as u32);
+        }
+        if directions.is_empty() {
+            return Err("A Study must have at least one objective".into());
+        }
+        let study_id = u32::try_from(self.studies.len())
+            .map_err(|_| "Journal Study identity exhausted".to_string())?;
 
         let directions_json: Vec<u8> = directions
             .iter()
@@ -114,6 +148,8 @@ impl JournalWriter {
             ("directions", j(&directions_json)),
         ]);
         self.write_line(&record)?;
+        self.studies
+            .push((study_name.to_string(), directions.to_vec()));
 
         if !objective_names.is_empty() {
             let attr_record = ordered_object(&[
@@ -136,8 +172,13 @@ impl JournalWriter {
     /// Does not include the `distributions` field (this registers it as RUNNING in the
     /// file-storage format, so that subsequent op5/op6 are awaited).
     pub fn create_trial(&mut self, study_id: u32) -> Result<u32, String> {
+        if study_id as usize >= self.studies.len() {
+            return Err(format!("Unknown Journal Study ID {study_id}"));
+        }
         let trial_id = self.next_trial_id;
-        self.next_trial_id += 1;
+        let next = trial_id
+            .checked_add(1)
+            .ok_or("Journal trial identity exhausted")?;
 
         let record = ordered_object(&[
             ("op_code", j(4)),
@@ -146,6 +187,7 @@ impl JournalWriter {
             ("datetime_start", j(format_naive_datetime(now_unix_secs()))),
         ]);
         self.write_line(&record)?;
+        self.next_trial_id = next;
 
         Ok(trial_id)
     }
@@ -347,28 +389,243 @@ fn now_unix_secs() -> f64 {
         .unwrap_or(0.0)
 }
 
-/// Counts the number of op_code=0 (CREATE_STUDY) lines in the existing file content.
-/// Unparseable lines and a trailing incomplete line are ignored.
-fn count_created_studies(data: &[u8]) -> u32 {
-    let mut count = 0u32;
-    for line in data.split(|&byte| byte == b'\n') {
-        if line.is_empty() {
+/// Validate only the replay evidence needed to append without guessing identities.
+/// Rejected duplicate creation attempts are normal Optuna Journal records.
+fn read_append_identity(data: &[u8]) -> Result<AppendIdentity, String> {
+    if !data.is_empty() && !data.ends_with(b"\n") {
+        return Err(
+            "Cannot append to a Journal without a complete newline-terminated prefix".into(),
+        );
+    }
+    let text = std::str::from_utf8(data).map_err(|e| format!("Invalid Journal text: {e}"))?;
+    let mut studies: Vec<(String, Vec<OptimizationDirection>)> = Vec::new();
+    let mut names = std::collections::HashSet::new();
+    let mut trials = 0_u32;
+    for (index, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
             continue;
         }
-        let Ok(json) = serde_json::from_slice::<Value>(line) else {
-            continue;
+        let invalid = || {
+            format!(
+                "Cannot safely append to Journal: invalid identity record at line {}",
+                index + 1
+            )
         };
-        if json.get("op_code").and_then(Value::as_u64) == Some(0) {
-            count += 1;
+        let record = crate::optuna_json::record(line).map_err(|_| invalid())?;
+        let json = &record.json;
+        let id = |key: &str| json.get(key).and_then(Value::as_u64).ok_or_else(invalid);
+        match id("op_code")? {
+            0 => {
+                let name = json
+                    .get("study_name")
+                    .and_then(Value::as_str)
+                    .ok_or_else(invalid)?;
+                let directions = json
+                    .get("directions")
+                    .and_then(Value::as_array)
+                    .ok_or_else(invalid)?;
+                if directions.is_empty() {
+                    return Err(invalid());
+                }
+                let directions = directions
+                    .iter()
+                    .map(|d| match d.as_u64() {
+                        Some(1) => Ok(OptimizationDirection::Minimize),
+                        Some(2) => Ok(OptimizationDirection::Maximize),
+                        _ => Err(invalid()),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                if names.insert(name.to_string()) {
+                    u32::try_from(studies.len()).map_err(|_| invalid())?;
+                    studies.push((name.to_string(), directions));
+                }
+            }
+            1 => {
+                return Err(
+                    "Cannot append to a Journal containing unsupported Study deletion/recreation"
+                        .into(),
+                )
+            }
+            2..=4 => {
+                if id("study_id")? >= studies.len() as u64 {
+                    return Err(invalid());
+                }
+                if id("op_code")? == 4 {
+                    trials = trials.checked_add(1).ok_or_else(invalid)?;
+                }
+            }
+            5..=9 => {
+                if id("trial_id")? >= u64::from(trials) {
+                    return Err(invalid());
+                }
+            }
+            _ => {
+                return Err(format!(
+                    "Cannot append to a Journal containing an unsupported operation at line {}",
+                    index + 1
+                ))
+            }
         }
     }
-    count
+    Ok(AppendIdentity {
+        studies,
+        next_trial_id: trials,
+    })
+}
+
+struct AppendIdentity {
+    studies: Vec<(String, Vec<OptimizationDirection>)>,
+    next_trial_id: u32,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::io::journal::parser::{parse_single_study, scan_study_list};
+
+    #[test]
+    fn duplicate_preparation_requires_explicit_compatible_reuse_without_relabelling() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("run.log");
+        let directions = [
+            OptimizationDirection::Minimize,
+            OptimizationDirection::Maximize,
+        ];
+        let names = ["first".into(), "second".into()];
+        let mut writer = JournalWriter::open(&path).unwrap();
+        assert_eq!(writer.create_study("A", &directions, &names).unwrap(), 0);
+        let before = std::fs::read(&path).unwrap();
+        assert!(writer
+            .create_study("A", &directions, &names)
+            .unwrap_err()
+            .contains("already exists"));
+        for requested in [
+            vec![OptimizationDirection::Minimize],
+            vec![
+                OptimizationDirection::Maximize,
+                OptimizationDirection::Minimize,
+            ],
+        ] {
+            assert!(writer
+                .create_study_with_options("A", &requested, &[], true)
+                .unwrap_err()
+                .contains("directions"));
+        }
+        assert_eq!(
+            writer
+                .create_study_with_options(
+                    "A",
+                    &directions,
+                    &["changed".into(), "labels".into()],
+                    true
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        drop(writer);
+        let mut writer = JournalWriter::open(&path).unwrap();
+        assert!(writer.create_study("A", &directions, &names).is_err());
+        assert_eq!(
+            writer
+                .create_study_with_options("B", &directions, &names, true)
+                .unwrap(),
+            1
+        );
+        let studies = scan_study_list(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(studies[0].objective_names, names);
+        assert_eq!(studies[1].name, "B");
+    }
+
+    #[test]
+    fn rejected_optuna_attempts_preserve_study_and_trial_identity_across_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("run.log");
+        let directions = [OptimizationDirection::Minimize];
+        {
+            let mut writer = JournalWriter::open(&path).unwrap();
+            writer
+                .create_study("A", &directions, &["original".into()])
+                .unwrap();
+            for state in [
+                TrialState::Running,
+                TrialState::Complete,
+                TrialState::Pruned,
+                TrialState::Fail,
+                TrialState::Waiting,
+            ] {
+                let id = writer.create_trial(0).unwrap();
+                writer.finish_trial(id, state, &[10.0]).unwrap();
+            }
+        }
+        let mut prefix = std::fs::read(&path).unwrap();
+        // Optuna writes rejected creation attempts, including load_if_exists=True.
+        prefix.extend_from_slice(b"{\"op_code\":0,\"worker_id\":\"optuna\",\"study_name\":\"A\",\"directions\":[2]}\n{\"op_code\":2,\"study_id\":0,\"user_attr\":{\"note\":null}}\n{\"op_code\":8,\"trial_id\":0,\"user_attr\":{\"numeric\":NaN}}\n");
+        std::fs::write(&path, &prefix).unwrap();
+        {
+            let mut writer = JournalWriter::open(&path).unwrap();
+            assert_eq!(writer.create_study("B", &directions, &[]).unwrap(), 1);
+            assert_eq!(writer.create_trial(1).unwrap(), 5);
+        }
+        let before_reuse = std::fs::read(&path).unwrap();
+        let mut writer = JournalWriter::open(&path).unwrap();
+        assert_eq!(
+            writer
+                .create_study_with_options("A", &directions, &["replacement".into()], true)
+                .unwrap(),
+            0
+        );
+        assert_eq!(writer.create_trial(0).unwrap(), 6);
+        writer
+            .finish_trial(6, TrialState::Complete, &[20.0])
+            .unwrap();
+        assert_eq!(writer.create_study("C", &directions, &[]).unwrap(), 2);
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(bytes.starts_with(&before_reuse));
+        let (meta, rows, extras) = parse_single_study(&bytes, 0).unwrap();
+        assert_eq!(meta.objective_names, vec!["original"]);
+        assert_eq!(
+            extras
+                .trials
+                .iter()
+                .map(|t| (t.trial_id, t.trial_number))
+                .collect::<Vec<_>>(),
+            vec![(0, 0), (1, 1), (2, 2), (3, 3), (4, 4), (6, 5)]
+        );
+        assert_eq!(rows.rows[0].objective_values, vec![10.0]);
+        assert_eq!(rows.rows[1].objective_values, vec![20.0]);
+        let (_, _, other) = parse_single_study(&bytes, 1).unwrap();
+        assert_eq!(
+            (other.trials[0].trial_id, other.trials[0].trial_number),
+            (5, 0)
+        );
+    }
+
+    #[test]
+    fn unsafe_append_prefixes_are_rejected_without_repair() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("run.log");
+        let prefix = "{\"op_code\":0,\"study_name\":\"A\",\"directions\":[1]}\n";
+        for suffix in [
+            "{\"op_code\":0,\"study_name\":\"A\",\"directions\":[1]}\n{\"op_code\":3,\"study_id\":1}\n",
+            "{\"op_code\":4,\"study_id\":1}\n",
+            "{\"op_code\":5,\"trial_id\":0}\n",
+            "{\"op_code\":6,\"trial_id\":4294967296}\n",
+            "{\"op_code\":1,\"study_id\":0}\n{\"op_code\":0,\"study_name\":\"A\",\"directions\":[1]}\n",
+            "{\"op_code\":10}\n",
+            "{\"op_code\":0,\"study_name\":\"B\",\"directions\":[3]}\n",
+            "{\"op_code\":4",
+            "not JSON\n",
+        ] {
+            let bytes = format!("{prefix}{suffix}").into_bytes();
+            std::fs::write(&path, &bytes).unwrap();
+            assert!(JournalWriter::open(&path).is_err(), "{suffix}");
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        }
+        let mut writer = JournalWriter::open(&dir.path().join("new.log")).unwrap();
+        assert!(writer.create_trial(0).is_err());
+        assert!(std::fs::read(writer.path()).unwrap().is_empty());
+    }
 
     /// Round-trip (most important): reads a journal written by the writer using the
     /// existing parser and verifies the study info / DataFrame / StudyExtras match expectations.
