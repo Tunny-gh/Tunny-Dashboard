@@ -12,6 +12,7 @@ name = "TunnyDashboard"
 path = "src/main.rs"
 
 [dependencies]
+tdashboard-optimization-runner = { path = "../crates/optimization-runner" }
 tdashboard-analysis = { path = "../crates/analysis" }
 tdashboard-io = { path = "../crates/io" }
 tdashboard-study = { path = "../crates/study" }

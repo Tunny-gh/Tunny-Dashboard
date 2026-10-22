@@ -1,0 +1,23 @@
+[package]
+name = "tdashboard-optimization-runner"
+version = "0.1.1"
+edition = "2021"
+description = "Real-evaluation optimization and external integrations for Tunny Dashboard"
+repository = "https://github.com/Tunny-gh/Tunny-Dashboard"
+license = "MIT"
+
+[dependencies]
+tdashboard-analysis = { path = "../analysis" }
+tdashboard-io = { path = "../io" }
+tdashboard-study = { path = "../study" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rayon = "1"
+quick-xml = "0.38"
+ureq = { version = "2", default-features = false }
+base64 = "0.22"
+regex = "1"
+
+[dev-dependencies]
+tdashboard-io = { path = "../io", features = ["test-support"] }
+tempfile = "3"

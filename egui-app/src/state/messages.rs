@@ -431,20 +431,20 @@ pub enum AppMessage {
         overwrote: Vec<std::path::PathBuf>,
     },
 
-    /// .ghx background optimization (`tunny_core::gh::run_prepared`) has
+    /// .ghx background optimization (`tdashboard_optimization_runner::gh::run_prepared`) has
     /// completed. `Ok` is a normal exit including cancellation, `Err` is a
     /// fatal error such as journal write failure (individual evaluation
     /// failures are already aggregated in `GhRunSummary.failed` and don't
     /// result in `Err`).
     GhOptFinished {
-        result: Result<tunny_core::gh::GhRunSummary, String>,
+        result: Result<tdashboard_optimization_runner::gh::GhRunSummary, String>,
     },
     /// A generic process-integration optimization (`runner::run_prepared` with a
     /// `ProcessEvaluator`) finished. Same contract as `GhOptFinished`: `Ok` is a
     /// normal exit (including cancellation), `Err` is a fatal error such as a
     /// journal write failure.
     ProcessOptFinished {
-        result: Result<tunny_core::runner::RunSummary, String>,
+        result: Result<tdashboard_optimization_runner::runner::RunSummary, String>,
     },
 }
 

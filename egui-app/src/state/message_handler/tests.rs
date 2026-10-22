@@ -812,7 +812,7 @@ fn error_during_report_generation_surfaces_in_dialog() {
 
 fn make_gh_opt_run_state() -> crate::state::app_state::GhOptRunState {
     crate::state::app_state::GhOptRunState {
-        progress: tunny_core::surrogate_opt::FitProgress::new(),
+        progress: tdashboard_analysis::surrogate_opt::FitProgress::new(),
         journal_path: std::path::PathBuf::from("/tmp/model_optuna.log"),
         study_name: "model-000001".to_string(),
         finished: None,
@@ -829,13 +829,13 @@ fn gh_opt_finished_ok_formats_success_message() {
 
     MessageHandler::handle(
         AppMessage::GhOptFinished {
-            result: Ok(tunny_core::gh::GhRunSummary {
+            result: Ok(tdashboard_optimization_runner::gh::GhRunSummary {
                 study_id: 0,
                 completed: 48,
                 failed: 2,
                 cancelled: false,
                 adaptive_diagnostics: vec![],
-                stop_reason: tunny_core::gh::GhStopReason::Completed,
+                stop_reason: tdashboard_optimization_runner::gh::GhStopReason::Completed,
             }),
         },
         &mut app_state,
@@ -861,13 +861,13 @@ fn gh_opt_finished_ok_cancelled_appends_hint() {
 
     MessageHandler::handle(
         AppMessage::GhOptFinished {
-            result: Ok(tunny_core::gh::GhRunSummary {
+            result: Ok(tdashboard_optimization_runner::gh::GhRunSummary {
                 study_id: 0,
                 completed: 10,
                 failed: 0,
                 cancelled: true,
                 adaptive_diagnostics: vec![],
-                stop_reason: tunny_core::gh::GhStopReason::Cancelled,
+                stop_reason: tdashboard_optimization_runner::gh::GhStopReason::Cancelled,
             }),
         },
         &mut app_state,

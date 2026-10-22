@@ -2,7 +2,7 @@ use crate::state::app_state::{Direction, StudyMeta};
 
 use tdashboard_io::journal::parser::{self, OptimizationDirection};
 
-/// Converts a rust_core StudyMeta into an egui-app StudyMeta.
+/// Converts I/O scan metadata into screen metadata.
 pub fn convert_study_meta(meta: parser::StudyMeta) -> StudyMeta {
     StudyMeta {
         study_id: meta.study_id,
@@ -13,6 +13,26 @@ pub fn convert_study_meta(meta: parser::StudyMeta) -> StudyMeta {
             .map(|d| match d {
                 OptimizationDirection::Minimize => Direction::Minimize,
                 OptimizationDirection::Maximize => Direction::Maximize,
+            })
+            .collect(),
+        completed_trials: meta.completed_trials as usize,
+        param_names: meta.param_names,
+        objective_names: meta.objective_names,
+        param_bounds: meta.param_bounds,
+    }
+}
+
+/// Converts the acquired analysis projection directly into screen metadata.
+pub fn convert_projection_meta(meta: tdashboard_analysis::projection::StudyMeta) -> StudyMeta {
+    StudyMeta {
+        study_id: meta.study_id,
+        name: meta.name,
+        directions: meta
+            .directions
+            .into_iter()
+            .map(|d| match d {
+                tdashboard_study::Direction::Minimize => Direction::Minimize,
+                tdashboard_study::Direction::Maximize => Direction::Maximize,
             })
             .collect(),
         completed_trials: meta.completed_trials as usize,

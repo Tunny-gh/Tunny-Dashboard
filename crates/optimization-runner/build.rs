@@ -1,0 +1,18 @@
+fn main() {
+    // Analysis supplies native linking and Windows DLL deployment; final test
+    // executables still need their own Unix runtime search path.
+    if cfg!(any(target_os = "macos", target_os = "linux")) {
+        let libs = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("libs");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{}", libs.display());
+        if cfg!(target_os = "macos") {
+            println!("cargo:rustc-link-arg=-Wl,-L{}", libs.display());
+            println!("cargo:rustc-link-arg=-Wl,-l_lightgbm");
+        }
+    }
+    println!("cargo:rerun-if-changed=build.rs");
+}

@@ -2,7 +2,8 @@ use super::validate::{constrained_penalty_fitness, FAIL_PENALTY};
 use super::*;
 use crate::gh::fixtures::sample_ghx;
 use crate::gh::problem::extract_problem;
-use crate::io::journal::parser::{parse_single_study, OptimizationDirection};
+use crate::test_support::parse_single_study;
+use tdashboard_io::journal::parser::OptimizationDirection;
 
 use crate::gh::compute::{GhAttrValue, GhEvaluation};
 
@@ -67,8 +68,8 @@ fn random_sampler_records_all_trials() {
     assert_eq!(
         meta.directions,
         vec![
-            OptimizationDirection::Minimize,
-            OptimizationDirection::Maximize
+            tdashboard_study::Direction::Minimize,
+            tdashboard_study::Direction::Maximize
         ]
     );
     assert_eq!(extras.trials.len(), 6);
@@ -253,7 +254,7 @@ fn evaluation_errors_are_recorded_as_fail() {
     assert!(extras
         .trials
         .iter()
-        .all(|t| t.state == crate::data::extras::TrialState::Fail));
+        .all(|t| t.state == tdashboard_analysis::data::extras::TrialState::Fail));
 }
 
 #[test]
@@ -461,7 +462,7 @@ fn cma_evaluator_and_invalid_results_record_failures() {
         assert!(extras
             .trials
             .iter()
-            .all(|t| t.state == crate::data::extras::TrialState::Fail));
+            .all(|t| t.state == tdashboard_analysis::data::extras::TrialState::Fail));
     }
 }
 
@@ -533,7 +534,7 @@ fn cma_cancel_during_generation_stops_new_trials_and_preserves_journal() {
         assert!(extras
             .trials
             .iter()
-            .all(|t| t.state == crate::data::extras::TrialState::Complete));
+            .all(|t| t.state == tdashboard_analysis::data::extras::TrialState::Complete));
     });
 }
 
@@ -579,8 +580,8 @@ fn bo_bootstrap_journal_finish_error_preserves_successful_and_started_trials() {
 }
 
 fn bo_bootstrap_journal_error(fail_finish: bool) {
-    use crate::data::extras::TrialState;
     use std::io::Write as _;
+    use tdashboard_analysis::data::extras::TrialState;
 
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(1)
@@ -680,7 +681,7 @@ fn bo_bootstrap_evaluation_failure_still_returns_insufficient_data() {
             let error = run_prepared(&prep, &problem, &eval, &cfg, &progress).unwrap_err();
             let initial = cfg
                 .adaptive_initial
-                .max(crate::surrogate_opt::MIN_TRIALS_FOR_SURROGATE_OPT);
+                .max(tdashboard_analysis::surrogate_opt::MIN_TRIALS_FOR_SURROGATE_OPT);
             assert!(
                 error.contains("successful evaluations to fit a surrogate (0 succeeded so far)"),
                 "{error}"
@@ -694,7 +695,7 @@ fn bo_bootstrap_evaluation_failure_still_returns_insufficient_data() {
             assert!(extras
                 .trials
                 .iter()
-                .all(|t| t.state == crate::data::extras::TrialState::Fail));
+                .all(|t| t.state == tdashboard_analysis::data::extras::TrialState::Fail));
         });
     }
 }

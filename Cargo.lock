@@ -5725,6 +5725,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "tdashboard-optimization-runner"
+version = "0.1.1"
+dependencies = [
+ "base64 0.22.1",
+ "quick-xml 0.38.4",
+ "rayon",
+ "regex",
+ "serde",
+ "serde_json",
+ "tdashboard-analysis",
+ "tdashboard-io",
+ "tdashboard-study",
+ "tempfile",
+ "ureq",
+]
+
+[[package]]
 name = "tdashboard-study"
 version = "0.1.0"
 dependencies = [
@@ -6049,20 +6066,14 @@ name = "tunny-core"
 version = "0.1.1"
 dependencies = [
  "arc-swap",
- "base64 0.22.1",
  "criterion",
  "faer",
- "quick-xml 0.38.4",
- "rayon",
- "regex",
  "rusqlite",
- "serde",
  "serde_json",
  "tdashboard-analysis",
  "tdashboard-io",
  "tdashboard-study",
  "tempfile",
- "ureq",
 ]
 
 [[package]]
@@ -6085,6 +6096,7 @@ dependencies = [
  "serde_json",
  "tdashboard-analysis",
  "tdashboard-io",
+ "tdashboard-optimization-runner",
  "tdashboard-study",
  "tempfile",
  "tunny-core",

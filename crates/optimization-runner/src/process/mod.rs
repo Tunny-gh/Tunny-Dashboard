@@ -29,3 +29,5 @@ pub use definition::{
     ProcessDefinition,
 };
 pub use evaluator::{ProcessEvaluation, ProcessEvaluator, VarRange};
+#[cfg(all(test, windows))]
+mod windows_tests;

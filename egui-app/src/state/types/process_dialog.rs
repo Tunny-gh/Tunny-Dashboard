@@ -19,7 +19,7 @@ pub struct ParamRangeEdit {
 #[derive(Debug, Clone)]
 pub struct ProcessOptDialogState {
     /// The loaded definition (command / input / objectives / constraints).
-    pub def: tunny_core::process::ProcessDefinition,
+    pub def: tdashboard_optimization_runner::process::ProcessDefinition,
     /// One editable range per parameter (same order as `def.param_names`).
     pub ranges: Vec<ParamRangeEdit>,
     /// Per-objective maximize flag (same order/length as `def.objectives`).
@@ -45,7 +45,10 @@ pub struct ProcessOptDialogState {
 impl ProcessOptDialogState {
     /// Builds the setup state with defaults right after loading a definition.
     /// Ranges default to `[0, 1]` (2 decimals, continuous) for the user to edit.
-    pub fn new(def: tunny_core::process::ProcessDefinition, def_path: &std::path::Path) -> Self {
+    pub fn new(
+        def: tdashboard_optimization_runner::process::ProcessDefinition,
+        def_path: &std::path::Path,
+    ) -> Self {
         let stem = def_path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -144,7 +147,7 @@ pub struct CommandEdit {
 }
 
 impl CommandEdit {
-    fn from_spec(spec: &tunny_core::process::CommandSpec) -> Self {
+    fn from_spec(spec: &tdashboard_optimization_runner::process::CommandSpec) -> Self {
         Self {
             program: spec.program.clone(),
             args: spec.args.clone(),
@@ -154,7 +157,7 @@ impl CommandEdit {
         }
     }
 
-    fn to_spec(&self) -> tunny_core::process::CommandSpec {
+    fn to_spec(&self) -> tdashboard_optimization_runner::process::CommandSpec {
         let working_dir = {
             let t = self.working_dir.trim();
             if t.is_empty() {
@@ -163,7 +166,7 @@ impl CommandEdit {
                 Some(t.to_string())
             }
         };
-        tunny_core::process::CommandSpec {
+        tdashboard_optimization_runner::process::CommandSpec {
             program: self.program.trim().to_string(),
             args: self
                 .args
@@ -212,8 +215,8 @@ impl Default for ExtractorEdit {
 }
 
 impl ExtractorEdit {
-    fn from_extractor(e: &tunny_core::process::Extractor) -> Self {
-        use tunny_core::process::{CsvColumn, CsvRow, Extractor};
+    fn from_extractor(e: &tdashboard_optimization_runner::process::Extractor) -> Self {
+        use tdashboard_optimization_runner::process::{CsvColumn, CsvRow, Extractor};
         let mut out = Self::default();
         match e {
             Extractor::Regex { pattern } => {
@@ -253,8 +256,8 @@ impl ExtractorEdit {
         out
     }
 
-    fn to_extractor(&self) -> tunny_core::process::Extractor {
-        use tunny_core::process::{CsvColumn, CsvRow, Extractor};
+    fn to_extractor(&self) -> tdashboard_optimization_runner::process::Extractor {
+        use tdashboard_optimization_runner::process::{CsvColumn, CsvRow, Extractor};
         match self.kind {
             ExtractorKind::Regex => Extractor::Regex {
                 pattern: self.regex_pattern.clone(),
@@ -313,8 +316,8 @@ impl Default for OutputSpecEdit {
 }
 
 impl OutputSpecEdit {
-    fn from_spec(spec: &tunny_core::process::OutputSpec) -> Self {
-        use tunny_core::process::OutputSource;
+    fn from_spec(spec: &tdashboard_optimization_runner::process::OutputSpec) -> Self {
+        use tdashboard_optimization_runner::process::OutputSource;
         let (source_kind, source_path) = match &spec.source {
             OutputSource::Stdout => (SourceKind::Stdout, String::new()),
             OutputSource::File { path } => (SourceKind::File, path.clone()),
@@ -327,15 +330,15 @@ impl OutputSpecEdit {
         }
     }
 
-    fn to_spec(&self) -> tunny_core::process::OutputSpec {
-        use tunny_core::process::OutputSource;
+    fn to_spec(&self) -> tdashboard_optimization_runner::process::OutputSpec {
+        use tdashboard_optimization_runner::process::OutputSource;
         let source = match self.source_kind {
             SourceKind::Stdout => OutputSource::Stdout,
             SourceKind::File => OutputSource::File {
                 path: self.source_path.trim().to_string(),
             },
         };
-        tunny_core::process::OutputSpec {
+        tdashboard_optimization_runner::process::OutputSpec {
             name: self.name.trim().to_string(),
             source,
             extractor: self.extractor.to_extractor(),
@@ -412,10 +415,10 @@ impl ProcessDefBuilderState {
 
     /// Populates the form from an existing definition (used by "Load…").
     pub fn from_definition(
-        def: &tunny_core::process::ProcessDefinition,
+        def: &tdashboard_optimization_runner::process::ProcessDefinition,
         source_path: Option<PathBuf>,
     ) -> Self {
-        use tunny_core::process::InputSpec;
+        use tdashboard_optimization_runner::process::InputSpec;
         let mut out = Self {
             param_names: def.param_names.clone(),
             input_kind: InputKind::Env,
@@ -468,8 +471,8 @@ impl ProcessDefBuilderState {
     /// Rebuilds a `ProcessDefinition` from the form. Blank parameter/objective/
     /// constraint names are dropped so a just-added empty row doesn't leak in;
     /// call `def.validate()` afterward for the remaining structural checks.
-    pub fn to_definition(&self) -> tunny_core::process::ProcessDefinition {
-        use tunny_core::process::InputSpec;
+    pub fn to_definition(&self) -> tdashboard_optimization_runner::process::ProcessDefinition {
+        use tdashboard_optimization_runner::process::InputSpec;
         let input = match self.input_kind {
             InputKind::Template => InputSpec::Template {
                 template: self.input_template.clone(),
@@ -481,7 +484,7 @@ impl ProcessDefBuilderState {
                 arg_template: self.input_arg_template.clone(),
             },
         };
-        tunny_core::process::ProcessDefinition {
+        tdashboard_optimization_runner::process::ProcessDefinition {
             param_names: self
                 .param_names
                 .iter()

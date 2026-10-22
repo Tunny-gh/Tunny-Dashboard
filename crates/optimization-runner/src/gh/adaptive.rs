@@ -25,14 +25,14 @@
 
 use rayon::prelude::*;
 
-use crate::io::journal::parser::OptimizationDirection;
-use crate::math::rng::SeededRng;
-use crate::multi_objective::pareto::hypervolume_nd;
-use crate::surrogate_opt::{
+use tdashboard_analysis::math::rng::SeededRng;
+use tdashboard_analysis::multi_objective::pareto::hypervolume_nd;
+use tdashboard_analysis::surrogate_opt::{
     fit_surrogate_with_validation_tracked, suggest_candidates, suggest_candidates_multi,
     AcquisitionKind, ConstraintData, FitProgress, SurrogateFitRequest, SurrogateModelKind,
     TrainedSurrogate, MIN_TRIALS_FOR_SURROGATE_OPT,
 };
+use tdashboard_io::journal::parser::OptimizationDirection;
 
 use super::problem::GhProblem;
 use super::runner::{
@@ -452,12 +452,12 @@ fn fit_objective_surrogates(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::extras::TrialState;
     use crate::gh::compute::{GhAttrValue, GhEvaluation, GhEvaluator};
     use crate::gh::fixtures::sample_ghx;
     use crate::gh::problem::extract_problem;
     use crate::gh::runner::{prepare_gh_run, run_prepared, GhSampler, GhStopReason};
-    use crate::io::journal::parser::parse_single_study;
+    use crate::test_support::parse_single_study;
+    use tdashboard_analysis::data::extras::TrialState;
 
     struct FnEvaluator<F: Fn(&[f64]) -> Result<GhEvaluation, String> + Send + Sync>(F);
 
@@ -594,7 +594,7 @@ mod tests {
 
     #[test]
     fn bo_multi_deploys_explicit_gp_without_auto_reports() {
-        use crate::surrogate_opt::select_best_model;
+        use tdashboard_analysis::surrogate_opt::select_best_model;
 
         let problem = extract_problem(&sample_ghx()).unwrap();
         let mut cfg = adaptive_cfg(vec![
@@ -653,7 +653,7 @@ mod tests {
             fit_objective_surrogates(&problem, &cfg, &data, &names, &bounds, &progress)
                 .err()
                 .unwrap()
-                .contains(crate::surrogate_opt::progress::FIT_CANCELLED)
+                .contains(tdashboard_analysis::surrogate_opt::progress::FIT_CANCELLED)
         );
     }
 
@@ -673,7 +673,7 @@ mod tests {
         cfg.adaptive_patience = 0; // no early stop: run the full budget
 
         let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
-        let progress = crate::surrogate_opt::FitProgress::new();
+        let progress = FitProgress::new();
         let summary = run_prepared(
             &prep,
             &problem,
@@ -722,7 +722,7 @@ mod tests {
         cfg.adaptive_min_improvement = 100.0;
 
         let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
-        let progress = crate::surrogate_opt::FitProgress::new();
+        let progress = FitProgress::new();
         let summary = run_prepared(
             &prep,
             &problem,
@@ -755,7 +755,7 @@ mod tests {
             ..GhRunConfig::default()
         };
         let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
-        let progress = crate::surrogate_opt::FitProgress::new();
+        let progress = FitProgress::new();
         let summary =
             run_prepared(&prep, &problem, &quadratic_evaluator(), &cfg, &progress).unwrap();
         assert!(summary.adaptive_diagnostics.is_empty());
@@ -776,7 +776,7 @@ mod tests {
         ]);
 
         let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
-        let progress = crate::surrogate_opt::FitProgress::new();
+        let progress = FitProgress::new();
         let summary =
             run_prepared(&prep, &problem, &quadratic_evaluator(), &cfg, &progress).unwrap();
 
@@ -823,7 +823,7 @@ mod tests {
         problem.objectives.truncate(1);
 
         let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
-        let progress = crate::surrogate_opt::FitProgress::new();
+        let progress = FitProgress::new();
         let summary = run_prepared(&prep, &problem, &single_obj, &cfg, &progress).unwrap();
         assert!(summary.completed >= cfg.adaptive_initial);
 
@@ -853,7 +853,7 @@ mod tests {
         ]);
 
         let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
-        let progress = crate::surrogate_opt::FitProgress::new();
+        let progress = FitProgress::new();
         progress.request_cancel();
         let summary =
             run_prepared(&prep, &problem, &quadratic_evaluator(), &cfg, &progress).unwrap();
@@ -875,7 +875,7 @@ mod tests {
 
         let failing = FnEvaluator(|_: &[f64]| Err("solve failed".to_string()));
         let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
-        let progress = crate::surrogate_opt::FitProgress::new();
+        let progress = FitProgress::new();
         let err = run_prepared(&prep, &problem, &failing, &cfg, &progress).unwrap_err();
         assert!(err.contains("successful"), "unexpected error: {err}");
     }

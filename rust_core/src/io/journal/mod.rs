@@ -3,7 +3,6 @@
 //! `parser` handles bulk/on-demand parsing.
 
 pub mod parser;
-pub mod writer;
 
 /// Computes the global trial_id that Optuna will assign to the next CREATE_TRIAL.
 ///

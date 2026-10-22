@@ -173,10 +173,10 @@ up, then run the sampler loop:
 
 ```rust
 use std::collections::HashMap;
-use tunny_core::process::{ProcessDefinition, ProcessEvaluator, VarRange};
-use tunny_core::runner::{prepare_run, run_prepared, RunConfig, Sampler};
-use tunny_core::io::journal::parser::OptimizationDirection;
-use tunny_core::surrogate_opt::FitProgress;
+use tdashboard_optimization_runner::process::{ProcessDefinition, ProcessEvaluator, VarRange};
+use tdashboard_optimization_runner::runner::{prepare_run, run_prepared, RunConfig, Sampler};
+use tdashboard_io::journal::parser::OptimizationDirection;
+use tdashboard_analysis::surrogate_opt::FitProgress;
 
 // 1. Load / build the definition.
 let def = ProcessDefinition::from_json(json_text)?;

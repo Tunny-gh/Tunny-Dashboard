@@ -19,12 +19,14 @@ mod ghx;
 
 pub mod compute;
 pub mod compute_def;
+mod compute_run;
 pub mod compute_server;
 pub mod problem;
 pub mod runner;
 
 pub use compute::{ComputeConfig, ComputeEvaluator, GhAttrValue, GhEvaluation, GhEvaluator};
 pub use compute_def::{build_compute_definition, ComputeDefinition};
+pub use compute_run::{prepare_compute_run, ComputeLaunchConfig, PreparedComputeRun};
 pub use compute_server::{
     classify_compute_input, start_compute_server, start_compute_server_tracked,
     ComputeServerHandle, ComputeTarget,

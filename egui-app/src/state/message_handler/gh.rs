@@ -3,8 +3,10 @@ use super::*;
 impl MessageHandler {
     /// Formats the completion message for a finished .ghx run, appending the
     /// adaptive sampler's stop reason and convergence diagnostics when present.
-    pub(super) fn format_gh_summary(summary: &tunny_core::gh::GhRunSummary) -> String {
-        use tunny_core::gh::GhStopReason;
+    pub(super) fn format_gh_summary(
+        summary: &tdashboard_optimization_runner::gh::GhRunSummary,
+    ) -> String {
+        use tdashboard_optimization_runner::gh::GhStopReason;
 
         let mut msg = format!(
             "Done: {} trials succeeded / {} failed",

@@ -1,13 +1,10 @@
-// D5-D7 remove these import facades as their presentation/execution callers migrate.
+// D7 removes these remaining entry import facades.
 pub use tdashboard_analysis::{
     clustering, contour, convergence, math, mcdm, multi_objective, optimization, pdp, report,
     sensitivity, statistics, surrogate_opt,
 };
 pub mod data;
-pub mod gh;
 pub mod io;
-pub mod process;
-pub mod runner;
 
 pub use data::{dataframe, extras, filter};
 pub use io::journal::parser as journal_parser;
