@@ -32,7 +32,8 @@ fn journal() -> Vec<u8> {
 }
 
 fn study(data: &[u8], id: u32) -> StudyContext {
-    let (_, df, _) = tunny_core::journal_parser::parse_single_study(data, id).unwrap();
+    let projection = crate::test_support::journal(data, id);
+    let df = projection.dataframe;
     StudyContext {
         meta: StudyMeta {
             study_id: id,
@@ -43,7 +44,7 @@ fn study(data: &[u8], id: u32) -> StudyContext {
             objective_names: vec![],
             param_bounds: HashMap::new(),
         },
-        view: StudyView::new(Arc::new(df), vec![]),
+        view: StudyView::new(df, vec![]),
         pareto_indices: vec![],
     }
 }
@@ -265,7 +266,7 @@ fn trial_table_header_is_trial_number_in_every_mode() {
 fn card_and_anchor_missing_number_use_original_row_not_global_id() {
     let mut study = study(&journal(), 1);
     // Simulate an unavailable number without changing the storage API.
-    study.view.df = Arc::new(tunny_core::dataframe::DataFrame::empty());
+    study.view.df = Arc::new(tdashboard_analysis::dataframe::DataFrame::empty());
     assert_eq!(
         crate::ui::widgets::surrogate::anchor::center_label(
             crate::ui::widgets::surrogate::anchor::CenterChoice::Pinned(5),

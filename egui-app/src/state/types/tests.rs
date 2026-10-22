@@ -23,7 +23,7 @@ fn user_attribute_format_preserves_json_kind_and_missing() {
 fn expanded_attribute_columns_follow_their_key_and_keep_scalar_rows() {
     use serde_json::json;
     use std::sync::Arc;
-    use tunny_core::dataframe::{DataFrame, TrialRow};
+    use tdashboard_analysis::dataframe::{DataFrame, TrialRow};
 
     let row = |id, value| TrialRow {
         trial_id: id,
@@ -284,7 +284,7 @@ fn gh_opt_dialog_state_maximize_matches_objective_count() {
 
 // ── TASK-2331: StudyView tests ──────────────────────────────
 fn make_study_view(n: usize) -> StudyView {
-    use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+    use tdashboard_analysis::dataframe::{DataFrame, TrialRow as CoreRow};
     let core_rows: Vec<CoreRow> = (0..n)
         .map(|i| CoreRow {
             trial_id: i as u32,
@@ -343,7 +343,7 @@ fn study_view_to_trial_rows_roundtrip() {
 
 #[test]
 fn study_view_new_pads_mismatched_pareto_rank() {
-    use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+    use tdashboard_analysis::dataframe::{DataFrame, TrialRow as CoreRow};
     let core_rows: Vec<CoreRow> = (0..2)
         .map(|i| CoreRow {
             trial_id: i,

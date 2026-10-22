@@ -2,7 +2,7 @@ use super::*;
 use crate::io::artifacts::ArtifactEntry;
 use crate::state::types::{Direction, StudyContext, StudyMeta, StudyView};
 use std::collections::HashMap;
-use tunny_core::dataframe::{DataFrame, TrialRow};
+use tdashboard_analysis::dataframe::{DataFrame, TrialRow};
 
 #[test]
 fn duration_normalizes_input_and_persistence_without_fps_conversion() {

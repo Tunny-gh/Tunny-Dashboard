@@ -598,7 +598,7 @@ mod tests {
 
     fn make_view_xobj(x_vals: &[f64], y_vals: &[f64]) -> (StudyView, Vec<String>) {
         use std::sync::Arc;
-        use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+        use tdashboard_analysis::dataframe::{DataFrame, TrialRow as CoreRow};
         let n = x_vals.len();
         let obj_names = vec!["obj0".to_string()];
         let core_rows: Vec<CoreRow> = (0..n)
@@ -645,7 +645,7 @@ mod tests {
 
     #[test]
     fn classify_observed_matches_scatter_rules() {
-        use tunny_core::dataframe::FeasibilityState::*;
+        use tdashboard_analysis::dataframe::FeasibilityState::*;
         assert_eq!(classify_observed(Feasible, 0), ObservedKind::Pareto);
         assert_eq!(classify_observed(Feasible, 1), ObservedKind::NonPareto);
         // Infeasible regardless of rank

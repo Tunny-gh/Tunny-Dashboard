@@ -115,8 +115,7 @@ fn main() {
             .apply(manager.header(ticket).unwrap(), batch)
             .unwrap();
         manager.finish(ticket, receipt.next_sequence).unwrap();
-        let projection =
-            tunny_core::journal_parser::study_projection::project(&manager.acquire().unwrap());
+        let projection = tdashboard_analysis::projection::project(&manager.acquire().unwrap());
         frames.insert(study.study_id, projection.dataframe);
         studies.push(projection.meta);
         managers.push(manager);

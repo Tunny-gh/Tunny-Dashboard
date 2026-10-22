@@ -6,7 +6,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use tdashboard_study::{AttributeValue, Number, ObjectiveIndex};
 
-use crate::decoded::{DecodedTable as DataFrame, TrialRow};
+use crate::decoded::TrialRow;
 use crate::extras::{StudyExtras, TrialExtra, TrialState};
 use crate::io::datetime::parse_naive_datetime;
 use crate::io::journal::parser::distribution::Distribution;
@@ -31,11 +31,8 @@ struct TrialAccum {
     constraint_values: Vec<f64>,
 }
 
-/// Return value of `parse_single_study_rows`. Holds row-oriented data before `DataFrame` assembly.
-///
-/// Legacy projection adapters can inspect the owned row view. Live entries consume
-/// `into_batch` with their own source key and apply the all-state contents through
-/// a Study manager; no GUI message or analysis table is created here.
+/// Owned acquisition contents. Callers consume `into_batch` with their source key
+/// and apply all-state records through their Study manager.
 pub struct RdbStudyRows {
     pub(crate) records: Vec<crate::decoded::DecodedTrial>,
     /// The finalized `StudyMeta` (includes param_bounds / param_names / user_attr_names).
@@ -591,45 +588,4 @@ fn fetch_study_extras(backend: &mut dyn OptunaBackend, sid: i64) -> Result<Study
     }
 
     Ok(StudyExtras { trials })
-}
-
-/// Phase 2: reads all COMPLETE trials for the given study, and returns
-/// (finalized metadata, `DataFrame`, `StudyExtras`)
-/// (same output contract as journal's `parse_single_study`).
-/// The caller owns the read-session boundary, as for `parse_single_study_rows`.
-pub fn parse_single_study(
-    backend: &mut dyn OptunaBackend,
-    study_id: u32,
-) -> Result<(StudyMeta, DataFrame, StudyExtras), String> {
-    Ok(study_rows_to_dataframe(parse_single_study_rows(
-        backend, study_id,
-    )?))
-}
-
-pub(crate) fn study_rows_to_dataframe(load: RdbStudyRows) -> (StudyMeta, DataFrame, StudyExtras) {
-    let RdbStudyRows {
-        meta,
-        rows,
-        param_names,
-        objective_names,
-        user_attr_numeric_names,
-        user_attr_string_names,
-        max_constraints,
-        extras,
-        ..
-    } = load;
-
-    let mut df = DataFrame::from_trials(
-        &rows,
-        &param_names,
-        &objective_names,
-        &user_attr_numeric_names,
-        &user_attr_string_names,
-        max_constraints,
-    );
-    if meta.has_constraints {
-        df.mark_constrained();
-    }
-
-    (meta, df, extras)
 }

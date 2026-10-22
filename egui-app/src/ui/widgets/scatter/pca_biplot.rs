@@ -350,7 +350,7 @@ mod tests {
     #[test]
     fn pca_coloring_uses_retained_source_rows() {
         use std::sync::Arc;
-        use tunny_core::dataframe::{DataFrame, TrialRow};
+        use tdashboard_analysis::dataframe::{DataFrame, TrialRow};
         let rows: Vec<TrialRow> = (0..4)
             .map(|i| TrialRow {
                 trial_id: 100 + i,
@@ -425,15 +425,15 @@ mod tests {
     fn to_core_maps_each_variant() {
         assert_eq!(
             PcaSpaceOption::Param.to_core(),
-            tunny_core::clustering::PcaSpace::Param
+            tdashboard_analysis::clustering::PcaSpace::Param
         );
         assert_eq!(
             PcaSpaceOption::Objective.to_core(),
-            tunny_core::clustering::PcaSpace::Objective
+            tdashboard_analysis::clustering::PcaSpace::Objective
         );
         assert_eq!(
             PcaSpaceOption::All.to_core(),
-            tunny_core::clustering::PcaSpace::All
+            tdashboard_analysis::clustering::PcaSpace::All
         );
     }
 

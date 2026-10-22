@@ -1,8 +1,7 @@
 use super::*;
 use crate::state::app_state::{Direction, StudyMeta};
 
-/// For tests: stores a DataFrame into the shared store (thread_local in
-/// test builds) and returns a new StudySelected payload (study_id + pareto_rank).
+/// Supplies a test-local derived table without ambient Study state.
 fn make_study_message(trial_count: usize) -> AppMessage {
     let core_rows: Vec<CoreTrialRow> = (0..trial_count)
         .map(|i| CoreTrialRow {
@@ -26,7 +25,6 @@ fn make_study_message(trial_count: usize) -> AppMessage {
         &[],
         0,
     );
-    tunny_core::dataframe::store_dataframes(vec![df]);
 
     AppMessage::StudySelected {
         meta: StudyMeta {
@@ -38,18 +36,10 @@ fn make_study_message(trial_count: usize) -> AppMessage {
             objective_names: vec!["y".to_string()],
             param_bounds: Default::default(),
         },
-        study_id: 0,
+        dataframe: Some(std::sync::Arc::new(df)),
         pareto_rank: vec![0; trial_count],
         pareto_indices: vec![],
     }
-}
-
-/// Guard for serializing tests that use the shared store (a process-global
-/// in production builds). Since tunny-desktop's tests link tunny-core
-/// normally, the store is shared across all tests. Tests using
-/// store_dataframes + snapshot are serialized with this guard to prevent races.
-fn test_store_guard() -> std::sync::MutexGuard<'static, ()> {
-    crate::app::test_store_guard()
 }
 
 /// For tests: builds a StudySelected for a single-objective Study, with
@@ -80,7 +70,6 @@ fn make_study_message_single_objective(values: &[f64], direction: Direction) -> 
         &[],
         0,
     );
-    tunny_core::dataframe::store_dataframes(vec![df]);
 
     AppMessage::StudySelected {
         meta: StudyMeta {
@@ -92,7 +81,7 @@ fn make_study_message_single_objective(values: &[f64], direction: Direction) -> 
             objective_names: vec!["y".to_string()],
             param_bounds: Default::default(),
         },
-        study_id: 0,
+        dataframe: Some(std::sync::Arc::new(df)),
         pareto_rank: vec![0; trial_count],
         pareto_indices: vec![],
     }
@@ -123,7 +112,6 @@ fn make_study_message_multi_objective(trial_count: usize) -> AppMessage {
         &[],
         0,
     );
-    tunny_core::dataframe::store_dataframes(vec![df]);
 
     AppMessage::StudySelected {
         meta: StudyMeta {
@@ -135,7 +123,7 @@ fn make_study_message_multi_objective(trial_count: usize) -> AppMessage {
             objective_names: vec!["y1".to_string(), "y2".to_string()],
             param_bounds: Default::default(),
         },
-        study_id: 0,
+        dataframe: Some(std::sync::Arc::new(df)),
         pareto_rank: vec![0; trial_count],
         pareto_indices: vec![],
     }
@@ -143,7 +131,6 @@ fn make_study_message_multi_objective(trial_count: usize) -> AppMessage {
 
 #[test]
 fn best_trial_history_set_for_single_objective_minimize() {
-    let _g = test_store_guard();
     let mut app_state = AppState::new();
     let mut widgets = WidgetStates::default();
     let mut is_loading = false;
@@ -165,7 +152,6 @@ fn best_trial_history_set_for_single_objective_minimize() {
 
 #[test]
 fn best_trial_history_set_for_single_objective_maximize() {
-    let _g = test_store_guard();
     let mut app_state = AppState::new();
     let mut widgets = WidgetStates::default();
     let mut is_loading = false;
@@ -187,7 +173,6 @@ fn best_trial_history_set_for_single_objective_maximize() {
 
 #[test]
 fn best_trial_history_none_for_multi_objective() {
-    let _g = test_store_guard();
     let mut app_state = AppState::new();
     let mut widgets = WidgetStates::default();
     let mut is_loading = false;
@@ -206,7 +191,6 @@ fn best_trial_history_none_for_multi_objective() {
 
 #[test]
 fn clustering_done_updates_state_when_lengths_match() {
-    let _g = test_store_guard();
     let mut app_state = AppState::new();
     let mut widgets = WidgetStates::default();
     let mut is_loading = false;
@@ -244,7 +228,6 @@ fn clustering_done_updates_state_when_lengths_match() {
 
 #[test]
 fn clustering_done_rejects_mismatched_label_length() {
-    let _g = test_store_guard();
     let mut app_state = AppState::new();
     let mut widgets = WidgetStates::default();
     let mut is_loading = false;
@@ -319,8 +302,7 @@ fn chunk_message(rows: Vec<CoreTrialRow>, is_first: bool, is_final: bool) -> App
 
 #[test]
 fn study_chunks_reclassify_history_and_keep_attribute_only_status() {
-    use tunny_core::dataframe::FeasibilityState::*;
-    let _g = test_store_guard();
+    use tdashboard_analysis::dataframe::FeasibilityState::*;
     for constraints in [
         vec![vec![], vec![], vec![]],
         vec![vec![], vec![-1.0], vec![-1.0, 0.0]],
@@ -365,7 +347,6 @@ fn study_chunks_reclassify_history_and_keep_attribute_only_status() {
 
 #[test]
 fn study_chunks_accumulate_rows_across_batches() {
-    let _g = test_store_guard();
     let mut app_state = AppState::new();
     let mut widgets = WidgetStates::default();
     let mut is_loading = true;
@@ -414,10 +395,9 @@ fn convergence_waits_for_final_constraint_schema_and_rejects_old_snapshot() {
     use crate::state::layout_state::ChartId;
     use std::sync::mpsc;
     use std::time::Duration;
-    use tunny_core::dataframe::FeasibilityState;
-    use tunny_core::indicators::MoIndicator;
+    use tdashboard_analysis::dataframe::FeasibilityState;
+    use tdashboard_analysis::indicators::MoIndicator;
 
-    let _g = test_store_guard();
     for indicator in MoIndicator::all() {
         let mut state = AppState::new();
         state.convergence_indicator = indicator;
@@ -567,7 +547,6 @@ fn convergence_waits_for_final_constraint_schema_and_rejects_old_snapshot() {
 /// journal holding one such row would otherwise crash on every reload.
 #[test]
 fn study_chunk_handles_ragged_objectives_without_panic() {
-    let _g = test_store_guard();
     let mut app_state = AppState::new();
     let mut widgets = WidgetStates::default();
     let mut is_loading = true;
@@ -631,7 +610,6 @@ fn study_chunk_handles_ragged_objectives_without_panic() {
 
 #[test]
 fn study_selected_resets_cluster_widget_runtime_state() {
-    let _g = test_store_guard();
     let mut app_state = AppState::new();
     let mut widgets = WidgetStates::default();
     let mut is_loading = false;

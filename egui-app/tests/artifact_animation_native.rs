@@ -4,6 +4,7 @@
 // Ordinary #[test] functions are not run here; their fixture imports are unused.
 #[allow(dead_code, unused_imports)]
 mod desktop;
+use desktop::test_support;
 pub use desktop::*;
 
 fn main() {

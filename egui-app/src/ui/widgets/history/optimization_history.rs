@@ -472,7 +472,7 @@ mod tests {
 
     #[test]
     fn tc_cav_partition_history_no_constraints_all_feasible() {
-        use tunny_core::dataframe::Feasibility;
+        use tdashboard_analysis::dataframe::Feasibility;
         let values = vec![1.0, 2.0, 3.0];
         let feas = Feasibility::from_column(None);
         let (f, inf, u) = partition_history_by_feasibility(&values, feas);
@@ -483,7 +483,7 @@ mod tests {
 
     #[test]
     fn tc_cav_partition_history_mixed() {
-        use tunny_core::dataframe::Feasibility;
+        use tdashboard_analysis::dataframe::Feasibility;
         let values = vec![1.0, 2.0, 3.0];
         let is_feasible = vec![1.0_f64, 0.0, 1.0]; // idx 1 = infeasible
         let feas = Feasibility::from_column(Some(&is_feasible));
@@ -497,7 +497,7 @@ mod tests {
 
     #[test]
     fn tc_cav_partition_history_all_infeasible() {
-        use tunny_core::dataframe::Feasibility;
+        use tdashboard_analysis::dataframe::Feasibility;
         let values = vec![1.0, 2.0];
         let is_feasible = vec![0.0_f64, 0.0];
         let feas = Feasibility::from_column(Some(&is_feasible));

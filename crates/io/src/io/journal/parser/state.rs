@@ -185,11 +185,7 @@ impl ParserState {
             name,
             directions,
             total_trials: 0,
-            completed_trials: 0,
-            param_names: HashSet::new(),
             objective_names: Vec::new(),
-            user_attr_names: HashSet::new(),
-            has_constraints: false,
             param_bounds: HashMap::new(),
         });
     }

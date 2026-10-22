@@ -5,7 +5,7 @@ use super::*;
 use crate::state::results::TopsisResult;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+use tdashboard_analysis::dataframe::{DataFrame, TrialRow as CoreRow};
 
 #[test]
 fn adopt_compute_state_syncs_runtime_and_preserves_ui_settings() {
@@ -241,9 +241,8 @@ fn rank_chart_all_paths_keep_journal_gaps_and_study_local_numbers() {
         .map(|line| format!("{line}\n"))
         .collect::<String>();
     for study in [0, 1, 0] {
-        let (_, df, _) =
-            tunny_core::journal_parser::parse_single_study(data.as_bytes(), study).unwrap();
-        let view = StudyView::new(Arc::new(df), vec![]);
+        let projection = crate::test_support::journal(data.as_bytes(), study);
+        let view = StudyView::new(projection.dataframe, vec![]);
         assert_eq!(
             view.trial_ids,
             vec![
@@ -614,7 +613,8 @@ fn topsis_full_pipeline_equal_weights() {
     let is_minimize = vec![true, true];
 
     let core_result =
-        tunny_core::topsis::compute_topsis(&objectives, 5, 2, &weights, &is_minimize).unwrap();
+        tdashboard_analysis::topsis::compute_topsis(&objectives, 5, 2, &weights, &is_minimize)
+            .unwrap();
 
     let mcdm_result = McdmResult::Topsis(TopsisResult {
         scores: core_result.scores.clone(),
@@ -642,11 +642,13 @@ fn topsis_weight_bias_changes_ranking() {
 
     let weights_obj0 = normalize_weights(&[1.0, 0.0]).unwrap();
     let r0 =
-        tunny_core::topsis::compute_topsis(&objectives, 5, 2, &weights_obj0, &is_minimize).unwrap();
+        tdashboard_analysis::topsis::compute_topsis(&objectives, 5, 2, &weights_obj0, &is_minimize)
+            .unwrap();
 
     let weights_obj1 = normalize_weights(&[0.0, 1.0]).unwrap();
     let r1 =
-        tunny_core::topsis::compute_topsis(&objectives, 5, 2, &weights_obj1, &is_minimize).unwrap();
+        tdashboard_analysis::topsis::compute_topsis(&objectives, 5, 2, &weights_obj1, &is_minimize)
+            .unwrap();
 
     assert_ne!(
         r0.ranked_indices, r1.ranked_indices,
@@ -660,7 +662,8 @@ fn topsis_single_objective_works() {
     let weights = normalize_weights(&[1.0]).unwrap();
     let is_minimize = vec![true];
 
-    let result = tunny_core::topsis::compute_topsis(&objectives, 5, 1, &weights, &is_minimize);
+    let result =
+        tdashboard_analysis::topsis::compute_topsis(&objectives, 5, 1, &weights, &is_minimize);
     assert!(result.is_ok());
     let r = result.unwrap();
     assert_eq!(r.scores.len(), 5);
@@ -708,7 +711,8 @@ fn top_n_toggle_updates_display() {
     let is_minimize = vec![true, true];
 
     let core_result =
-        tunny_core::topsis::compute_topsis(&objectives, 5, 2, &weights, &is_minimize).unwrap();
+        tdashboard_analysis::topsis::compute_topsis(&objectives, 5, 2, &weights, &is_minimize)
+            .unwrap();
     let mcdm = McdmResult::Topsis(TopsisResult {
         scores: core_result.scores,
         ranked_indices: core_result.ranked_indices,

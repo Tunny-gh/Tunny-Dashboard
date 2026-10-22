@@ -11,7 +11,7 @@
 use std::sync::mpsc;
 use std::time::Duration;
 
-use tunny_core::rdb::RdbUrl;
+use tdashboard_io::rdb::RdbUrl;
 use tunny_desktop::state::messages::AppMessage;
 use tunny_desktop::state::{
     app_state::AppState, journal_studies::JournalStudies, message_handler::MessageHandler,
@@ -81,7 +81,7 @@ fn load_single_study_task_loads_mo_constrained() {
 /// Verifies that the `study_fingerprint_url` change-detection query returns the
 /// same value when the DB hasn't changed. The Dashboard itself no longer polls
 /// for changes (Reload re-reads on demand), but the query stays part of
-/// `tunny_core`'s public API, so its stability is still worth pinning.
+/// I/O's public API, so its stability is still worth pinning.
 #[test]
 #[ignore]
 fn study_fingerprint_url_is_stable_without_changes() {
@@ -93,9 +93,9 @@ fn study_fingerprint_url_is_stable_without_changes() {
         .expect("messy_states study must exist in the fixture DB")
         .study_id;
 
-    let first = tunny_core::rdb::study_fingerprint_url(&url, study_id)
+    let first = tdashboard_io::rdb::study_fingerprint_url(&url, study_id)
         .expect("fingerprint should succeed against a live DB");
-    let second = tunny_core::rdb::study_fingerprint_url(&url, study_id)
+    let second = tdashboard_io::rdb::study_fingerprint_url(&url, study_id)
         .expect("fingerprint should succeed against a live DB");
     assert_eq!(
         first, second,

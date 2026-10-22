@@ -3,7 +3,7 @@ use crate::state::results::{PrometheeResult, TopsisResult, VikorResult};
 use crate::theme::chart_colors::COLOR_MCDM_NONE;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+use tdashboard_analysis::dataframe::{DataFrame, TrialRow as CoreRow};
 
 // ── Test helpers ──────────────────────────────────────────
 

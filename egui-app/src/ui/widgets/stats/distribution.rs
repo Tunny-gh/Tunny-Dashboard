@@ -344,7 +344,7 @@ impl<T> DistributionCache<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tunny_core::dataframe::{DistributionMetadata, TrialRow};
+    use tdashboard_analysis::dataframe::{DistributionMetadata, TrialRow};
 
     pub(crate) fn view(rows: Vec<TrialRow>, params: &[&str], objectives: &[&str]) -> StudyView {
         let params = params.iter().map(|n| n.to_string()).collect::<Vec<_>>();
@@ -623,10 +623,8 @@ mod tests {
 
     #[test]
     fn csv_numeric_parameters_are_value_only_and_categories_keep_parsed_presence() {
-        let parsed =
-            tunny_core::flat_csv::parse_flat_csv(b"in:n,in:cat,out:y\n1,,0\n1,a,2\n2,a,4\n", "csv")
-                .unwrap();
-        let data = StudyView::new(Arc::new(parsed.dataframe), vec![]);
+        let parsed = crate::test_support::csv(b"in:n,in:cat,out:y\n1,,0\n1,a,2\n2,a,4\n", "csv");
+        let data = StudyView::new(parsed.dataframe, vec![]);
         let (values, groups) = DistributionSelection::candidates(&data);
         assert_eq!(
             values,

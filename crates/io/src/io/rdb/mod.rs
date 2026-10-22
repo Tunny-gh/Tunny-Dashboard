@@ -16,16 +16,11 @@ mod url;
 #[cfg(test)]
 mod server_snapshot_tests;
 
-pub(crate) use generic::study_rows_to_dataframe;
-
-use crate::decoded::DecodedTable as DataFrame;
-use crate::extras::StudyExtras;
 use crate::io::journal::parser::StudyMeta;
 
 pub use backend::{OptunaBackend, SqlParam, SqlValue};
 pub use generic::{
-    parse_single_study, parse_single_study_rows, scan_study_list, study_fingerprint, RdbStudyRows,
-    StudyFingerprint,
+    parse_single_study_rows, scan_study_list, study_fingerprint, RdbStudyRows, StudyFingerprint,
 };
 // `RdbFingerprintSession` is defined within this module (mod.rs), so no re-export is needed
 // (the `pub struct` can already be referenced directly as `tdashboard_io::rdb::RdbFingerprintSession`).
@@ -70,19 +65,6 @@ pub fn parse_single_study_rows_url(url: &RdbUrl, study_id: u32) -> Result<RdbStu
         RdbKind::Mysql => MysqlBackend::connect(&url.url)?
             .with_study_read(|session| parse_single_study_rows(session, study_id)),
     }
-}
-
-/// URL variant: reads all COMPLETE trials of the given study and returns
-/// (finalized metadata, `DataFrame`, `StudyExtras`). See `parse_single_study` for details.
-/// Reuses the owned rows acquisition; its transaction and connection have ended
-/// before DataFrame projection starts.
-pub fn parse_single_study_url(
-    url: &RdbUrl,
-    study_id: u32,
-) -> Result<(StudyMeta, DataFrame, StudyExtras), String> {
-    Ok(study_rows_to_dataframe(parse_single_study_rows_url(
-        url, study_id,
-    )?))
 }
 
 /// A reusable connection session for public fingerprint queries.

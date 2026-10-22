@@ -671,7 +671,7 @@ mod tests {
     use super::*;
 
     // The edge_cross / cell_density_grid / box_blur_2d tests were moved to
-    // rust_core/src/contour/mod.rs along with the numeric-processing migration.
+    // crates/analysis/src/contour/mod.rs along with the numeric-processing migration.
 
     #[test]
     fn nearest_point_within_threshold() {

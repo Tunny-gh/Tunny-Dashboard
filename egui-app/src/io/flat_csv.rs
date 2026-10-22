@@ -24,7 +24,7 @@ pub fn load_csv(path: &Path) -> Result<CsvLoadResult, String> {
         .unwrap_or("csv")
         .to_string();
 
-    let result = tunny_core::flat_csv::parse_flat_csv(&data, &study_name)?;
+    let result = tdashboard_io::flat_csv::parse_flat_csv(&data, &study_name)?;
 
     let meta = crate::io::journal::convert_study_meta(result.meta);
 
@@ -135,7 +135,6 @@ mod tests {
 
     #[test]
     fn load_csv_builds_study_and_artifacts() {
-        let _guard = crate::app::test_store_guard();
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
         std::fs::write(base.join("img0.png"), b"i0").unwrap();

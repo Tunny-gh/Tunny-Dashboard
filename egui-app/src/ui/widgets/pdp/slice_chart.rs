@@ -288,7 +288,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
     use std::sync::Arc;
-    use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+    use tdashboard_analysis::dataframe::{DataFrame, TrialRow as CoreRow};
 
     fn make_view(param_vals: &[f64], obj_vals: &[f64], pareto_ranks: Vec<u32>) -> StudyView {
         let n = param_vals.len();
@@ -384,7 +384,7 @@ mod tests {
 
     #[test]
     fn test_compute_plot_points_skips_nan_obj() {
-        use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+        use tdashboard_analysis::dataframe::{DataFrame, TrialRow as CoreRow};
         // Rows whose obj_vals contains NaN are skipped
         let core_rows: Vec<CoreRow> = vec![
             CoreRow {

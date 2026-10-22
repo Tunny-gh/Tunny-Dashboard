@@ -810,7 +810,7 @@ fn slice_csv_includes_param_obj_and_pareto() {
 // ── Multi-objective surrogate optimization CSV tests ──────────────────────
 
 fn make_multi_opt_result() -> crate::state::messages::SurrogateMultiOptUiResult {
-    use tunny_core::surrogate_opt::ParetoFrontPoint;
+    use tdashboard_analysis::surrogate_opt::ParetoFrontPoint;
     crate::state::messages::SurrogateMultiOptUiResult {
         param_names: vec!["x".to_string(), "y".to_string()],
         objective_names: vec!["f0".to_string(), "f1".to_string()],
@@ -924,7 +924,7 @@ fn violin_plot_csv_returns_none_when_no_study() {
 /// are constructed directly.
 fn make_category_study() -> StudyContext {
     use std::sync::Arc;
-    use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+    use tdashboard_analysis::dataframe::{DataFrame, TrialRow as CoreRow};
 
     let param_names = vec!["x".to_string(), "cat".to_string()];
     let rows: Vec<CoreRow> = vec![
@@ -966,7 +966,7 @@ fn make_category_study() -> StudyContext {
 #[test]
 fn all_trials_csv_follows_user_attribute_toggle_without_changing_chart_csv() {
     use std::sync::Arc;
-    use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+    use tdashboard_analysis::dataframe::{DataFrame, TrialRow as CoreRow};
 
     let mut first = CoreRow {
         trial_id: 1,
@@ -1046,7 +1046,7 @@ fn all_trials_csv_follows_user_attribute_toggle_without_changing_chart_csv() {
 fn all_trials_csv_distinguishes_json_null_missing_and_literal_text() {
     use serde_json::json;
     use std::sync::Arc;
-    use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+    use tdashboard_analysis::dataframe::{DataFrame, TrialRow as CoreRow};
 
     let make_row = |id| CoreRow {
         trial_id: id,
@@ -1146,8 +1146,8 @@ fn distribution_csv_matches_prepared_chart_groups_scale_and_sparse_eligibility()
     use crate::state::types::StudyView;
     use crate::ui::widgets::distribution::{DistributionSelection, DistributionValue, GRID_POINTS};
     use std::sync::Arc;
-    use tunny_core::dataframe::{DataFrame, DistributionMetadata, TrialRow as CoreRow};
-    use tunny_core::export::{CsvField, CsvWriter};
+    use tdashboard_analysis::dataframe::{DataFrame, DistributionMetadata, TrialRow as CoreRow};
+    use tdashboard_io::csv::{CsvField, CsvWriter};
     let categories = [
         Some(serde_json::json!("")),
         Some(serde_json::json!("")),
@@ -1280,7 +1280,7 @@ fn constant_distribution_csv_exports_box_only() {
 fn decimal_constant_raw_violin_csv_omits_constant_group_but_exports_nonconstant_group() {
     use crate::ui::widgets::distribution::GRID_POINTS;
     use std::sync::Arc;
-    use tunny_core::dataframe::{DataFrame, TrialRow as CoreRow};
+    use tdashboard_analysis::dataframe::{DataFrame, TrialRow as CoreRow};
 
     let mut rows: Vec<_> = (0..3)
         .map(|_| CoreRow {
@@ -1355,8 +1355,8 @@ fn decimal_constant_raw_violin_csv_omits_constant_group_but_exports_nonconstant_
 #[test]
 fn distribution_csv_preserves_identity_when_formula_guards_collide() {
     use std::sync::Arc;
-    use tunny_core::dataframe::{DataFrame, DistributionMetadata, TrialRow as CoreRow};
-    use tunny_core::export::{CsvField, CsvWriter};
+    use tdashboard_analysis::dataframe::{DataFrame, DistributionMetadata, TrialRow as CoreRow};
+    use tdashboard_io::csv::{CsvField, CsvWriter};
     let mut study = make_category_study();
     let rows = ["=1", "=1", "'=1", "'=1"]
         .into_iter()

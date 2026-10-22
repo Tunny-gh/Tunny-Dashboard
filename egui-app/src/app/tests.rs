@@ -59,7 +59,6 @@ fn enable_recording_reuse_checkbox(mut render: impl FnMut(&egui::Context)) {
 #[test]
 fn d7_live_filter_session_and_csv_export_keep_trial_identity() {
     use crate::io::{export, session};
-    let _guard = test_store_guard();
     let directory = tempfile::tempdir().unwrap();
     let source = directory.path().join("entry.log");
     std::fs::write(&source, concat!(
@@ -1007,7 +1006,6 @@ fn d5_global_deliveries_do_not_finish_unrelated_canvas_requests() {
 
 #[test]
 fn journal_late_attributes_correct_the_live_prefix_before_completion_and_reload() {
-    let _guard = test_store_guard();
     use serde_json::json;
     use tdashboard_study::FeasibilityState;
     let dir = tempfile::tempdir().unwrap();
@@ -1132,7 +1130,6 @@ fn journal_late_attributes_correct_the_live_prefix_before_completion_and_reload(
 
 #[test]
 fn d2_journal_live_open_select_reload_replace_and_headless_projection() {
-    let _guard = test_store_guard();
     use tdashboard_study::*;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("slice.log");
@@ -1162,12 +1159,7 @@ fn d2_journal_live_open_select_reload_replace_and_headless_projection() {
     );
     assert_eq!(
         app.app_state.best_trial_history,
-        tunny_core::journal_parser::study_projection::project(&old).history
-    );
-    // The derived global mirror is not the acquisition authority or table input.
-    tunny_core::dataframe::swap_snapshot(
-        0,
-        std::sync::Arc::new(tunny_core::dataframe::DataFrame::empty()),
+        tdashboard_analysis::projection::project(&old).history
     );
     select_artifact_study(&mut app, 1);
     select_artifact_study(&mut app, 0);
@@ -1308,7 +1300,6 @@ fn d2_stale_same_path_scan_and_old_loader_cannot_populate_replaced_source() {
 
 #[test]
 fn d2_gui_reload_failure_preserves_the_correct_generation_before_and_after_acceptance() {
-    let _guard = test_store_guard();
     use tdashboard_study::*;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("reload.log");
@@ -1453,7 +1444,6 @@ fn d2_comparison_fixture() -> String {
 
 #[test]
 fn d2_replaced_sqlite_callbacks_cannot_overwrite_a_completed_journal_load() {
-    let _guard = test_store_guard();
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("old.db");
     let connection = rusqlite::Connection::open(&db).unwrap();
@@ -1581,7 +1571,6 @@ fn d2_replaced_sqlite_callbacks_cannot_overwrite_a_completed_journal_load() {
 
 #[test]
 fn d3_csv_and_sqlite_use_owned_managers_for_selection_and_reload() {
-    let _guard = test_store_guard();
     let directory = tempfile::tempdir().unwrap();
     let csv = directory.path().join("input.csv");
     std::fs::write(&csv, "in:x,out:f,score\n1,10,inf\n2,20,-inf\n").unwrap();
@@ -1605,10 +1594,6 @@ fn d3_csv_and_sqlite_use_owned_managers_for_selection_and_reload() {
     );
     assert!(
         matches!(csv_input.data().trials()[0].user_attributes["score"].as_ref(),tdashboard_study::AttributeValue::Number(tdashboard_study::Number(n)) if *n == f64::INFINITY)
-    );
-    tunny_core::dataframe::swap_snapshot(
-        0,
-        std::sync::Arc::new(tunny_core::dataframe::DataFrame::empty()),
     );
     let meta = app.app_state.all_studies[0].clone();
     app.select_study(meta, false, false);
@@ -1697,7 +1682,6 @@ fn d3_csv_and_sqlite_use_owned_managers_for_selection_and_reload() {
 #[test]
 #[ignore = "requires the disposable genuine Optuna server fixtures"]
 fn d3_live_servers_use_the_owned_gui_handoff_and_reload() {
-    let _guard = test_store_guard();
     for family in ["POSTGRES", "MYSQL"] {
         let url = std::env::var(format!("TUNNY_SNAPSHOT_{family}_URL"))
             .expect("disposable server required");
@@ -1723,10 +1707,6 @@ fn d3_live_servers_use_the_owned_gui_handoff_and_reload() {
         assert_eq!(input.data().trials().len(), 2);
         assert!(input.data().trials()[1].parameters.contains_key("x"));
         assert!(input.data().trials()[1].user_attributes.contains_key("tag"));
-        tunny_core::dataframe::swap_snapshot(
-            id,
-            std::sync::Arc::new(tunny_core::dataframe::DataFrame::empty()),
-        );
         let meta = app.app_state.current_study.as_ref().unwrap().meta.clone();
         app.select_study(meta, false, false);
         assert_eq!(
@@ -1756,7 +1736,6 @@ fn d3_live_servers_use_the_owned_gui_handoff_and_reload() {
 
 #[test]
 fn d2_streaming_gui_preserves_column_discovery_order_across_the_batch_boundary() {
-    let _guard = test_store_guard();
     use serde_json::json;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("columns.log");
@@ -1766,11 +1745,8 @@ fn d2_streaming_gui_preserves_column_discovery_order_across_the_batch_boundary()
         bytes.push_str(&(json!({"op_code":4,"study_id":0,"distributions":{},"state":1,"params":{name:i},"values":[i],"user_attrs":{format!("{name}_num"):i,format!("{name}_text"):name}}).to_string() + "\n"));
     }
     std::fs::write(&path, &bytes).unwrap();
-    let mut legacy = tunny_core::dataframe::DataFrame::empty();
-    tunny_core::journal_parser::parse_single_study_streaming(bytes.as_bytes(), 0, 1000, |batch| {
-        batch.apply_to(&mut legacy);
-    })
-    .unwrap();
+    let expected = crate::test_support::streamed(bytes.as_bytes(), 0, 1000);
+    let legacy = expected.dataframe;
     let mut app = artifact_test_app(None);
     app.open_path(path);
     poll_until(&mut app, |a| {
@@ -1813,7 +1789,6 @@ fn d2_streaming_gui_preserves_column_discovery_order_across_the_batch_boundary()
 
 #[test]
 fn d2_comparison_reload_preserves_request_order_and_full_read_rows_on_reverse_completion() {
-    let _guard = test_store_guard();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("comparison.log");
     let bytes = d2_comparison_fixture();
@@ -1857,11 +1832,8 @@ fn d2_comparison_reload_preserves_request_order_and_full_read_rows_on_reverse_co
         );
         assert_eq!(app.app_state.comparison_convergence_histories.len(), 2);
         for context in &app.app_state.comparison_studies {
-            let (_, legacy, _) = tunny_core::journal_parser::parse_single_study(
-                bytes.as_bytes(),
-                context.meta.study_id,
-            )
-            .unwrap();
+            let expected = crate::test_support::journal(bytes.as_bytes(), context.meta.study_id);
+            let legacy = expected.dataframe;
             assert_eq!(
                 context.view.trial_ids,
                 (0..legacy.row_count())
@@ -1930,7 +1902,6 @@ fn d2_comparison_reload_preserves_request_order_and_full_read_rows_on_reverse_co
 
 #[test]
 fn d2_comparison_cached_streaming_input_is_reused_but_forced_reload_uses_full_read_order() {
-    let _guard = test_store_guard();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("cached-comparison.log");
     std::fs::write(&path, d2_comparison_fixture()).unwrap();
@@ -1987,7 +1958,6 @@ fn d2_comparison_cached_streaming_input_is_reused_but_forced_reload_uses_full_re
 }
 
 fn assert_d2_overlapping_journal_load_is_shared(comparison_first: bool) {
-    let _guard = test_store_guard();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("overlap.log");
     std::fs::write(&path, d2_comparison_fixture()).unwrap();
@@ -2127,7 +2097,6 @@ fn d2_primary_in_flight_then_comparison_request_shares_the_study_load() {
 
 #[test]
 fn d2_shared_journal_failure_retry_and_forced_supersede_resolve_comparison_interests() {
-    let _guard = test_store_guard();
     for comparison_first in [true, false] {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("overlap-failure.log");
@@ -2314,7 +2283,6 @@ fn d2_cached_journal_selection_and_comparison_complete_with_a_full_gui_channel()
         );
     }
 
-    let _guard = test_store_guard();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("cached-full-channel.log");
     std::fs::write(&path, d2_comparison_fixture()).unwrap();
@@ -2509,7 +2477,6 @@ fn verify_gallery_render_and_image(app: &mut TunnyApp, expected_trials: usize) {
 
 #[test]
 fn artifacts_follow_storage_lifecycle_through_app_actions() {
-    let _guard = test_store_guard();
     let tmp = tempfile::tempdir().unwrap();
     let journal = tmp.path().join("study.log");
     let folder = tmp.path().join("artifacts");
@@ -2623,7 +2590,6 @@ fn write_artifact_race_fixture(dir: &std::path::Path, image_name: &str) -> std::
 
 #[test]
 fn cli_root_overrides_adjacent_discovery_and_preserves_scans_across_studies() {
-    let _guard = test_store_guard();
     let source = tempfile::tempdir().unwrap();
     let cli = tempfile::tempdir().unwrap();
     let journal = write_artifact_race_fixture(source.path(), "target");
@@ -2672,7 +2638,6 @@ fn cli_root_overrides_adjacent_discovery_and_preserves_scans_across_studies() {
 
 #[test]
 fn artifact_race_late_journal_scan_cannot_replace_requested_storage() {
-    let _guard = test_store_guard();
     let a = tempfile::tempdir().unwrap();
     let b = tempfile::tempdir().unwrap();
     let a_path = write_artifact_race_fixture(a.path(), "image-a");
@@ -2755,7 +2720,6 @@ fn artifact_race_late_journal_scan_cannot_replace_requested_storage() {
 
 #[test]
 fn artifact_race_manual_folder_during_reload_stays_authoritative() {
-    let _guard = test_store_guard();
     let tmp = tempfile::tempdir().unwrap();
     let journal = write_artifact_race_fixture(tmp.path(), "target");
     let manual = tmp.path().join("manual");
@@ -2840,7 +2804,6 @@ fn journal_scan_guard_accepts_normalized_rdb_source() {
 #[test]
 #[ignore = "requires TUNNY_ARTIFACT_JOURNAL and TUNNY_ARTIFACT_STUDY"]
 fn real_journal_artifacts_through_app_actions() {
-    let _guard = test_store_guard();
     let journal = std::path::PathBuf::from(std::env::var_os("TUNNY_ARTIFACT_JOURNAL").unwrap());
     let study_name = std::env::var("TUNNY_ARTIFACT_STUDY").unwrap();
     let mut app = artifact_test_app(None);
@@ -2893,7 +2856,6 @@ fn real_journal_artifacts_through_app_actions() {
 
 #[test]
 fn designexplorer_worker_rebases_images_and_gui_selection_survives_late_messages() {
-    let _guard = test_store_guard();
     let source = tempfile::tempdir().unwrap();
     let cli_root = tempfile::tempdir().unwrap();
     let gui_root = tempfile::tempdir().unwrap();
@@ -3167,8 +3129,8 @@ fn convergence_done_maps_to_compute_sync() {
     // spinner keeps spinning.
     use crate::state::app_state::ConvergenceHistory;
     let msg = AppMessage::IndicatorHistoryDone {
-        source_df: std::sync::Arc::new(tunny_core::dataframe::DataFrame::empty()),
-        indicator: tunny_core::indicators::MoIndicator::Hypervolume,
+        source_df: std::sync::Arc::new(tdashboard_analysis::dataframe::DataFrame::empty()),
+        indicator: tdashboard_analysis::indicators::MoIndicator::Hypervolume,
         base: ConvergenceHistory {
             trial_ids: vec![],
             values: vec![],

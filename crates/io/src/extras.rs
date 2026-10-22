@@ -1,10 +1,6 @@
-//! Owned decoded extras for legacy projections, replaced in D4.
-//!
-//! `DataFrame` holds only COMPLETE trials column-wise and underpins all analysis,
-//! but intermediate values, trial state, and start/complete datetimes are needed
-//! for all trials (learning curves, timelines, progress display, etc.). These are
-//! decoded as owned values before becoming authoritative Study records. Legacy
-//! callers can still project `StudyExtras`; I/O never installs a shared store.
+//! Acquisition-only state, time and intermediate observations for all trials.
+//! Decoders consume these when assembling authoritative domain updates; no
+//! shared store or analysis projection is installed by I/O.
 
 /// Optuna trial state (converted from both the journal's numeric representation
 /// and SQLite's string representation).

@@ -77,10 +77,6 @@ tunny-dashboard/
 │           ├── gh/     # GHX parsing, Rhino.Compute lifecycle and GH optimization
 │           ├── process/ # Generic external-tool objective (command integration)
 │           └── runner/ # Generic real-evaluation loop and recording
-├── rust_core/          # Legacy facades retained for tests until D8 (not shipped)
-│   └── src/
-│       ├── data/       # Legacy presentation-store facade (derived views only)
-│       └── io/         # Temporary entry composition and CSV encoding adapters
 ├── egui-app/           # tunny-dashboard package (TunnyDashboard executable)
 │   ├── src/
 │   │   ├── io/         # File dialogs, I/O dispatch, export composition

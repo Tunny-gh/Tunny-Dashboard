@@ -156,7 +156,6 @@ fn rows_view(load: RdbStudyRows) -> Value {
 enum Route {
     Independent,
     Rows,
-    DataFrame,
 }
 impl Route {
     fn read(self, f: &Fixture) -> Value {
@@ -165,12 +164,6 @@ impl Route {
                 rows_view(parse_single_study_rows(Backend::connect(&f.url).query(), f.id).unwrap())
             }
             Self::Rows => rows_view(parse_single_study_rows_url(&f.url, f.id).unwrap()),
-            Self::DataFrame => {
-                let (meta, frame, extras) = parse_single_study_url(&f.url, f.id).unwrap();
-                json!({"meta": format!("{meta:?}"), "extras": format!("{extras:?}"),
-                    "contents": frame,
-                })
-            }
         }
     }
 }
@@ -182,7 +175,7 @@ fn server_snapshot_interleaved_acquisition() {
     for family in ["postgres", "mysql"] {
         let mut index = 0;
         for action in ["transition", "metadata"] {
-            for route in [Route::Independent, Route::Rows, Route::DataFrame] {
+            for route in [Route::Independent, Route::Rows] {
                 let f = Fixture::new(family, index);
                 index += 1;
                 let old = route.read(&f);
@@ -220,7 +213,7 @@ fn server_snapshot_interleaved_acquisition() {
                     Route::Independent => assert_eq!(acquired, new),
                     _ => assert_eq!(acquired, old),
                 }
-                if action == "metadata" && !matches!(route, Route::DataFrame) {
+                if action == "metadata" {
                     assert_eq!(old["meta"]["total"], new["meta"]["total"]);
                     assert_eq!(old["meta"]["complete"], new["meta"]["complete"]);
                 }
@@ -443,7 +436,7 @@ fn server_snapshot_resource_lifetime_and_public_errors() {
         drop(reader);
         // Every public path opens its own connection; only the observer is
         // otherwise live. Identify that connection without logging credentials.
-        for dataframe in [false, true] {
+        {
             for prefix in ["SELECT study_name", "SELECT tsa.trial_id"] {
                 let observer_url = observer_url(&f);
                 let family_owned = family.to_string();
@@ -465,11 +458,7 @@ fn server_snapshot_resource_lifetime_and_public_errors() {
                     };
                     killer.query().query(&kill, &[]).unwrap();
                 });
-                let result = if dataframe {
-                    parse_single_study_url(&f.url, f.id).map(|_| ())
-                } else {
-                    parse_single_study_rows_url(&f.url, f.id).map(|_| ())
-                };
+                let result = parse_single_study_rows_url(&f.url, f.id).map(|_| ());
                 assert!(hook.fired());
                 drop(hook);
                 let error = result.expect_err("a failed public acquisition must not return data");
@@ -494,16 +483,11 @@ fn server_snapshot_resource_lifetime_and_public_errors() {
                     assert!(error.contains("Failed to finish"), "{error}");
                 }
                 assert!(parse_single_study_rows_url(&f.url, f.id).is_ok());
-                println!(
-                    "{family} dataframe={dataframe} failure after {prefix}: no successful data"
-                );
+                println!("{family} failure after {prefix}: no successful data");
             }
-            let error = if dataframe {
-                parse_single_study_url(&f.url, u32::MAX).map(|_| ())
-            } else {
-                parse_single_study_rows_url(&f.url, u32::MAX).map(|_| ())
-            }
-            .unwrap_err();
+            let error = parse_single_study_rows_url(&f.url, u32::MAX)
+                .map(|_| ())
+                .unwrap_err();
             assert!(error.contains("not found"));
         }
     }

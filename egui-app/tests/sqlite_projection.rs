@@ -1,0 +1,903 @@
+use rusqlite::Connection;
+use tdashboard_analysis::{
+    dataframe::{self, DataFrame},
+    extras::TrialState,
+    projection::StudyMeta,
+};
+use tdashboard_io::{
+    rdb::{self, SqliteBackend},
+    sqlite::*,
+};
+mod common;
+
+fn parse_single_study(
+    path: &std::path::Path,
+    id: u32,
+) -> Result<
+    (
+        StudyMeta,
+        std::sync::Arc<DataFrame>,
+        tdashboard_analysis::extras::StudyExtras,
+    ),
+    String,
+> {
+    let key = common::key(id);
+    let rows = tdashboard_io::sqlite::parse_single_study_rows(path, id)?;
+    let p = tdashboard_analysis::projection::project(&common::acquire(key, rows.into_batch(key)));
+    Ok((p.meta, p.dataframe, p.extras))
+}
+
+fn backend_projection(
+    backend: &mut SqliteBackend,
+    id: u32,
+) -> Result<
+    (
+        StudyMeta,
+        std::sync::Arc<DataFrame>,
+        tdashboard_analysis::extras::StudyExtras,
+    ),
+    String,
+> {
+    let key = common::key(id);
+    let rows = rdb::parse_single_study_rows(backend, id)?;
+    let p = tdashboard_analysis::projection::project(&common::acquire(key, rows.into_batch(key)));
+    Ok((p.meta, p.dataframe, p.extras))
+}
+
+fn project_rows(
+    rows: Vec<tdashboard_io::decoded::TrialRow>,
+) -> Vec<tdashboard_analysis::dataframe::TrialRow> {
+    rows.into_iter()
+        .map(|r| tdashboard_analysis::dataframe::TrialRow {
+            distribution_metadata: tdashboard_analysis::dataframe::DistributionMetadata {
+                categorical: r.distribution_metadata.categorical,
+                numeric_discrete: r.distribution_metadata.numeric_discrete,
+                categories: r.distribution_metadata.categories,
+            },
+            trial_id: r.trial_id,
+            trial_number: r.trial_number,
+            param_display: r.param_display,
+            param_category_label: r.param_category_label,
+            objective_values: r.objective_values,
+            user_attrs_numeric: r.user_attrs_numeric,
+            user_attrs_string: r.user_attrs_string,
+            user_attrs_json: r.user_attrs_json,
+            constraint_values: r.constraint_values,
+        })
+        .collect()
+}
+
+#[test]
+fn sqlite_generic_rdb_metadata_survives_row_ingestion_and_append_refresh() {
+    use serde_json::json;
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+    let categorical =
+        json!({"name":"CategoricalDistribution","attributes":{"choices":["",1,"1"]}}).to_string();
+    let stepped =
+        json!({"name":"FloatDistribution","attributes":{"low":0,"high":10,"step":0.5}}).to_string();
+    for id in 1..=3 {
+        conn.execute("INSERT INTO trial_params (trial_id,param_name,param_value,distribution_json) VALUES (?,'typed',?,?)", rusqlite::params![id, id - 1, categorical]).unwrap();
+        conn.execute("INSERT INTO trial_params (trial_id,param_name,param_value,distribution_json) VALUES (?,'stepped',2.5,?)", rusqlite::params![id, stepped]).unwrap();
+    }
+    let (_, initial, _) = parse_single_study(file.path(), 1).unwrap();
+    let rows = parse_single_study_rows(file.path(), 1).unwrap();
+    let mut appended = crate::dataframe::DataFrame::empty();
+    for row in &project_rows(rows.rows.clone()) {
+        appended.append_trials(
+            std::slice::from_ref(row),
+            &rows.param_names,
+            &rows.objective_names,
+            &rows.user_attr_numeric_names,
+            &rows.user_attr_string_names,
+            rows.max_constraints,
+        );
+    }
+    for df in [&initial, &appended] {
+        assert_eq!(
+            df.category_values("typed").unwrap(),
+            &[Some(json!("")), Some(json!(1)), Some(json!("1"))]
+        );
+        assert!(df.is_discrete_parameter("stepped"));
+    }
+    conn.execute(
+        "INSERT INTO trials (trial_id,number,study_id,state) VALUES (50,4,1,'COMPLETE')",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO trial_values (trial_id,objective,value,value_type) VALUES (50,0,99,'FINITE')",
+        [],
+    )
+    .unwrap();
+    let refreshed = parse_single_study_rows(file.path(), 1).unwrap();
+    appended.append_trials(
+        &project_rows(refreshed.rows[3..].to_vec()),
+        &refreshed.param_names,
+        &refreshed.objective_names,
+        &refreshed.user_attr_numeric_names,
+        &refreshed.user_attr_string_names,
+        refreshed.max_constraints,
+    );
+    assert_eq!(appended.category_values("typed").unwrap()[3], None);
+    assert!(appended.is_discrete_parameter("stepped"));
+}
+
+fn create_schema(conn: &Connection) {
+    conn.execute_batch(
+        "
+        CREATE TABLE studies (
+            study_id INTEGER PRIMARY KEY,
+            study_name VARCHAR(512)
+        );
+        CREATE TABLE study_directions (
+            study_direction_id INTEGER PRIMARY KEY,
+            direction VARCHAR(8),
+            study_id INTEGER,
+            objective INTEGER
+        );
+        CREATE TABLE trials (
+            trial_id INTEGER PRIMARY KEY,
+            number INTEGER,
+            study_id INTEGER,
+            state VARCHAR(8),
+            datetime_start TEXT,
+            datetime_complete TEXT
+        );
+        CREATE TABLE trial_values (
+            trial_value_id INTEGER PRIMARY KEY,
+            trial_id INTEGER,
+            objective INTEGER,
+            value REAL,
+            value_type VARCHAR(7)
+        );
+        CREATE TABLE trial_params (
+            param_id INTEGER PRIMARY KEY,
+            trial_id INTEGER,
+            param_name VARCHAR(512),
+            param_value REAL,
+            distribution_json TEXT
+        );
+        CREATE TABLE trial_user_attributes (
+            id INTEGER PRIMARY KEY,
+            trial_id INTEGER,
+            key VARCHAR(512),
+            value_json TEXT
+        );
+        CREATE TABLE trial_system_attributes (
+            id INTEGER PRIMARY KEY,
+            trial_id INTEGER,
+            key VARCHAR(512),
+            value_json TEXT
+        );
+        CREATE TABLE study_system_attributes (
+            id INTEGER PRIMARY KEY,
+            study_id INTEGER,
+            key VARCHAR(512),
+            value_json TEXT
+        );
+        ",
+    )
+    .unwrap();
+}
+
+/// study_id=1: single-objective minimize study with a float param, an int param,
+/// a categorical param, a numeric user attr, and 3 completed trials (one PRUNED excluded).
+/// study_id=2: two-objective (min, max) study with metric_names set and a constraint.
+fn seed_basic(conn: &Connection) {
+    conn.execute(
+        "INSERT INTO studies (study_id, study_name) VALUES (1, 'study-a'), (2, 'study-b')",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO study_directions (study_id, direction, objective) VALUES (1, 'MINIMIZE', 0)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO study_directions (study_id, direction, objective) VALUES \
+         (2, 'MINIMIZE', 0), (2, 'MAXIMIZE', 1)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO study_system_attributes (study_id, key, value_json) VALUES \
+         (2, 'study:metric_names', '[\"Cost\",\"Quality\"]')",
+        [],
+    )
+    .unwrap();
+
+    // study 1: trials 1..=4 (1,2,3 complete; 4 pruned). Also sets datetime_start/complete
+    // so the datetime parsing of extras (per-trial metadata for all trials) can be
+    // verified.
+    conn.execute_batch(
+        "
+        INSERT INTO trials (trial_id, number, study_id, state, datetime_start, datetime_complete) VALUES
+            (1, 0, 1, 'COMPLETE', '2024-01-01 00:00:00', '2024-01-01 00:00:10'),
+            (2, 1, 1, 'COMPLETE', '2024-01-01 00:00:11', '2024-01-01 00:00:20'),
+            (3, 2, 1, 'COMPLETE', '2024-01-01 00:00:21', '2024-01-01 00:00:30'),
+            (4, 3, 1, 'PRUNED', '2024-01-01 00:00:31', '2024-01-01 00:00:35');
+        ",
+    )
+    .unwrap();
+
+    conn.execute_batch(
+        "
+        INSERT INTO trial_values (trial_id, objective, value, value_type) VALUES
+            (1, 0, 1.5, 'FINITE'),
+            (2, 0, 2.5, 'FINITE'),
+            (3, 0, 3.5, 'FINITE');
+        ",
+    )
+    .unwrap();
+
+    let float_dist = r#"{"name": "FloatDistribution", "attributes": {"step": null, "low": -5.0, "high": 5.0, "log": false}}"#;
+    let int_dist = r#"{"name": "IntDistribution", "attributes": {"log": false, "step": 1, "low": 1, "high": 10}}"#;
+    let cat_dist = r#"{"name": "CategoricalDistribution", "attributes": {"choices": ["steel", "aluminum", "wood"]}}"#;
+
+    for (trial_id, x, n, cat_idx) in [(1, 0.5, 3.0, 0.0), (2, 1.5, 5.0, 1.0), (3, -2.0, 7.0, 2.0)] {
+        conn.execute(
+            "INSERT INTO trial_params (trial_id, param_name, param_value, distribution_json) \
+             VALUES (?1, 'x', ?2, ?3)",
+            rusqlite::params![trial_id, x, float_dist],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO trial_params (trial_id, param_name, param_value, distribution_json) \
+             VALUES (?1, 'n', ?2, ?3)",
+            rusqlite::params![trial_id, n, int_dist],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO trial_params (trial_id, param_name, param_value, distribution_json) \
+             VALUES (?1, 'material', ?2, ?3)",
+            rusqlite::params![trial_id, cat_idx, cat_dist],
+        )
+        .unwrap();
+    }
+
+    conn.execute(
+        "INSERT INTO trial_user_attributes (trial_id, key, value_json) VALUES (1, 'score', '12.5')",
+        [],
+    )
+    .unwrap();
+
+    // study 2: trials 5,6 complete (2 objectives), trial 7 running (excluded)
+    conn.execute_batch(
+        "
+        INSERT INTO trials (trial_id, number, study_id, state) VALUES
+            (5, 0, 2, 'COMPLETE'),
+            (6, 1, 2, 'COMPLETE'),
+            (7, 2, 2, 'RUNNING');
+        ",
+    )
+    .unwrap();
+    conn.execute_batch(
+        "
+        INSERT INTO trial_values (trial_id, objective, value, value_type) VALUES
+            (5, 0, 1.0, 'FINITE'),
+            (5, 1, 2.0, 'FINITE'),
+            (6, 0, 0.0, 'INF_POS'),
+            (6, 1, 0.0, 'INF_NEG');
+        ",
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO trial_system_attributes (trial_id, key, value_json) VALUES (5, 'constraints', '[1.0, -2.0]')",
+        [],
+    )
+    .unwrap();
+}
+
+/// Adds the `trial_intermediate_values` table. It doesn't exist in older Optuna DBs, so
+/// it's excluded from `create_schema` and added explicitly only by tests that verify
+/// intermediate values (tests using `create_schema` alone also double as verification of
+/// the "empty when the table is missing" fallback).
+fn add_intermediate_values_table(conn: &Connection) {
+    conn.execute_batch(
+        "
+        CREATE TABLE trial_intermediate_values (
+            trial_intermediate_value_id INTEGER PRIMARY KEY,
+            trial_id INTEGER,
+            step INTEGER,
+            intermediate_value REAL,
+            intermediate_value_type VARCHAR(7)
+        );
+        ",
+    )
+    .unwrap();
+}
+
+/// Adds intermediate values to study_id=1's trial 1 (COMPLETE) and trial 4 (PRUNED).
+/// Trial 1 is INSERTed in reverse order to check ascending-step sorting, and trial 4 mixes
+/// in an INF_POS.
+fn seed_intermediate_values(conn: &Connection) {
+    conn.execute_batch(
+        "
+        INSERT INTO trial_intermediate_values (trial_id, step, intermediate_value, intermediate_value_type) VALUES
+            (1, 1, 0.2, 'FINITE'),
+            (1, 0, 0.1, 'FINITE'),
+            (4, 0, 0.0, 'INF_POS');
+        ",
+    )
+    .unwrap();
+}
+
+#[test]
+fn scan_study_list_reads_names_directions_and_metric_names() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+    drop(conn);
+
+    let studies = scan_study_list(file.path()).unwrap();
+    assert_eq!(studies.len(), 2);
+
+    let s1 = studies.iter().find(|s| s.study_id == 1).unwrap();
+    assert_eq!(s1.name, "study-a");
+    assert_eq!(
+        s1.directions,
+        vec![tdashboard_io::journal::parser::OptimizationDirection::Minimize]
+    );
+    assert_eq!(s1.objective_names, vec!["obj0".to_string()]);
+    assert_eq!(s1.completed_trials, 3);
+    assert_eq!(s1.total_trials, 4);
+    assert!(!s1.has_constraints);
+
+    let s2 = studies.iter().find(|s| s.study_id == 2).unwrap();
+    assert_eq!(
+        s2.directions,
+        vec![
+            tdashboard_io::journal::parser::OptimizationDirection::Minimize,
+            tdashboard_io::journal::parser::OptimizationDirection::Maximize
+        ]
+    );
+    assert_eq!(
+        s2.objective_names,
+        vec!["Cost".to_string(), "Quality".to_string()]
+    );
+    assert_eq!(s2.completed_trials, 2);
+    assert_eq!(s2.total_trials, 3);
+    assert!(s2.has_constraints);
+}
+
+#[test]
+fn parse_single_study_reads_params_and_excludes_non_complete_trials() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+    drop(conn);
+
+    let (meta, df, extras) = parse_single_study(file.path(), 1).unwrap();
+    assert_eq!(meta.name, "study-a");
+    assert_eq!(df.row_count(), 3, "PRUNED trial must be excluded");
+    assert_eq!(
+        extras.trials.len(),
+        4,
+        "extras must include the PRUNED trial too (all states)"
+    );
+
+    let mut param_names = df.param_col_names().to_vec();
+    param_names.sort();
+    assert_eq!(
+        param_names,
+        vec!["material".to_string(), "n".to_string(), "x".to_string()]
+    );
+
+    let x_vals = df.get_numeric_column("x").unwrap();
+    assert_eq!(x_vals, &[0.5, 1.5, -2.0]);
+
+    // Optuna stores the actual value (external representation) in param_value, so the
+    // display is unchanged too
+    let n_vals = df.get_numeric_column("n").unwrap();
+    assert_eq!(n_vals, &[3.0, 5.0, 7.0]);
+
+    let material_labels = df.get_string_column("material").unwrap();
+    assert_eq!(
+        material_labels,
+        &[
+            "steel".to_string(),
+            "aluminum".to_string(),
+            "wood".to_string()
+        ]
+    );
+
+    assert_eq!(meta.param_bounds.get("x"), Some(&(-5.0, 5.0)));
+    assert_eq!(meta.param_bounds.get("n"), Some(&(1.0, 10.0)));
+    assert!(!meta.param_bounds.contains_key("material"));
+
+    let score_vals = df.get_numeric_column("score").unwrap();
+    assert_eq!(score_vals[0], 12.5);
+}
+
+#[test]
+fn json_user_attributes_match_journal_values() {
+    use serde_json::{json, Value};
+
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+    let attributes = [
+        (1, "flag", json!(true)),
+        (1, "nothing", Value::Null),
+        (1, "list", json!([1, {"ok": false}])),
+        (1, "details", json!({"b": 2, "a": 1})),
+        (1, "literal", json!("{\"a\":1}")),
+        (1, "mixed", json!(1.5)),
+        (2, "mixed", json!("two")),
+    ];
+    for (trial_id, key, value) in &attributes {
+        conn.execute(
+            "INSERT INTO trial_user_attributes (trial_id, key, value_json) VALUES (?1, ?2, ?3)",
+            rusqlite::params![trial_id, key, value.to_string()],
+        )
+        .unwrap();
+    }
+    drop(conn);
+    let (_, rdb, _) = parse_single_study(file.path(), 1).unwrap();
+
+    let events = [
+        json!({"op_code":0,"worker_id":"w","study_name":"s","directions":[1]}),
+        json!({"op_code":4,"worker_id":"w","study_id":0,"state":1,"values":[1.5],"distributions":{},
+            "user_attrs":{"score":12.5,"flag":true,"nothing":null,
+                "list":[1,{"ok":false}],"details":{"a":1,"b":2},
+                "literal":"{\"a\":1}","mixed":1.5}}),
+        json!({"op_code":4,"worker_id":"w","study_id":0,"state":1,"values":[2.5],"distributions":{},
+            "user_attrs":{"mixed":"two"}}),
+        json!({"op_code":4,"worker_id":"w","study_id":0,"state":1,"values":[3.5],"distributions":{}}),
+    ];
+    let journal = events
+        .iter()
+        .map(Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (_, from_journal, _) = {
+        let p = common::journal(journal.as_bytes(), 0);
+        (p.meta, p.dataframe, p.extras)
+    };
+    assert_eq!(rdb.row_count(), from_journal.row_count());
+    for name in rdb.user_attr_names() {
+        for row in 0..rdb.row_count() {
+            assert_eq!(
+                rdb.user_attr_value(name, row),
+                from_journal.user_attr_value(name, row),
+                "{name} row {row}"
+            );
+        }
+    }
+    assert_eq!(rdb.user_attr_value("nothing", 0), Some(&Value::Null));
+    assert_eq!(rdb.user_attr_value("nothing", 1), None);
+}
+
+#[test]
+fn parse_single_study_converts_infinite_objective_values() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+    drop(conn);
+
+    let (meta, df, _extras) = parse_single_study(file.path(), 2).unwrap();
+    assert_eq!(
+        meta.objective_names,
+        vec!["Cost".to_string(), "Quality".to_string()]
+    );
+    assert_eq!(df.row_count(), 2, "RUNNING trial must be excluded");
+
+    let cost = df.get_numeric_column("Cost").unwrap();
+    let quality = df.get_numeric_column("Quality").unwrap();
+    assert_eq!(cost[0], 1.0);
+    assert_eq!(quality[0], 2.0);
+    assert_eq!(cost[1], f64::INFINITY);
+    assert_eq!(quality[1], f64::NEG_INFINITY);
+}
+
+#[test]
+fn parse_single_study_extracts_constraints() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+    drop(conn);
+
+    let (meta, df, _extras) = parse_single_study(file.path(), 2).unwrap();
+    assert!(meta.has_constraints);
+    let c1 = df.get_numeric_column("c1").unwrap();
+    let c2 = df.get_numeric_column("c2").unwrap();
+    assert_eq!(c1[0], 1.0);
+    assert_eq!(c2[0], -2.0);
+    // Trial 6 has no evaluation, not observed zeros.
+    assert!(c1[1].is_nan());
+    assert!(c2[1].is_nan());
+    assert_eq!(
+        df.feasibility().state(1),
+        crate::dataframe::FeasibilityState::Unverified
+    );
+}
+
+#[test]
+fn python_constraint_tokens_and_noncomplete_schema_are_ingested() {
+    use crate::dataframe::FeasibilityState::*;
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+    conn.execute("UPDATE trial_system_attributes SET value_json = '[NaN,0.5,Infinity,-Infinity]' WHERE trial_id = 5", []).unwrap();
+    conn.execute("INSERT INTO trial_system_attributes (trial_id,key,value_json) VALUES (7,'constraints','[-1,-2,-3,-4,-5]')", []).unwrap();
+    let (meta, df, _) = parse_single_study(file.path(), 2).unwrap();
+    assert!(meta.has_constraints);
+    assert_eq!(df.row_count(), 2);
+    assert_eq!(df.constraint_col_names().len(), 5);
+    assert_eq!(df.feasibility().state(0), Infeasible);
+    assert_eq!(df.feasibility().state(1), Unverified);
+    assert_eq!(df.get_numeric_column("c2").unwrap()[0], 0.5);
+    assert!(df.get_numeric_column("c1").unwrap()[0].is_nan());
+    assert_eq!(df.get_numeric_column("c3").unwrap()[0], f64::INFINITY);
+    assert_eq!(df.get_numeric_column("c4").unwrap()[0], f64::NEG_INFINITY);
+    conn.execute("UPDATE trial_system_attributes SET value_json = '[NaN,Infinity,-Infinity]' WHERE trial_id = 5", []).unwrap();
+    let (_, df, _) = parse_single_study(file.path(), 2).unwrap();
+    assert_eq!(df.constraint_col_names().len(), 5);
+    assert_eq!(df.feasibility().state(0), Unverified);
+    conn.execute("DELETE FROM trial_system_attributes", [])
+        .unwrap();
+    conn.execute("INSERT INTO trial_system_attributes (trial_id,key,value_json) VALUES (4,'constraints','[]')", []).unwrap();
+    let (meta, df, _) = parse_single_study(file.path(), 1).unwrap();
+    assert!(meta.has_constraints);
+    assert_eq!(df.row_count(), 3);
+    assert!(df.constraint_col_names().is_empty());
+    assert_eq!(
+        df.feasibility().partition_indices(3),
+        (vec![], vec![], vec![0, 1, 2])
+    );
+    conn.execute("UPDATE trial_system_attributes SET value_json = '[NaN,Infinity,-Infinity,1]' WHERE trial_id = 4", []).unwrap();
+    let (_, df, _) = parse_single_study(file.path(), 1).unwrap();
+    assert_eq!(df.constraint_col_names().len(), 4);
+    assert_eq!(
+        df.feasibility().partition_indices(3),
+        (vec![], vec![], vec![0, 1, 2])
+    );
+    conn.execute("UPDATE trials SET state = 'PRUNED' WHERE study_id = 1", [])
+        .unwrap();
+    let (meta, df, _) = parse_single_study(file.path(), 1).unwrap();
+    assert!(meta.has_constraints);
+    assert_eq!(df.row_count(), 0);
+    assert_eq!(df.constraint_col_names().len(), 4);
+}
+
+#[test]
+fn constraint_json_positions_and_attribute_only_study_are_preserved() {
+    use crate::dataframe::FeasibilityState::*;
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+    conn.execute("UPDATE trial_system_attributes SET value_json = '[null,-2,\"invalid\"]' WHERE trial_id = 5", []).unwrap();
+    conn.execute("INSERT INTO trial_system_attributes (trial_id,key,value_json) VALUES (6,'constraints','[1,null]')", []).unwrap();
+    let (_, df, _) = parse_single_study(file.path(), 2).unwrap();
+    assert_eq!(df.constraint_col_names().len(), 3);
+    assert!(df.get_numeric_column("c1").unwrap()[0].is_nan());
+    assert_eq!(df.get_numeric_column("c2").unwrap()[0], -2.0);
+    assert!(df.get_numeric_column("c3").unwrap()[0].is_nan());
+    assert_eq!(df.feasibility().state(0), Unverified);
+    assert_eq!(df.feasibility().state(1), Infeasible);
+    conn.execute("UPDATE trial_system_attributes SET value_json = '[]'", [])
+        .unwrap();
+    let (meta, df, _) = parse_single_study(file.path(), 2).unwrap();
+    assert!(meta.has_constraints);
+    assert!(df.constraint_col_names().is_empty());
+    assert_eq!(
+        df.feasibility().partition_indices(2),
+        (vec![], vec![], vec![0, 1])
+    );
+}
+
+#[test]
+fn parse_single_study_extras_without_intermediate_table_are_empty() {
+    // Doesn't error even on an older DB lacking the trial_intermediate_values table;
+    // intermediate values come back empty (fallback).
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+    drop(conn);
+
+    let (_meta, _df, extras) = parse_single_study(file.path(), 1).unwrap();
+    assert_eq!(extras.trials.len(), 4);
+    assert!(extras
+        .trials
+        .iter()
+        .all(|t| t.intermediate_values.is_empty()));
+    assert!(!extras.has_intermediate());
+}
+
+#[test]
+fn parse_single_study_extras_include_all_states_datetimes_and_intermediate_values() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    add_intermediate_values_table(&conn);
+    seed_basic(&conn);
+    seed_intermediate_values(&conn);
+    drop(conn);
+
+    let (_meta, df, extras) = parse_single_study(file.path(), 1).unwrap();
+    // DataFrame contains only COMPLETE (PRUNED is not included).
+    assert_eq!(
+        df.row_count(),
+        3,
+        "PRUNED trial must stay excluded from the DataFrame"
+    );
+
+    // extras holds all states (4 trials) in ascending trial_id order.
+    assert_eq!(extras.trials.len(), 4);
+    assert!(extras.has_intermediate());
+    assert!(extras.has_datetimes());
+    let ids: Vec<u32> = extras.trials.iter().map(|t| t.trial_id).collect();
+    assert_eq!(ids, vec![1, 2, 3, 4]);
+
+    // trial 4's state is reflected as PRUNED.
+    let pruned = extras.trials.iter().find(|t| t.trial_id == 4).unwrap();
+    assert_eq!(pruned.state, TrialState::Pruned);
+    // trial 4's intermediate values include the INF_POS -> f64::INFINITY mapping.
+    assert_eq!(pruned.intermediate_values, vec![(0, f64::INFINITY)]);
+
+    // trial 1 is COMPLETE. Intermediate values are sorted in ascending step order
+    // regardless of insertion order.
+    let t1 = extras.trials.iter().find(|t| t.trial_id == 1).unwrap();
+    assert_eq!(t1.state, TrialState::Complete);
+    assert_eq!(t1.intermediate_values, vec![(0, 0.1), (1, 0.2)]);
+
+    // datetime is parsed into naive unix seconds (2024-01-01 00:00:00 == 1704067200).
+    assert_eq!(t1.datetime_start, Some(1_704_067_200.0));
+    assert_eq!(t1.datetime_complete, Some(1_704_067_210.0));
+
+    // Trials with no intermediate values (2, 3) remain empty.
+    let t2 = extras.trials.iter().find(|t| t.trial_id == 2).unwrap();
+    assert!(t2.intermediate_values.is_empty());
+}
+
+#[test]
+fn parse_single_study_missing_study_id_errors() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+    drop(conn);
+
+    let result = parse_single_study(file.path(), 999);
+    assert!(result.is_err());
+}
+
+#[test]
+fn scan_study_list_rejects_non_optuna_database() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    conn.execute_batch("CREATE TABLE not_optuna (id INTEGER);")
+        .unwrap();
+    drop(conn);
+
+    let result = scan_study_list(file.path());
+    assert!(result.is_err());
+}
+
+#[test]
+fn scan_study_list_empty_database_errors() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    drop(conn);
+
+    let result = scan_study_list(file.path());
+    assert!(result.is_err());
+}
+
+// ── study_fingerprint (live update change detection) ─────────────────────────
+
+fn check_attribute_only_mutations(
+    study_id: u32,
+    mutations: &[&str],
+    check_load: impl Fn(usize, &StudyMeta, &DataFrame),
+) {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+    let source_id: String = conn
+        .query_row("SELECT sqlite_source_id()", [], |row| row.get(0))
+        .unwrap();
+    println!("SQLite {} ({source_id})", rusqlite::version());
+    let mut backend = SqliteBackend::open_readonly(file.path()).unwrap();
+    let mut previous = rdb::study_fingerprint(&mut backend, study_id).unwrap();
+    let (_, initial, _) = backend_projection(&mut backend, study_id).unwrap();
+    let row_count = initial.row_count();
+    assert_eq!(previous, study_fingerprint(file.path(), study_id).unwrap());
+    let mut missed = Vec::new();
+    for (index, sql) in mutations.iter().enumerate() {
+        conn.execute_batch(&format!("BEGIN; {sql}; COMMIT;"))
+            .unwrap();
+        assert!(conn.is_autocommit());
+        let current = rdb::study_fingerprint(&mut backend, study_id).unwrap();
+        let (meta, df, _) = backend_projection(&mut backend, study_id).unwrap();
+        assert_eq!(df.row_count(), row_count);
+        check_load(index, &meta, &df);
+        println!("mutation {index}: {sql}\nbefore={previous:?}\nafter={current:?}");
+        assert_eq!(current.total_trials, previous.total_trials);
+        assert_eq!(current.completed_trials, previous.completed_trials);
+        assert_eq!(current.max_trial_id, previous.max_trial_id);
+        assert_eq!(current.state_digest, previous.state_digest);
+        assert_eq!(current.intermediate_count, previous.intermediate_count);
+        assert_eq!(current, study_fingerprint(file.path(), study_id).unwrap());
+        if previous == current {
+            missed.push(index);
+        }
+        previous = current;
+    }
+    assert!(
+        missed.is_empty(),
+        "attribute-only mutations missed: {missed:?}"
+    );
+}
+
+#[test]
+fn study_fingerprint_detects_complete_user_attribute_mutations() {
+    use serde_json::json;
+    check_attribute_only_mutations(
+        1,
+        &[
+            "INSERT INTO trial_user_attributes (trial_id,key,value_json) VALUES (2,'details','{\"v\":1}')",
+            "UPDATE trial_user_attributes SET value_json = '{\"v\":2}' WHERE trial_id = 2 AND key = 'details'",
+        ],
+        |index, _, df| {
+            let expected = json!({"v": index + 1});
+            assert_eq!(df.user_attr_value("details", 1), Some(&expected));
+            println!("direct load: rows={}, details={expected}", df.row_count());
+        },
+    );
+}
+
+#[test]
+fn study_fingerprint_detects_complete_constraint_mutations() {
+    use crate::dataframe::FeasibilityState::*;
+    check_attribute_only_mutations(
+        1,
+        &[
+            "INSERT INTO trial_system_attributes (trial_id,key,value_json) VALUES (1,'constraints','[-1]')",
+            "UPDATE trial_system_attributes SET value_json = '[1]' WHERE trial_id = 1 AND key = 'constraints'",
+        ],
+        |index, meta, df| {
+            assert!(meta.has_constraints);
+            assert_eq!(df.constraint_col_names().len(), 1);
+            assert_eq!(df.feasibility().state(0), if index == 0 { Feasible } else { Infeasible });
+            println!("direct load: rows={}, width=1, trial 1={:?}", df.row_count(), df.feasibility().state(0));
+        },
+    );
+}
+
+#[test]
+fn study_fingerprint_detects_noncomplete_constraint_schema_mutations() {
+    use crate::dataframe::FeasibilityState::Unverified;
+    check_attribute_only_mutations(
+        1,
+        &[
+            "INSERT INTO trial_system_attributes (trial_id,key,value_json) VALUES (4,'constraints','[]')",
+            "UPDATE trial_system_attributes SET value_json = '[-1]' WHERE trial_id = 4 AND key = 'constraints'",
+            "UPDATE trial_system_attributes SET value_json = '[-1,-2]' WHERE trial_id = 4 AND key = 'constraints'",
+        ],
+        |index, meta, df| {
+            assert!(meta.has_constraints);
+            assert_eq!(df.constraint_col_names().len(), index);
+            for row in 0..df.row_count() {
+                assert_eq!(df.feasibility().state(row), Unverified);
+            }
+            println!("direct load: rows={}, width={index}, all COMPLETE trials Unverified", df.row_count());
+        },
+    );
+}
+
+#[test]
+fn study_fingerprint_equal_on_unchanged_db() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+    drop(conn);
+
+    let fp1 = study_fingerprint(file.path(), 1).unwrap();
+    let fp2 = study_fingerprint(file.path(), 1).unwrap();
+    assert_eq!(fp1, fp2);
+}
+
+#[test]
+fn study_fingerprint_changes_when_trial_added() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+
+    let fp1 = study_fingerprint(file.path(), 1).unwrap();
+
+    conn.execute(
+        "INSERT INTO trials (trial_id, number, study_id, state) VALUES (100, 4, 1, 'RUNNING')",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+
+    let fp2 = study_fingerprint(file.path(), 1).unwrap();
+    assert_ne!(fp1, fp2);
+    assert_eq!(fp2.total_trials, fp1.total_trials + 1);
+    assert_eq!(fp2.max_trial_id, 100);
+}
+
+#[test]
+fn study_fingerprint_changes_when_state_updated() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+
+    let fp1 = study_fingerprint(file.path(), 1).unwrap();
+
+    // Transition trial 4 (PRUNED) to COMPLETE (same semantics as RUNNING->COMPLETE).
+    conn.execute(
+        "UPDATE trials SET state = 'COMPLETE' WHERE trial_id = 4",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+
+    let fp2 = study_fingerprint(file.path(), 1).unwrap();
+    assert_ne!(fp1, fp2);
+    assert_eq!(fp2.completed_trials, fp1.completed_trials + 1);
+    // A state-only change doesn't change total_trials / max_trial_id.
+    assert_eq!(fp2.total_trials, fp1.total_trials);
+    assert_eq!(fp2.max_trial_id, fp1.max_trial_id);
+}
+
+#[test]
+fn study_fingerprint_changes_when_intermediate_value_added() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    add_intermediate_values_table(&conn);
+    seed_basic(&conn);
+
+    let fp1 = study_fingerprint(file.path(), 1).unwrap();
+
+    conn.execute(
+        "INSERT INTO trial_intermediate_values \
+         (trial_id, step, intermediate_value, intermediate_value_type) \
+         VALUES (1, 0, 0.5, 'FINITE')",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+
+    let fp2 = study_fingerprint(file.path(), 1).unwrap();
+    assert_ne!(fp1, fp2);
+    assert_eq!(fp2.intermediate_count, fp1.intermediate_count + 1);
+    // The trials table itself hasn't changed, so the other fields are the same.
+    assert_eq!(fp2.total_trials, fp1.total_trials);
+    assert_eq!(fp2.completed_trials, fp1.completed_trials);
+    assert_eq!(fp2.state_digest, fp1.state_digest);
+}
+
+#[test]
+fn study_fingerprint_works_when_intermediate_table_absent() {
+    // Doesn't error even on an older DB lacking the trial_intermediate_values table;
+    // intermediate_count becomes 0 (fallback).
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let conn = Connection::open(file.path()).unwrap();
+    create_schema(&conn);
+    seed_basic(&conn);
+    drop(conn);
+
+    let fp = study_fingerprint(file.path(), 1).unwrap();
+    assert_eq!(fp.intermediate_count, 0);
+}

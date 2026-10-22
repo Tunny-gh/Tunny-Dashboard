@@ -14,15 +14,15 @@
 
 use std::collections::HashMap;
 
-use crate::decoded::{DecodedTable as DataFrame, TrialRow};
+use crate::decoded::TrialRow;
 use crate::io::journal::parser::{OptimizationDirection, StudyMeta};
 
 /// Result of parsing a flat CSV.
 pub struct FlatCsvParseResult {
     /// Metadata for the single study (`study_id` is fixed at 0).
     pub meta: StudyMeta,
-    /// The constructed DataFrame.
-    pub dataframe: DataFrame,
+    /// Format-decoded rows, consumed by `into_batch` before Study publication.
+    pub rows: Vec<TrialRow>,
     /// trial_id → image filename (from the `img` column). Rows with an empty cell are excluded.
     pub images: Vec<(u32, String)>,
 }
@@ -37,7 +37,6 @@ impl FlatCsvParseResult {
             images.entry(id).or_default().push(reference);
         }
         let trials = self
-            .dataframe
             .rows
             .into_iter()
             .map(|row| {
@@ -336,22 +335,8 @@ pub fn parse_flat_csv(data: &[u8], study_name: &str) -> Result<FlatCsvParseResul
         });
     }
 
-    // DataFrame assumes column names are pre-sorted (same convention as finalize_state).
     let mut sorted_params = param_names.clone();
     sorted_params.sort();
-    let mut sorted_uan = user_attr_numeric_names.clone();
-    sorted_uan.sort();
-    let mut sorted_uas = user_attr_string_names.clone();
-    sorted_uas.sort();
-
-    let dataframe = DataFrame::from_trials(
-        &trial_rows,
-        &sorted_params,
-        &objective_names,
-        &sorted_uan,
-        &sorted_uas,
-        0,
-    );
 
     let mut all_user_attr_names = user_attr_names.clone();
     all_user_attr_names.sort();
@@ -374,7 +359,7 @@ pub fn parse_flat_csv(data: &[u8], study_name: &str) -> Result<FlatCsvParseResul
 
     Ok(FlatCsvParseResult {
         meta,
-        dataframe,
+        rows: trial_rows,
         images,
     })
 }

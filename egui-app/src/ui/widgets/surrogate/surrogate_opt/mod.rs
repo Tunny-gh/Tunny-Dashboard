@@ -222,7 +222,7 @@ pub(crate) fn multi_trained_matches(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tunny_core::surrogate_opt::SurrogateModelKind;
+    use tdashboard_analysis::surrogate_opt::SurrogateModelKind;
 
     #[test]
     fn optimize_click_requires_matching_trained() {
@@ -242,13 +242,13 @@ mod tests {
     fn make_dummy_trained(
         obj_name: &str,
         model: SurrogateModelKind,
-    ) -> tunny_core::surrogate_opt::TrainedSurrogate {
+    ) -> tdashboard_analysis::surrogate_opt::TrainedSurrogate {
         // Fit a TrainedSurrogate with only the minimum required fields filled in.
         let xs: Vec<Vec<f64>> = (0..12)
             .map(|i| vec![i as f64 / 12.0, (i as f64 / 12.0) * 0.5])
             .collect();
         let ys: Vec<f64> = (0..12).map(|i| i as f64).collect();
-        let req = tunny_core::surrogate_opt::SurrogateFitRequest {
+        let req = tdashboard_analysis::surrogate_opt::SurrogateFitRequest {
             x_matrix: xs,
             y: ys,
             param_names: vec!["x".to_string(), "y".to_string()],
@@ -259,7 +259,7 @@ mod tests {
             priority_rows: vec![],
             param_bounds: None,
         };
-        tunny_core::surrogate_opt::fit_surrogate_with_validation(&req)
+        tdashboard_analysis::surrogate_opt::fit_surrogate_with_validation(&req)
             .expect("dummy fit should succeed")
     }
 

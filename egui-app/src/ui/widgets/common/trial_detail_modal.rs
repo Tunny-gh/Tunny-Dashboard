@@ -648,7 +648,7 @@ mod tests {
     #[test]
     fn user_attribute_rows_preserve_types_missing_values_and_order() {
         use std::sync::Arc;
-        use tunny_core::dataframe::{DataFrame, TrialRow};
+        use tdashboard_analysis::dataframe::{DataFrame, TrialRow};
 
         let new_row = || TrialRow {
             trial_id: 0,
@@ -697,7 +697,7 @@ mod tests {
     fn user_attribute_rows_expand_only_present_array_elements() {
         use serde_json::json;
         use std::sync::Arc;
-        use tunny_core::dataframe::{DataFrame, TrialRow};
+        use tdashboard_analysis::dataframe::{DataFrame, TrialRow};
 
         let make_row = |id, value| TrialRow {
             trial_id: id,

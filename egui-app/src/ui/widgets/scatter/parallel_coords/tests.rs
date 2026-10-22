@@ -16,7 +16,7 @@ fn render_pcp(
     scale: f32,
 ) -> RenderedPcp {
     use std::{collections::HashMap, sync::Arc};
-    use tunny_core::dataframe::{DataFrame, TrialRow};
+    use tdashboard_analysis::dataframe::{DataFrame, TrialRow};
     let rows: Vec<_> = (0..3)
         .map(|i| TrialRow {
             trial_id: i,
@@ -763,7 +763,7 @@ fn visible_axis_indices_all_hidden_is_empty() {
 
 #[test]
 fn feasible_color_range_excludes_infeasible_outliers() {
-    use tunny_core::dataframe::Feasibility;
+    use tdashboard_analysis::dataframe::Feasibility;
     // The infeasible solution (idx 3) has an outlier value of 1000.0, but
     // the range is computed from feasible solutions only.
     let col = [1.0, 2.0, 3.0, 1000.0];
@@ -776,7 +776,7 @@ fn feasible_color_range_excludes_infeasible_outliers() {
 
 #[test]
 fn feasible_color_range_no_constraints_uses_all() {
-    use tunny_core::dataframe::Feasibility;
+    use tdashboard_analysis::dataframe::Feasibility;
     let col = [1.0, 2.0, 3.0, 1000.0];
     let feas = Feasibility::from_column(None);
     let (mn, mx) = feasible_color_range(&col, feas, (0.0, 9999.0));
@@ -786,7 +786,7 @@ fn feasible_color_range_no_constraints_uses_all() {
 
 #[test]
 fn feasible_color_range_all_infeasible_falls_back() {
-    use tunny_core::dataframe::Feasibility;
+    use tdashboard_analysis::dataframe::Feasibility;
     let col = [1.0, 2.0, 3.0];
     let feas_col = [0.0, 0.0, 0.0];
     let feas = Feasibility::from_column(Some(&feas_col));
@@ -796,7 +796,7 @@ fn feasible_color_range_all_infeasible_falls_back() {
 
 #[test]
 fn feasible_color_range_skips_non_finite() {
-    use tunny_core::dataframe::Feasibility;
+    use tdashboard_analysis::dataframe::Feasibility;
     let col = [1.0, f64::NAN, f64::INFINITY, 4.0];
     let feas_col = [1.0, 1.0, 1.0, 1.0];
     let feas = Feasibility::from_column(Some(&feas_col));

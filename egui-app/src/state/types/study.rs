@@ -177,7 +177,7 @@ impl StudyContext {
     /// pareto_rank / cluster_id are carried over from the rows into parallel arrays.
     #[cfg(test)]
     pub(crate) fn from_rows_for_test(meta: StudyMeta, rows: Vec<TrialRow>) -> Self {
-        use tunny_core::dataframe::TrialRow as CoreRow;
+        use tdashboard_analysis::dataframe::TrialRow as CoreRow;
 
         let mut param_set = std::collections::BTreeSet::new();
         for r in &rows {

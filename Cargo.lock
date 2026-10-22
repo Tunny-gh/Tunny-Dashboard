@@ -5693,6 +5693,7 @@ version = "0.1.0"
 dependencies = [
  "argmin",
  "argmin-math",
+ "criterion",
  "delaunator",
  "egobox-gp",
  "egobox-moe",
@@ -6073,31 +6074,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
 
 [[package]]
-name = "tunny-core"
-version = "0.1.1"
-dependencies = [
- "arc-swap",
- "criterion",
- "faer",
- "rusqlite",
- "serde_json",
- "tdashboard-analysis",
- "tdashboard-io",
- "tdashboard-study",
- "tempfile",
-]
-
-[[package]]
 name = "tunny-dashboard"
 version = "0.1.2"
 dependencies = [
  "arboard",
  "cargo_metadata",
+ "criterion",
  "dhat",
  "eframe",
  "egui",
  "egui_extras",
  "egui_plot",
+ "faer",
  "ico",
  "image",
  "open",
@@ -6110,7 +6098,6 @@ dependencies = [
  "tdashboard-optimization-runner",
  "tdashboard-study",
  "tempfile",
- "tunny-core",
  "winres",
 ]
 

@@ -931,7 +931,7 @@ pub(crate) mod tests {
                 DeliverySlot::Convergence,
                 AppMessage::IndicatorHistoryDone {
                     source_df: state.current_study.as_ref().unwrap().view.df.clone(),
-                    indicator: tunny_core::indicators::MoIndicator::Hypervolume,
+                    indicator: tdashboard_analysis::indicators::MoIndicator::Hypervolume,
                     base: super::super::results::ConvergenceHistory {
                         trial_ids: vec![90],
                         values: vec![13.0],
@@ -947,7 +947,7 @@ pub(crate) mod tests {
                     x_name: "x".into(),
                     y_name: "z".into(),
                     value_name: "y".into(),
-                    surface: tunny_core::contour::ObservedSurface {
+                    surface: tdashboard_analysis::contour::ObservedSurface {
                         x_values: vec![1.0],
                         y_values: vec![2.0],
                         z: vec![vec![Some(13.0)]],
@@ -1213,9 +1213,7 @@ pub(crate) mod tests {
         let p = journal.analysis.borrow_mut().project(input.clone());
         state.journal_display = Some(input.stamp());
         state.current_study = Some(StudyContext {
-            meta: crate::io::journal::convert_study_meta(tunny_core::journal_parser::io_meta(
-                p.meta.clone(),
-            )),
+            meta: crate::io::journal::convert_projection_meta(p.meta.clone()),
             view: StudyView::from_projection(p, input, None),
             pareto_indices: vec![],
         });

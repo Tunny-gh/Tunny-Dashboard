@@ -472,6 +472,12 @@ Optuna 5.0.0-created fixtures. Writer progress and acquisition-limited snapshot/
 metadata-lock release were observed; this is not an all-version guarantee or a
 measurement of long-reader bloat, undo growth or latency.
 
+The paired rows/DataFrame APIs above describe the prerequisite corrections before
+extraction. In the final responsibility layout, callers acquire owned I/O contents,
+apply domain batches and request analysis projections themselves. Retire the
+DataFrame convenience APIs and their temporary decoded-table views once those
+callers migrate; retain the same underlying acquisition/session mechanisms.
+
 Related queries and type conversion finish before session
 end. Success ends the read transaction before returning owned data; query,
 callback, cancellation or conversion failure rolls back/drops the session and
