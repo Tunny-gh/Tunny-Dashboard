@@ -116,6 +116,8 @@ fn random_sampler_records_all_trials() {
     assert_eq!(summary.completed, 6);
     assert_eq!(summary.failed, 0);
     assert!(!summary.cancelled);
+    assert!(summary.adaptive_diagnostics.is_empty());
+    assert_eq!(summary.stop_reason, GhStopReason::Completed);
 
     let data = std::fs::read(&journal).unwrap();
     let (meta, df, extras) = parse_single_study(&data, 0).unwrap();
@@ -524,20 +526,13 @@ fn cma_evaluator_and_invalid_results_record_failures() {
 }
 
 #[test]
-fn cma_journal_open_error_is_returned() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut cfg = test_cfg(GhSampler::CmaEs);
-    cfg.directions.truncate(1);
-    assert!(prepare_gh_run(dir.path(), &single_problem(), &cfg).is_err());
-}
-
-#[test]
 fn cma_journal_write_error_aborts_without_evaluating() {
     let dir = tempfile::tempdir().unwrap();
     let journal = dir.path().join("run.log");
     let mut cfg = test_cfg(GhSampler::CmaEs);
     cfg.directions.truncate(1);
     let problem = single_problem();
+    assert!(prepare_gh_run(dir.path(), &problem, &cfg).is_err());
     let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
     prep.writer
         .lock()
@@ -627,12 +622,8 @@ fn cma_journal_finish_error_aborts_after_in_flight_evaluation() {
 }
 
 #[test]
-fn bo_bootstrap_journal_begin_error_preserves_existing_records() {
+fn bo_bootstrap_journal_errors_preserve_existing_records() {
     bo_bootstrap_journal_error(false);
-}
-
-#[test]
-fn bo_bootstrap_journal_finish_error_preserves_successful_and_started_trials() {
     bo_bootstrap_journal_error(true);
 }
 

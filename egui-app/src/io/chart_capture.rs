@@ -262,22 +262,12 @@ mod tests {
 
     #[test]
     fn crop_helper_returns_expected_image_bounds() {
-        let img = make_test_image(100, 80);
-        // crop at logical (10,10)-(50,50) with scale=1.0 → 40×40
-        let rect = egui::Rect::from_min_max(egui::pos2(10.0, 10.0), egui::pos2(50.0, 50.0));
-        let cropped = crop_image(&img, rect, 1.0).expect("crop should succeed");
-        assert_eq!(cropped.width(), 40);
-        assert_eq!(cropped.height(), 40);
-    }
-
-    #[test]
-    fn crop_with_scale_factor() {
         let img = make_test_image(200, 160);
-        // logical (10,10)-(50,50) with scale=2.0 → physical (20,20)-(100,100) → 80×80
         let rect = egui::Rect::from_min_max(egui::pos2(10.0, 10.0), egui::pos2(50.0, 50.0));
-        let cropped = crop_image(&img, rect, 2.0).expect("crop should succeed");
-        assert_eq!(cropped.width(), 80);
-        assert_eq!(cropped.height(), 80);
+        for (scale, side) in [(1.0, 40), (2.0, 80)] {
+            let cropped = crop_image(&img, rect, scale).expect("crop should succeed");
+            assert_eq!(cropped.dimensions(), (side, side));
+        }
     }
 
     #[test]
@@ -286,31 +276,6 @@ mod tests {
         // rect entirely outside the image
         let rect = egui::Rect::from_min_max(egui::pos2(200.0, 200.0), egui::pos2(300.0, 300.0));
         assert!(crop_image(&img, rect, 1.0).is_none());
-    }
-
-    #[test]
-    fn encode_png_produces_valid_png_header() {
-        let img = RgbaImage::new(4, 4);
-        let bytes = encode_png(img).expect("encode should succeed");
-        // PNG magic bytes: 0x89 50 4E 47 ...
-        assert!(bytes.starts_with(b"\x89PNG"));
-    }
-
-    #[test]
-    fn save_png_pipeline_treats_cancel_as_noop() {
-        // save_png_to_file returns Ok(None) on cancel — we test the function signature
-        // (actual dialog cancel can't be tested headlessly, but we verify Ok(None) is the type)
-        let result: Result<Option<()>, String> = Ok(None);
-        assert!(matches!(result, Ok(None)));
-    }
-
-    #[test]
-    fn unsupported_capture_backend_returns_user_visible_error() {
-        // Encode step never silently fails — a bad encode produces Err(message)
-        // Simulate by checking that encode_png with valid data never returns silent empty
-        let img = RgbaImage::new(1, 1);
-        let bytes = encode_png(img).unwrap();
-        assert!(!bytes.is_empty(), "PNG output must not be silent empty");
     }
 
     #[test]

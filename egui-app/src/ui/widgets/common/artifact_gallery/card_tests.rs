@@ -296,29 +296,3 @@ fn card_and_anchor_missing_number_use_original_row_not_global_id() {
     });
     label_rect(&labels, "Trial 1");
 }
-
-#[test]
-fn single_study_card_number_is_unchanged() {
-    let data = b"{\"op_code\":0,\"study_name\":\"Only\",\"directions\":[1]}\n{\"op_code\":4,\"study_id\":0,\"state\":1,\"values\":[1],\"distributions\":{}}\n";
-    let app = AppState {
-        current_study: Some(study(data, 0)),
-        ..Default::default()
-    };
-    let entry = ArtifactEntry {
-        path: "file-0".into(),
-        filename: "result.csv".into(),
-        mimetype: "text/csv".into(),
-    };
-    let ctx = egui::Context::default();
-    let labels = frame(&ctx, vec![], |ui| {
-        render_card_grid(
-            ui,
-            &app,
-            900.0,
-            140.0,
-            &[(0, String::new(), &entry)],
-            &HashMap::new(),
-        );
-    });
-    label_rect(&labels, "Trial 0");
-}

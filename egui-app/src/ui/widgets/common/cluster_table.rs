@@ -394,25 +394,12 @@ mod tests {
         let visible = visible_indices(&labels, false);
         // Indices 1, 3 with -1 are excluded
         assert_eq!(visible, vec![0, 4, 2]);
-    }
-
-    #[test]
-    fn visible_indices_includes_unclustered_when_requested() {
-        let labels = vec![0, -1, 1, -1, 0];
         let visible = visible_indices(&labels, true);
         // Cluster order (0,0,1) is followed by unclustered (-1,-1)
         assert_eq!(visible, vec![0, 4, 2, 1, 3]);
-    }
-
-    #[test]
-    fn visible_indices_sorts_by_cluster_then_trial() {
         let labels = vec![2, 0, 1, 0, 2];
         let visible = visible_indices(&labels, false);
         assert_eq!(visible, vec![1, 3, 2, 0, 4]);
-    }
-
-    #[test]
-    fn visible_indices_empty_when_all_unclustered_and_hidden() {
         let labels = vec![-1, -1, -1];
         let visible = visible_indices(&labels, false);
         assert!(visible.is_empty());

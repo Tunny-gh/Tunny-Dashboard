@@ -32,52 +32,29 @@ fn count(svg: &str, needle: &str) -> usize {
 
 #[test]
 fn nice_ticks_basic_range() {
-    let ticks = nice_ticks(0.0, 95.0, 5);
-    assert!(ticks.len() >= 2);
-    assert!(ticks[0] <= 0.0);
-    assert!(*ticks.last().unwrap() >= 95.0);
-    for w in ticks.windows(2) {
-        assert!(w[1] > w[0]);
+    for (min, max) in [
+        (0.0, 95.0),
+        (-50.0, -3.0),
+        (-1.5, 2.5),
+        (0.000_010, 0.000_030),
+    ] {
+        let ticks = nice_ticks(min, max, 5);
+        assert!(ticks.len() >= 2);
+        assert!(ticks[0] <= min);
+        assert!(*ticks.last().unwrap() >= max);
+        assert!(ticks.iter().all(|v| v.is_finite()));
+        assert!(ticks.windows(2).all(|w| w[1] > w[0]));
     }
 }
 
 #[test]
-fn nice_ticks_negative_range() {
-    let ticks = nice_ticks(-50.0, -3.0, 5);
-    assert!(ticks[0] <= -50.0);
-    assert!(*ticks.last().unwrap() >= -3.0);
-    assert!(ticks.windows(2).all(|w| w[1] > w[0]));
-}
-
-#[test]
-fn nice_ticks_straddling_zero() {
-    let ticks = nice_ticks(-1.5, 2.5, 5);
-    assert!(ticks[0] <= -1.5);
-    assert!(*ticks.last().unwrap() >= 2.5);
-}
-
-#[test]
-fn nice_ticks_tiny_range() {
-    let ticks = nice_ticks(0.000_010, 0.000_030, 5);
-    assert!(ticks[0] <= 0.000_010);
-    assert!(*ticks.last().unwrap() >= 0.000_030);
-    assert!(ticks.iter().all(|v| v.is_finite()));
-}
-
-#[test]
-fn nice_ticks_degenerate_min_equals_max_nonzero() {
-    let ticks = nice_ticks(5.0, 5.0, 5);
-    assert!(ticks.len() >= 2);
-    assert!(ticks.iter().all(|v| v.is_finite()));
-    assert!(ticks[0] <= 5.0 && *ticks.last().unwrap() >= 5.0);
-}
-
-#[test]
-fn nice_ticks_degenerate_min_equals_max_zero() {
-    let ticks = nice_ticks(0.0, 0.0, 5);
-    assert!(ticks.len() >= 2);
-    assert!(ticks.iter().all(|v| v.is_finite()));
-    assert!(ticks[0] <= 0.0 && *ticks.last().unwrap() >= 0.0);
+fn nice_ticks_degenerate_ranges() {
+    for value in [5.0, 0.0] {
+        let ticks = nice_ticks(value, value, 5);
+        assert!(ticks.len() >= 2);
+        assert!(ticks.iter().all(|v| v.is_finite()));
+        assert!(ticks[0] <= value && *ticks.last().unwrap() >= value);
+    }
 }
 
 #[test]
@@ -302,19 +279,8 @@ fn hbar_chart_mark_and_title_counts() {
     // rect titles + label <text> titles (both counted) = 2 * items.len()
     assert_eq!(count_titles(&svg), items.len() * 2);
     assert_no_raw_hex_in_color_attrs(&svg);
-}
-
-#[test]
-fn hbar_chart_truncates_long_label_with_ellipsis() {
-    let long_name = "a_very_long_parameter_name_that_exceeds_limit";
-    let items = vec![HBarItem {
-        label: long_name.to_string(),
-        value: 1.0,
-    }];
-    let svg = hbar_chart(&items, 400.0);
     assert!(svg.contains('…'));
-    // full label preserved in title
-    assert!(svg.contains(long_name));
+    assert!(svg.contains(&items[1].label));
 }
 
 // ---------------- histogram ----------------
@@ -353,30 +319,6 @@ fn heatmap_mark_and_title_counts() {
                                                        // title count = cell titles + legend titles (11)
     assert_eq!(count_titles(&svg), cell_count + 11);
     assert_no_raw_hex_in_color_attrs(&svg);
-}
-
-#[test]
-fn heatmap_quantization_boundaries() {
-    // Confirm that at the boundary values -1, -0.51, -0.5, 0, 0.5,
-    // 0.51, 1, the quantization step and label-visibility both match
-    // the expected theoretical values.
-    let cases = [
-        (-1.0, -5, true),
-        (-0.51, -3, true),
-        (-0.5, -3, false),
-        (0.0, 0, false),
-        (0.5, 3, false),
-        (0.51, 3, true),
-        (1.0, 5, true),
-    ];
-    for (v, expected_bin, expected_label) in cases {
-        assert_eq!(theme::diverging_bin(v), expected_bin, "bin for {v}");
-        assert_eq!(
-            theme::diverging_show_label(v),
-            expected_label,
-            "label for {v}"
-        );
-    }
 }
 
 #[test]

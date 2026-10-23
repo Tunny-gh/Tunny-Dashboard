@@ -59,6 +59,8 @@ mod tests {
         let (x, y) = make_dominant_xy(200, 3);
         let (importances, _r2) = compute_rf_anova_importances(&x, &y);
         assert_eq!(importances.len(), 3);
+        let sum: f64 = importances.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-9 || sum == 0.0, "RF-ANOVA sum={sum}");
         assert!(importances[0] > 0.7, "importances={importances:?}");
         assert!(
             importances[0] > importances[1] && importances[0] > importances[2],

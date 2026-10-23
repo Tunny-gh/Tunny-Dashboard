@@ -257,28 +257,11 @@ mod tests {
     fn best_pin_index_minimize_picks_smallest() {
         let values = [3.0, 1.0, 2.0];
         assert_eq!(best_pin_index(&values, &Direction::Minimize), Some(1));
-    }
-
-    #[test]
-    fn best_pin_index_maximize_picks_largest() {
-        let values = [3.0, 1.0, 2.0];
         assert_eq!(best_pin_index(&values, &Direction::Maximize), Some(0));
-    }
-
-    #[test]
-    fn best_pin_index_ignores_non_finite() {
         let values = [f64::NAN, 1.0, f64::INFINITY];
         assert_eq!(best_pin_index(&values, &Direction::Minimize), Some(1));
-    }
-
-    #[test]
-    fn best_pin_index_all_non_finite_returns_none() {
         let values = [f64::NAN, f64::INFINITY];
         assert_eq!(best_pin_index(&values, &Direction::Minimize), None);
-    }
-
-    #[test]
-    fn best_pin_index_empty_returns_none() {
         let values: [f64; 0] = [];
         assert_eq!(best_pin_index(&values, &Direction::Minimize), None);
     }

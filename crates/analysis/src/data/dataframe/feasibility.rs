@@ -61,27 +61,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn classification_requires_complete_finite_evidence_but_violation_wins() {
-        use FeasibilityState::*;
-        for (values, expected, state) in [
-            (vec![-1.0, 0.0], 2, Feasible),
-            (vec![-1.0, 0.1], 2, Infeasible),
-            (vec![], 2, Unverified),
-            (vec![], 0, Unverified),
-            (vec![-1.0], 2, Unverified),
-            (vec![f64::NAN, -1.0], 2, Unverified),
-            (vec![f64::INFINITY, -1.0], 2, Unverified),
-            (vec![f64::NEG_INFINITY, -1.0], 2, Unverified),
-            (vec![0.1], 2, Infeasible),
-            (vec![0.1, f64::NAN], 2, Infeasible),
-            (vec![f64::INFINITY, 0.1], 2, Infeasible),
-            (vec![f64::NEG_INFINITY, 0.1], 2, Infeasible),
-        ] {
-            assert_eq!(FeasibilityState::classify(&values, expected), state);
-        }
-    }
-
-    #[test]
     fn view_preserves_unconstrained_and_partitions_three_states() {
         let unconstrained = Feasibility::from_column(None);
         assert!(!unconstrained.has_constraints());

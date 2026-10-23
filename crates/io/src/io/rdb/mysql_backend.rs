@@ -170,14 +170,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn format_mysql_date_pads_components() {
-        assert_eq!(
-            format_mysql_date(2024, 1, 2, 3, 4, 5, 6),
-            "2024-01-02 03:04:05.000006"
-        );
-    }
-
-    #[test]
     fn format_mysql_date_full_precision() {
         assert_eq!(
             format_mysql_date(2026, 12, 31, 23, 59, 59, 999_999),

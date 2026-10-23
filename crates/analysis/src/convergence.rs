@@ -65,23 +65,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn improvement_rate_all_improving() {
-        let history = vec![(0u32, 1.0_f64), (1, 0.8), (2, 0.5)];
-        let rate = compute_improvement_rate(&history, 100, true);
-        assert!(rate > 0.0);
-    }
-
-    #[test]
     fn improvement_rate_empty_returns_zero() {
-        let rate = compute_improvement_rate(&[], 100, true);
-        assert_eq!(rate, 0.0);
-    }
-
-    #[test]
-    fn improvement_rate_single_returns_zero() {
-        let history = vec![(0u32, 1.0_f64)];
-        let rate = compute_improvement_rate(&history, 100, true);
-        assert_eq!(rate, 0.0);
+        for history in [&[][..], &[(0u32, 1.0_f64)][..]] {
+            assert_eq!(compute_improvement_rate(history, 100, true), 0.0);
+        }
     }
 
     #[test]
@@ -151,14 +138,6 @@ mod tests {
         let vals = vec![1.0f64, 0.5, 0.8];
         let result = build_best_trial_history(&ids, &vals, true);
         assert_eq!(result, vec![(0, 1.0), (1, 0.5), (2, 0.5)]);
-    }
-
-    #[test]
-    fn build_best_trial_history_maximize() {
-        let ids = vec![0u32, 1, 2];
-        let vals = vec![1.0f64, 0.5, 2.0];
-        let result = build_best_trial_history(&ids, &vals, false);
-        assert_eq!(result, vec![(0, 1.0), (1, 1.0), (2, 2.0)]);
     }
 
     #[test]

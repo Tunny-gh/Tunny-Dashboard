@@ -57,6 +57,4 @@ pub use scatter::{scatter_chart, ScatterPoint};
 // resolve these names via `use super::*;` — they are not part of this
 // module's own code.
 #[cfg(test)]
-use crate::report::theme;
-#[cfg(test)]
 use primitives::{fmt_sig4, nice_ticks, nice_ticks_integer, truncate_label};

@@ -1,6 +1,4 @@
 use crate::state::app_state::AppState;
-#[cfg(test)]
-use crate::state::app_state::{StudyContext, TrialRow};
 use crate::state::types::format_user_attribute;
 use crate::theme::chart_colors::COLOR_LINK;
 use crate::theme::colormap_name::colormap_from_name;
@@ -295,141 +293,14 @@ impl TrialTable {
     }
 }
 
-/// Returns the TrialRows to display (pin-aware version, used only in tests).
-/// If selected_indices is empty, returns all; otherwise returns selected ∪ pinned.
-#[cfg(test)]
-pub fn get_display_rows_with_pins(
-    study_ctx: &StudyContext,
-    selected_indices: &[u32],
-    pinned: &[u32],
-) -> Vec<TrialRow> {
-    let use_filter = !selected_indices.is_empty();
-    let id_set: std::collections::HashSet<u32> = selected_indices.iter().copied().collect();
-    let pin_set: std::collections::HashSet<u32> = pinned.iter().copied().collect();
-    study_ctx
-        .view
-        .trial_ids
-        .iter()
-        .enumerate()
-        .filter(|(_, &id)| !use_filter || id_set.contains(&id) || pin_set.contains(&id))
-        .map(|(i, _)| study_ctx.view.row_at(i))
-        .collect()
-}
-
-/// Returns the TrialRows to display (used only in tests).
-#[cfg(test)]
-pub fn get_display_rows(study_ctx: &StudyContext, selected_indices: &[u32]) -> Vec<TrialRow> {
-    get_display_rows_with_pins(study_ctx, selected_indices, &[])
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::app_state::{Direction, PinError, StudyContext, StudyMeta, TrialRow};
-    use std::collections::HashMap;
-
-    fn make_study_ctx(n: usize) -> StudyContext {
-        let trial_rows: Vec<TrialRow> = (0..n as u32)
-            .map(|i| TrialRow {
-                trial_id: i,
-                trial_number: i,
-                params: HashMap::new(),
-                objectives: vec![i as f64],
-                pareto_rank: 0,
-                cluster_id: None,
-                user_attrs: HashMap::new(),
-            })
-            .collect();
-        let meta = StudyMeta {
-            study_id: 0,
-            name: "test".to_string(),
-            directions: vec![Direction::Minimize],
-            completed_trials: n,
-            param_names: vec![],
-            objective_names: vec!["y".to_string()],
-            param_bounds: Default::default(),
-        };
-        StudyContext::from_rows_for_test(meta, trial_rows)
-    }
 
     #[test]
     fn user_attributes_default_on_and_old_widget_state_loads_on() {
         assert!(TrialTable::default().show_user_attrs);
         let table: TrialTable = serde_json::from_str("{}").unwrap();
         assert!(table.show_user_attrs);
-    }
-
-    #[test]
-    fn get_display_rows_empty_selected_returns_all() {
-        let ctx = make_study_ctx(5);
-        let rows = get_display_rows(&ctx, &[]);
-        assert_eq!(rows.len(), 5);
-    }
-
-    #[test]
-    fn get_display_rows_filters_by_trial_id() {
-        let ctx = make_study_ctx(5);
-        let rows = get_display_rows(&ctx, &[0, 2, 4]);
-        assert_eq!(rows.len(), 3);
-        let ids: Vec<u32> = rows.iter().map(|r| r.trial_id).collect();
-        assert!(ids.contains(&0));
-        assert!(ids.contains(&2));
-        assert!(ids.contains(&4));
-        assert!(!ids.contains(&1));
-        assert!(!ids.contains(&3));
-    }
-
-    #[test]
-    fn get_display_rows_nonexistent_id_excluded() {
-        let ctx = make_study_ctx(3);
-        let rows = get_display_rows(&ctx, &[99]);
-        assert_eq!(rows.len(), 0);
-    }
-
-    // ── TASK-2235: pinning UI tests ──────────────────────────────
-
-    #[test]
-    fn get_display_rows_keeps_pinned_rows_visible() {
-        let ctx = make_study_ctx(5);
-        // selected=[0,1], pinned=[4] → 0,1,4 visible
-        let rows = get_display_rows_with_pins(&ctx, &[0, 1], &[4]);
-        let ids: Vec<u32> = rows.iter().map(|r| r.trial_id).collect();
-        assert!(ids.contains(&0));
-        assert!(ids.contains(&1));
-        assert!(ids.contains(&4));
-        assert!(!ids.contains(&2));
-        assert!(!ids.contains(&3));
-    }
-
-    #[test]
-    fn pin_icon_reflects_current_state() {
-        // The pin icon switches based on the is_pinned flag
-        let is_pinned = true;
-        let label = if is_pinned { "📌" } else { "·" };
-        assert_eq!(label, "📌");
-
-        let is_pinned = false;
-        let label = if is_pinned { "📌" } else { "·" };
-        assert_eq!(label, "·");
-    }
-
-    #[test]
-    fn pin_limit_error_is_surfaceable_to_ui() {
-        use crate::state::app_state::AppState;
-        let mut state = AppState::new();
-        for i in 0..20u32 {
-            state.toggle_pinned_trial(i).unwrap();
-        }
-        let result = state.toggle_pinned_trial(100);
-        assert_eq!(result, Err(PinError::MaxPinnedReached { limit: 20 }));
-    }
-
-    #[test]
-    fn pin_row_then_change_selection_row_stays_visible() {
-        let ctx = make_study_ctx(5);
-        // pin trial 3, then selection is [0,1] (no longer includes 3)
-        let rows = get_display_rows_with_pins(&ctx, &[0, 1], &[3]);
-        let ids: Vec<u32> = rows.iter().map(|r| r.trial_id).collect();
-        assert!(ids.contains(&3), "pinned row 3 must remain visible");
     }
 }

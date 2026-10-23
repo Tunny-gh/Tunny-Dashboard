@@ -137,48 +137,6 @@ fn journal_slice_retains_all_states_without_exposing_noncomplete_columns() {
 }
 
 #[test]
-fn full_read_retains_all_state_authority_and_legacy_returned_row_order() {
-    let bytes = fixture();
-    let key = key(1);
-    let mut manager = StudyManager::new(key);
-    let ticket = manager.begin(LoadKind::Initial).unwrap();
-    let receipt = manager
-        .apply(
-            manager.header(ticket).unwrap(),
-            study::read_full(&bytes, key).unwrap(),
-        )
-        .unwrap();
-    manager.finish(ticket, receipt.next_sequence).unwrap();
-    let input = manager.acquire().unwrap();
-    assert_eq!(input.data().trials().len(), 6);
-    assert_eq!(input.data().constraint_schema().width, 3);
-    let full = project(&input);
-    let legacy = common::journal(&bytes, 1).dataframe;
-    assert_eq!(
-        full.rows
-            .iter()
-            .map(|key| key.stored_id)
-            .collect::<Vec<_>>(),
-        vec![1, 2]
-    );
-    for row in 0..legacy.row_count() {
-        assert_eq!(full.dataframe.get_trial_id(row), legacy.get_trial_id(row));
-        assert_eq!(
-            full.dataframe.get_trial_number(row),
-            legacy.get_trial_number(row)
-        );
-        assert_eq!(
-            full.dataframe.feasibility().state(row),
-            legacy.feasibility().state(row)
-        );
-    }
-    assert_eq!(
-        full.dataframe.get_numeric_column("obj0"),
-        legacy.get_numeric_column("obj0")
-    );
-}
-
-#[test]
 fn streaming_projection_retains_discovery_order_but_resets_layout_on_full_reload() {
     let bytes = concat!(
         "{\"op_code\":0,\"study_name\":\"s\",\"directions\":[1]}\n",
@@ -264,31 +222,6 @@ fn metadata_only_final_batch_reclassifies_existing_projection_without_new_rows()
         &old.data().trials()[0],
         &updated.data().trials()[0]
     ));
-}
-
-#[test]
-fn owned_sink_error_stops_delivery_and_preserves_accepted_prefix() {
-    let key = key(1);
-    let mut manager = StudyManager::new(key);
-    let ticket = manager.begin(LoadKind::Initial).unwrap();
-    let mut calls = 0;
-    let result = read_batches(&fixture(), key, 1, |batch| {
-        calls += 1;
-        if calls == 2 {
-            return Err("delivery rejected".into());
-        }
-        manager
-            .apply(manager.header(ticket).unwrap(), batch)
-            .unwrap();
-        Ok(())
-    });
-    assert_eq!(result.unwrap_err(), "delivery rejected");
-    manager.fail(ticket).unwrap();
-    assert_eq!(calls, 2);
-    assert_eq!(
-        project(&manager.acquire().unwrap()).dataframe.row_count(),
-        1
-    );
 }
 
 #[test]

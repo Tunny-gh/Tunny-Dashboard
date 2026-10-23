@@ -364,16 +364,6 @@ mod tests {
     }
 
     #[test]
-    fn same_seed_is_reproducible() {
-        let trained = train_simple(false);
-        let s = spec(vec![5.0, 0.0]);
-        let a = robustness_analysis(&trained, &s).unwrap();
-        let b = robustness_analysis(&trained, &s).unwrap();
-        assert_eq!(a.samples, b.samples);
-        assert_eq!(a.mean, b.mean);
-    }
-
-    #[test]
     fn zero_noise_collapses_to_nominal() {
         let trained = train_simple(false);
         let mut s = spec(vec![5.0, 0.0]);
@@ -391,6 +381,10 @@ mod tests {
         assert_eq!(r.samples.len(), 256);
         assert!(r.p05 <= r.median && r.median <= r.p95);
         assert!(r.feasibility_rate.is_none(), "no constraints -> None");
+        assert!(r.success_rate.is_none() && r.sigma_level.is_none() && r.cpk.is_none());
+        let repeated = robustness_analysis(&trained, &spec(vec![5.0, 0.0])).unwrap();
+        assert_eq!(r.samples, repeated.samples);
+        assert_eq!(r.mean, repeated.mean);
     }
 
     #[test]
@@ -434,13 +428,6 @@ mod tests {
         // Dimension mismatch / same axis -> None
         assert!(crate::surrogate_opt::surface_slice_at(&trained, &[5.0], 0, 1, 10).is_none());
         assert!(crate::surrogate_opt::surface_slice_at(&trained, &[5.0, 0.0], 0, 0, 10).is_none());
-    }
-
-    #[test]
-    fn spec_metrics_none_without_limits() {
-        let trained = train_simple(false);
-        let r = robustness_analysis(&trained, &spec(vec![5.0, 0.0])).unwrap();
-        assert!(r.success_rate.is_none() && r.sigma_level.is_none() && r.cpk.is_none());
     }
 
     #[test]
@@ -553,14 +540,5 @@ mod tests {
             assert!(mean.abs() < 0.02, "shape {shape}: mean = {mean}");
             assert!((std - 1.0).abs() < 0.03, "shape {shape}: std = {std}");
         }
-    }
-
-    #[test]
-    fn percentile_linear_interpolation() {
-        // Percentile computation delegates to the shared statistics::quantile (NumPy type-7).
-        let sorted = vec![0.0, 1.0, 2.0, 3.0];
-        assert_eq!(crate::statistics::quantile(&sorted, 0.5), 1.5);
-        assert_eq!(crate::statistics::quantile(&sorted, 0.0), 0.0);
-        assert_eq!(crate::statistics::quantile(&sorted, 1.0), 3.0);
     }
 }

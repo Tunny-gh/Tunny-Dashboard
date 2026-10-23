@@ -224,19 +224,6 @@ mod tests {
     use super::*;
     use tdashboard_analysis::surrogate_opt::SurrogateModelKind;
 
-    #[test]
-    fn optimize_click_requires_matching_trained() {
-        let state = SurrogateOptState::default();
-        let obj_names = ["obj0".to_string()];
-        // has_matching_trained is false since trained is None.
-        let has_matching = state
-            .trained
-            .as_deref()
-            .map(|t| trained_matches(t, &state, &obj_names))
-            .unwrap_or(false);
-        assert!(!has_matching);
-    }
-
     // ── unit tests for multi_trained_matches ──────────────────────────
 
     fn make_dummy_trained(
@@ -270,65 +257,21 @@ mod tests {
             make_dummy_trained("f0", SurrogateModelKind::GpFitc),
             make_dummy_trained("f1", SurrogateModelKind::GpFitc),
         ];
-        let state = SurrogateOptState {
+        let mut state = SurrogateOptState {
             model: SurrogateModelKind::GpFitc,
             ..Default::default()
         };
         assert!(multi_trained_matches(&trained, &state, &obj_names));
-    }
-
-    #[test]
-    fn multi_trained_matches_wrong_model() {
-        let obj_names = vec!["f0".to_string(), "f1".to_string()];
-        let trained = vec![
-            make_dummy_trained("f0", SurrogateModelKind::GpFitc),
-            make_dummy_trained("f1", SurrogateModelKind::GpFitc),
-        ];
         // Case where the model changed to Ridge
-        let state = SurrogateOptState {
-            model: SurrogateModelKind::Ridge,
-            ..Default::default()
-        };
+        state.model = SurrogateModelKind::Ridge;
         assert!(!multi_trained_matches(&trained, &state, &obj_names));
-    }
-
-    #[test]
-    fn multi_trained_matches_wrong_objectives() {
+        state.model = SurrogateModelKind::GpFitc;
         let obj_names = vec!["f0".to_string(), "f2".to_string()]; // f2 is different
-        let trained = vec![
-            make_dummy_trained("f0", SurrogateModelKind::GpFitc),
-            make_dummy_trained("f1", SurrogateModelKind::GpFitc),
-        ];
-        let state = SurrogateOptState {
-            model: SurrogateModelKind::GpFitc,
-            ..Default::default()
-        };
         assert!(!multi_trained_matches(&trained, &state, &obj_names));
-    }
-
-    #[test]
-    fn multi_trained_matches_wrong_length() {
         let obj_names = vec!["f0".to_string()]; // objective count is 1
-        let trained = vec![
-            make_dummy_trained("f0", SurrogateModelKind::GpFitc),
-            make_dummy_trained("f1", SurrogateModelKind::GpFitc),
-        ];
-        let state = SurrogateOptState {
-            model: SurrogateModelKind::GpFitc,
-            ..Default::default()
-        };
         assert!(!multi_trained_matches(&trained, &state, &obj_names));
-    }
-
-    #[test]
-    fn adopt_compute_state_propagates_multi_trained() {
         use std::sync::Arc;
-
-        let trained_vec = vec![
-            make_dummy_trained("f0", SurrogateModelKind::GpFitc),
-            make_dummy_trained("f1", SurrogateModelKind::GpFitc),
-        ];
-        let arc = Arc::new(trained_vec);
+        let arc = Arc::new(trained);
 
         let global = SurrogateOptState {
             fitting: false,

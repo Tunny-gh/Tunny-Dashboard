@@ -53,33 +53,9 @@ pub fn is_storage_path(path: &Path) -> bool {
     })
 }
 
-/// Reads a file as a byte buffer.
-#[cfg(test)]
-pub fn read_journal_file(path: &PathBuf) -> Result<Vec<u8>, String> {
-    std::fs::read(path).map_err(|e| e.to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
-
-    #[test]
-    fn read_existing_file_succeeds() {
-        let mut tmp = tempfile::NamedTempFile::new().unwrap();
-        writeln!(tmp, "test content").unwrap();
-        let path = tmp.path().to_path_buf();
-        let result = read_journal_file(&path);
-        assert!(result.is_ok());
-        assert!(!result.unwrap().is_empty());
-    }
-
-    #[test]
-    fn read_nonexistent_file_returns_err() {
-        let path = PathBuf::from("/nonexistent/path/file.log");
-        let result = read_journal_file(&path);
-        assert!(result.is_err());
-    }
 
     #[test]
     fn write_atomic_creates_new_file() {
@@ -87,35 +63,14 @@ mod tests {
         let path = dir.path().join("out.txt");
         write_atomic(&path, b"hello").unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"hello");
-    }
-
-    #[test]
-    fn write_atomic_overwrites_existing_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("out.txt");
-        std::fs::write(&path, b"old contents").unwrap();
         write_atomic(&path, b"new").unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"new");
-    }
-
-    #[test]
-    fn write_atomic_leaves_no_temp_file_behind() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("out.txt");
-        write_atomic(&path, b"data").unwrap();
         // Only the target file remains in the directory (the temp file is consumed by rename).
         let entries: Vec<_> = std::fs::read_dir(dir.path())
             .unwrap()
             .map(|e| e.unwrap().file_name())
             .collect();
         assert_eq!(entries, vec![std::ffi::OsString::from("out.txt")]);
-    }
-
-    #[test]
-    fn write_atomic_preserves_original_on_bad_directory() {
-        // Returns Err when the parent directory doesn't exist (existing file is untouched).
-        let path = PathBuf::from("/nonexistent_dir_write_atomic/out.txt");
-        assert!(write_atomic(&path, b"x").is_err());
     }
 
     #[test]

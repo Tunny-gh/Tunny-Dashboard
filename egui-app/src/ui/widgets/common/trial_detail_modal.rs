@@ -619,21 +619,9 @@ mod tests {
         ];
         // The closest point to click (11, 0) is index 1 (distance 1).
         assert_eq!(nearest_within(&pts, egui::pos2(11.0, 0.0), 12.0), Some(1));
-    }
-
-    #[test]
-    fn nearest_within_none_outside_threshold() {
         let pts = vec![egui::pos2(0.0, 0.0)];
         assert_eq!(nearest_within(&pts, egui::pos2(50.0, 50.0), 12.0), None);
-    }
-
-    #[test]
-    fn nearest_within_empty_is_none() {
         assert_eq!(nearest_within(&[], egui::pos2(0.0, 0.0), 12.0), None);
-    }
-
-    #[test]
-    fn nearest_within_picks_strictly_closest() {
         let pts = vec![egui::pos2(5.0, 0.0), egui::pos2(3.0, 0.0)];
         // Both are within the threshold, but the closer index 1 is chosen.
         assert_eq!(nearest_within(&pts, egui::pos2(0.0, 0.0), 12.0), Some(1));

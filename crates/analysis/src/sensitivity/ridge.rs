@@ -307,18 +307,12 @@ mod tests {
         // X'X diagonal = sum of squares for each column = 1.5²+0.5²+0.5²+1.5² = 5.0
         assert!((xtx[0] - 5.0).abs() < 1e-10, "xtx[0,0]={}", xtx[0]);
         assert!((xtx[3] - 5.0).abs() < 1e-10, "xtx[1,1]={}", xtx[3]);
-    }
-
-    #[test]
-    fn tc_2265_02_compute_xtx_matrix_ridge_regularization() {
-        let (x, n, p) = simple_x_cols();
-        let xtx_noreg = compute_xtx_matrix(&x, n, p, 0.0);
         let xtx_reg = compute_xtx_matrix(&x, n, p, 2.0);
         // alpha=2 should add 2 to diagonal
-        assert!((xtx_reg[0] - xtx_noreg[0] - 2.0).abs() < 1e-10);
-        assert!((xtx_reg[3] - xtx_noreg[3] - 2.0).abs() < 1e-10);
+        assert!((xtx_reg[0] - xtx[0] - 2.0).abs() < 1e-10);
+        assert!((xtx_reg[3] - xtx[3] - 2.0).abs() < 1e-10);
         // Off-diagonal unchanged
-        assert!((xtx_reg[1] - xtx_noreg[1]).abs() < 1e-10);
+        assert!((xtx_reg[1] - xtx[1]).abs() < 1e-10);
     }
 
     #[test]
@@ -362,22 +356,6 @@ mod tests {
         assert!((r2 - 0.0).abs() < 1e-10, "R²={} for zero-variance y", r2);
     }
 
-    #[test]
-    fn tc_2265_06_orchestrator_matches_original_behavior() {
-        // compute_ridge_from_standardized_columns result should equal compute_ridge result
-        // on standardized data
-        let x_matrix = vec![
-            vec![1.0, 0.5],
-            vec![2.0, 1.0],
-            vec![3.0, 1.5],
-            vec![4.0, 2.0],
-        ];
-        let y = vec![1.5, 3.0, 4.5, 6.0];
-        let result = compute_ridge_from_vecs(&x_matrix, &y, 1.0);
-        assert!(!result.beta.is_empty());
-        assert!(result.r_squared >= 0.0 && result.r_squared <= 1.0);
-    }
-
     // ---- TASK-2308: faer Cholesky replacement tests ----
 
     #[test]
@@ -405,19 +383,6 @@ mod tests {
         assert_eq!(result.r_squared, 0.0);
     }
 
-    #[test]
-    fn tc_103_01_solve_ridge_normal_equations_correct() {
-        let (x, n, p) = super::tests::simple_x_cols();
-        let xtx = compute_xtx_matrix(&x, n, p, 1.0);
-        let xty = compute_xty_vector(&x, &[-1.0f64, -0.5, 0.5, 1.0], n, p);
-        let beta = solve_ridge_normal_equations(&xtx, &xty, p);
-        assert_eq!(beta.len(), p);
-        assert!(
-            beta.iter().all(|b| b.is_finite()),
-            "all betas should be finite"
-        );
-    }
-
     // ---- Ridge holdout R² + NaN/Inf row filtering (rust_core audit 2026-07) ----
 
     fn linear_xy(n: usize) -> (Vec<Vec<f64>>, Vec<f64>) {
@@ -428,39 +393,20 @@ mod tests {
     }
 
     #[test]
-    fn tc_ridge_holdout_01_nan_row_matches_clean_subset() {
-        let (mut x, mut y) = linear_xy(10);
-        x.insert(5, vec![f64::NAN, 1.0]);
-        y.insert(5, 42.0);
-
+    fn ridge_holdout_filters_nonfinite_rows_before_split() {
         let (clean_x, clean_y) = linear_xy(10);
-
-        let contaminated = compute_ridge_result(&x, &y);
         let clean = compute_ridge_result(&clean_x, &clean_y);
-
-        assert_eq!(contaminated.beta, clean.beta, "beta should ignore NaN row");
-        assert_eq!(
-            contaminated.r_squared, clean.r_squared,
-            "R² should ignore NaN row"
-        );
-    }
-
-    #[test]
-    fn tc_ridge_holdout_02_inf_row_matches_clean_subset() {
-        let (mut x, mut y) = linear_xy(10);
-        x.insert(3, vec![1.0, f64::INFINITY]);
-        y.insert(3, 7.0);
-
-        let (clean_x, clean_y) = linear_xy(10);
-
-        let contaminated = compute_ridge_result(&x, &y);
-        let clean = compute_ridge_result(&clean_x, &clean_y);
-
-        assert_eq!(contaminated.beta, clean.beta, "beta should ignore Inf row");
-        assert_eq!(
-            contaminated.r_squared, clean.r_squared,
-            "R² should ignore Inf row"
-        );
+        for (index, row, value) in [
+            (5, vec![f64::NAN, 1.0], 42.0),
+            (3, vec![1.0, f64::INFINITY], 7.0),
+        ] {
+            let (mut x, mut y) = linear_xy(10);
+            x.insert(index, row);
+            y.insert(index, value);
+            let contaminated = compute_ridge_result(&x, &y);
+            assert_eq!(contaminated.beta, clean.beta);
+            assert_eq!(contaminated.r_squared, clean.r_squared);
+        }
     }
 
     #[test]
@@ -482,15 +428,23 @@ mod tests {
 
     #[test]
     fn tc_ridge_holdout_04_r_squared_is_out_of_sample() {
-        // With enough rows to trigger the 80/20 split, holdout R² must be computed
-        // by evaluating on data the fit never saw.
-        let (x, y) = linear_xy(50);
-        let result = compute_ridge_result(&x, &y);
+        // Train and evaluation targets intentionally contradict one another:
+        // fitting on all rows or reporting training R² must not pass.
+        let data = PreparedData {
+            x_shuffled: std::sync::Arc::new((0..6).map(|i| vec![i as f64]).collect()),
+            y_shuffled: vec![0.0, 1.0, 2.0, 3.0, -40.0, -50.0],
+            split_idx: 4,
+            use_holdout: true,
+        };
+        let (beta, r_squared) = compute_ridge_from_prepared(&data).unwrap();
+        assert_eq!(beta.len(), 1);
         assert!(
-            (0.0..=1.0).contains(&result.r_squared),
-            "R² should be a valid holdout score: {}",
-            result.r_squared
+            beta[0] > 0.0,
+            "only the increasing train targets should be fitted"
         );
-        assert!(!result.beta.is_empty());
+        assert_eq!(
+            r_squared, 0.0,
+            "contradictory held-out targets must have zero clipped R²"
+        );
     }
 }

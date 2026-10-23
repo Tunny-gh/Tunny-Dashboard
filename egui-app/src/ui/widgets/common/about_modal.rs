@@ -59,13 +59,3 @@ pub fn show(ctx: &egui::Context, state: &mut AboutModalState) -> bool {
     }
     open_licenses
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn default_state_is_closed() {
-        assert!(!AboutModalState::default().open);
-    }
-}

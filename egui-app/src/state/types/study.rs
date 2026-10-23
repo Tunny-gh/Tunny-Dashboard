@@ -120,7 +120,6 @@ pub struct TrialRow {
     pub objectives: Vec<f64>,
     pub pareto_rank: u32,
     pub cluster_id: Option<i32>,
-    pub user_attrs: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -412,45 +411,6 @@ impl StudyView {
     /// Objective column names.
     pub fn objective_names(&self) -> &[String] {
         self.df.objective_col_names()
-    }
-
-    /// Compatibility shim: temporarily assembles a `TrialRow` from columns + parallel arrays (test-only).
-    #[cfg(test)]
-    pub(crate) fn row_at(&self, index: usize) -> TrialRow {
-        let mut params = HashMap::with_capacity(self.df.param_col_names().len());
-        for name in self.df.param_col_names() {
-            if let Some(col) = self.df.get_numeric_column(name) {
-                if let Some(v) = col.get(index) {
-                    params.insert(name.clone(), *v);
-                }
-            }
-        }
-        let objectives: Vec<f64> = self
-            .df
-            .objective_col_names()
-            .iter()
-            .map(|name| {
-                self.df
-                    .get_numeric_column(name)
-                    .and_then(|c| c.get(index).copied())
-                    .unwrap_or(0.0)
-            })
-            .collect();
-        TrialRow {
-            trial_id: self.trial_ids.get(index).copied().unwrap_or(index as u32),
-            trial_number: index as u32,
-            params,
-            objectives,
-            pareto_rank: self.pareto_rank.get(index).copied().unwrap_or(0),
-            cluster_id: self.cluster_id.get(index).copied().flatten(),
-            user_attrs: HashMap::new(),
-        }
-    }
-
-    /// Assembles all rows as `TrialRow` (test-only).
-    #[cfg(test)]
-    pub(crate) fn to_trial_rows(&self) -> Vec<TrialRow> {
-        (0..self.row_count()).map(|i| self.row_at(i)).collect()
     }
 }
 

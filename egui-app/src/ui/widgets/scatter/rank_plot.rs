@@ -416,16 +416,8 @@ mod tests {
     fn compute_rank_percentiles_ascending_minimize() {
         let ranks = compute_rank_percentiles(&[1.0, 2.0, 3.0, 4.0, 5.0], true);
         assert_eq!(ranks, vec![0.0, 0.25, 0.5, 0.75, 1.0]);
-    }
-
-    #[test]
-    fn compute_rank_percentiles_descending_minimize_reorders() {
         let ranks = compute_rank_percentiles(&[5.0, 4.0, 3.0, 2.0, 1.0], true);
         assert_eq!(ranks, vec![1.0, 0.75, 0.5, 0.25, 0.0]);
-    }
-
-    #[test]
-    fn compute_rank_percentiles_maximize_flips_order() {
         let ranks = compute_rank_percentiles(&[1.0, 2.0, 3.0, 4.0, 5.0], false);
         assert_eq!(ranks, vec![1.0, 0.75, 0.5, 0.25, 0.0]);
     }
@@ -440,22 +432,10 @@ mod tests {
     fn compute_rank_percentiles_nan_is_worst() {
         let ranks = compute_rank_percentiles(&[1.0, f64::NAN, 2.0], true);
         assert_eq!(ranks, vec![0.0, 1.0, 1.0]);
-    }
-
-    #[test]
-    fn compute_rank_percentiles_single_element_is_best() {
         let ranks = compute_rank_percentiles(&[42.0], true);
         assert_eq!(ranks, vec![0.0]);
-    }
-
-    #[test]
-    fn compute_rank_percentiles_single_nan_is_worst() {
         let ranks = compute_rank_percentiles(&[f64::NAN], true);
         assert_eq!(ranks, vec![1.0]);
-    }
-
-    #[test]
-    fn compute_rank_percentiles_empty_is_empty() {
         assert!(compute_rank_percentiles(&[], true).is_empty());
     }
 

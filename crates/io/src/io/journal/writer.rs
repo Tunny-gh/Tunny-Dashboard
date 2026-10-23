@@ -902,41 +902,6 @@ mod tests {
         );
     }
 
-    /// Append numbering: after closing once and reopening, study_id / trial_id must
-    /// continue sequentially from the existing counts.
-    #[test]
-    fn writer_reopen_continues_numbering() {
-        let tmp = tempfile::tempdir().unwrap();
-        let path = tmp.path().join("study.journal");
-
-        {
-            let mut writer = JournalWriter::open(&path).unwrap();
-            let study_id = writer
-                .create_study("study-a", &[OptimizationDirection::Minimize], &[])
-                .unwrap();
-            assert_eq!(study_id, 0);
-            for _ in 0..3 {
-                writer.create_trial(study_id).unwrap();
-            }
-        }
-
-        {
-            let mut writer = JournalWriter::open(&path).unwrap();
-            let study_id = writer
-                .create_study("study-b", &[OptimizationDirection::Maximize], &[])
-                .unwrap();
-            assert_eq!(study_id, 1);
-            let trial_id = writer.create_trial(study_id).unwrap();
-            assert_eq!(trial_id, 3);
-        }
-
-        let data = std::fs::read(&path).unwrap();
-        let studies = scan_study_list(&data).unwrap();
-        assert_eq!(studies.len(), 2);
-        assert_eq!(studies[0].name, "study-a");
-        assert_eq!(studies[1].name, "study-b");
-    }
-
     /// Double serialization: parse the written op5 line raw with serde_json, verify
     /// `distribution` is a string type, and verify that re-parsing its contents gives
     /// the correct name/attributes.

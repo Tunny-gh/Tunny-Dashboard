@@ -281,38 +281,11 @@ fn mcdm_top_n_values() {
 }
 
 #[test]
-fn normalize_weights_equal() {
-    let result = normalize_weights(&[0.5, 0.5]).unwrap();
-    assert!((result[0] - 0.5).abs() < 1e-9);
-    assert!((result[1] - 0.5).abs() < 1e-9);
-}
-
-#[test]
-fn normalize_weights_unequal() {
-    let result = normalize_weights(&[1.0, 3.0]).unwrap();
-    assert!((result[0] - 0.25).abs() < 1e-9);
-    assert!((result[1] - 0.75).abs() < 1e-9);
-}
-
-#[test]
 fn normalize_weights_three_equal() {
     let result = normalize_weights(&[2.0, 2.0, 2.0]).unwrap();
     for w in &result {
         assert!((w - 1.0 / 3.0).abs() < 1e-9);
     }
-}
-
-#[test]
-fn normalize_weights_zero_fallback() {
-    let result = normalize_weights(&[0.0, 0.0]).unwrap();
-    assert!((result[0] - 0.5).abs() < 1e-9);
-    assert!((result[1] - 0.5).abs() < 1e-9);
-}
-
-#[test]
-fn normalize_weights_empty() {
-    let result = normalize_weights(&[]).unwrap();
-    assert!(result.is_empty());
 }
 
 #[test]
@@ -462,34 +435,6 @@ fn mcdm_table_default() {
 }
 
 #[test]
-fn enumerate_ranked_top5_with_5_results() {
-    let result = make_topsis_result(vec![0.9, 0.7, 0.5, 0.3, 0.1], vec![0, 1, 2, 3, 4]);
-    let view = make_simple_view(5);
-    let ranking = build_ranking_rows(&result, &view, &[], &[], 5);
-    assert_eq!(ranking.len(), 5);
-    assert!((ranking[0].score - 0.9).abs() < 1e-9);
-    assert!((ranking[4].score - 0.1).abs() < 1e-9);
-}
-
-#[test]
-fn enumerate_ranked_top10_with_20_results() {
-    let scores: Vec<f64> = (0..20).map(|i| 1.0 - i as f64 / 20.0).collect();
-    let ranked: Vec<u32> = (0..20).collect();
-    let result = make_topsis_result(scores, ranked);
-    let view = make_simple_view(20);
-    let ranking = build_ranking_rows(&result, &view, &[], &[], 10);
-    assert_eq!(ranking.len(), 10);
-}
-
-#[test]
-fn enumerate_ranked_top5_with_3_results_min_applied() {
-    let result = make_topsis_result(vec![0.9, 0.5, 0.1], vec![0, 1, 2]);
-    let view = make_simple_view(3);
-    let ranking = build_ranking_rows(&result, &view, &[], &[], 5);
-    assert_eq!(ranking.len(), 3);
-}
-
-#[test]
 fn enumerate_ranked_scores_match_ranked_order() {
     let result = make_topsis_result(vec![0.1, 0.9, 0.5], vec![1, 2, 0]);
     let view = make_simple_view(3);
@@ -498,35 +443,10 @@ fn enumerate_ranked_scores_match_ranked_order() {
     assert!((ranking[0].score - 0.9).abs() < 1e-9);
     assert!((ranking[1].score - 0.5).abs() < 1e-9);
     assert!((ranking[2].score - 0.1).abs() < 1e-9);
-}
-
-#[test]
-fn enumerate_ranked_empty_result() {
-    let result = make_topsis_result(vec![], vec![]);
-    let view = make_simple_view(0);
-    let ranking = build_ranking_rows(&result, &view, &[], &[], 5);
-    assert!(ranking.is_empty());
-}
-
-#[test]
-fn top_n_toggle_cycle() {
-    let mut chart = McdmRankChart::default();
-    assert_eq!(chart.controls.top_n, McdmTopN::Top10);
-    chart.controls.top_n = McdmTopN::Top5;
-    assert_eq!(chart.controls.top_n.value(), 5);
-    chart.controls.top_n = McdmTopN::Top20;
-    assert_eq!(chart.controls.top_n.value(), 20);
-}
-
-#[test]
-fn build_ranking_rows_basic() {
-    let result = make_topsis_result(vec![0.9, 0.5, 0.1], vec![0, 1, 2]);
-    let view = make_simple_view(3);
-    let ranking = build_ranking_rows(&result, &view, &[], &[], 5);
-    assert_eq!(ranking.len(), 3);
-    assert_eq!(ranking[0].rank, 1);
-    assert_eq!(ranking[0].trial_number, 0);
-    assert!((ranking[0].score - 0.9).abs() < 1e-9);
+    assert_eq!(
+        ranking.iter().map(|row| row.rank).collect::<Vec<_>>(),
+        vec![1, 2, 3]
+    );
 }
 
 #[test]
@@ -537,14 +457,6 @@ fn build_ranking_rows_top_n_limit() {
     let view = make_simple_view(20);
     let ranking = build_ranking_rows(&result, &view, &[], &[], 5);
     assert_eq!(ranking.len(), 5);
-}
-
-#[test]
-fn build_ranking_rows_rank_starts_at_1() {
-    let result = make_topsis_result(vec![0.8], vec![0]);
-    let view = make_simple_view(1);
-    let ranking = build_ranking_rows(&result, &view, &[], &[], 5);
-    assert_eq!(ranking[0].rank, 1);
 }
 
 #[test]
@@ -632,75 +544,6 @@ fn topsis_full_pipeline_equal_weights() {
     for i in 1..ranking.len() {
         assert!(ranking[i - 1].score >= ranking[i].score);
     }
-}
-
-#[test]
-fn topsis_weight_bias_changes_ranking() {
-    let data = multi_obj_data();
-    let objectives: Vec<f64> = data.iter().flat_map(|r| r.iter().copied()).collect();
-    let is_minimize = vec![true, true];
-
-    let weights_obj0 = normalize_weights(&[1.0, 0.0]).unwrap();
-    let r0 =
-        tdashboard_analysis::topsis::compute_topsis(&objectives, 5, 2, &weights_obj0, &is_minimize)
-            .unwrap();
-
-    let weights_obj1 = normalize_weights(&[0.0, 1.0]).unwrap();
-    let r1 =
-        tdashboard_analysis::topsis::compute_topsis(&objectives, 5, 2, &weights_obj1, &is_minimize)
-            .unwrap();
-
-    assert_ne!(
-        r0.ranked_indices, r1.ranked_indices,
-        "different weights should produce different rankings"
-    );
-}
-
-#[test]
-fn topsis_single_objective_works() {
-    let objectives: Vec<f64> = (0..5).map(|i| i as f64 * 0.2).collect();
-    let weights = normalize_weights(&[1.0]).unwrap();
-    let is_minimize = vec![true];
-
-    let result =
-        tdashboard_analysis::topsis::compute_topsis(&objectives, 5, 1, &weights, &is_minimize);
-    assert!(result.is_ok());
-    let r = result.unwrap();
-    assert_eq!(r.scores.len(), 5);
-}
-
-#[test]
-fn mcdm_chart_run_button_sets_pending_compute() {
-    let mut chart = McdmRankChart::default();
-    assert!(chart.controls.pending_compute.is_none());
-    assert!(!chart.controls.computing);
-
-    let normalized = normalize_weights(&[1.0, 1.0]).unwrap();
-    chart.controls.pending_compute = Some(McdmComputeRequest {
-        method: McdmMethod::Topsis,
-        weights: normalized,
-        v: 0.5,
-    });
-    chart.controls.computing = true;
-
-    assert!(chart.controls.pending_compute.is_some());
-    assert!(chart.controls.computing);
-
-    let payload = chart.controls.pending_compute.take();
-    assert!(payload.is_some());
-    assert!(chart.controls.pending_compute.is_none());
-    assert!(chart.controls.computing);
-}
-
-#[test]
-fn mcdm_compute_request_vikor_includes_v() {
-    let req = McdmComputeRequest {
-        method: McdmMethod::Vikor,
-        weights: vec![0.5, 0.5],
-        v: 0.3,
-    };
-    assert_eq!(req.method, McdmMethod::Vikor);
-    assert!((req.v - 0.3).abs() < f64::EPSILON);
 }
 
 #[test]

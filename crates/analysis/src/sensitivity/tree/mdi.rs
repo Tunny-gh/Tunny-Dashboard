@@ -81,10 +81,6 @@ mod tests {
         let (imp, r2) = compute_mdi_importances(&[], &[]);
         assert!(imp.is_empty());
         assert_eq!(r2, 0.0);
-    }
-
-    #[test]
-    fn single_sample_returns_empty() {
         let x = vec![vec![1.0, 2.0]];
         let y = vec![3.0];
         let (imp, r2) = compute_mdi_importances(&x, &y);

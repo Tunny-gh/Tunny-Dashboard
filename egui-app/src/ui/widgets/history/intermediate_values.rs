@@ -263,12 +263,6 @@ mod tests {
     }
 
     #[test]
-    fn chart_default_has_log_scale_off() {
-        let chart = IntermediateValuesChart::default();
-        assert!(!chart.log_scale);
-    }
-
-    #[test]
     fn build_curves_skips_trials_without_intermediate_values() {
         let trials = vec![
             trial(0, TrialState::Complete, &[(0, 1.0), (1, 0.5)]),
@@ -290,15 +284,6 @@ mod tests {
         )];
         let (curves, _) = build_intermediate_curves(&trials, false, 2000);
         assert_eq!(curves[0].points, vec![[0.0, -1.0], [1.0, 0.0], [2.0, 2.0]]);
-    }
-
-    #[test]
-    fn build_curves_filters_non_positive_when_log_scale() {
-        let trials = vec![trial(
-            0,
-            TrialState::Complete,
-            &[(0, -1.0), (1, 0.0), (2, 2.0)],
-        )];
         let (curves, _) = build_intermediate_curves(&trials, true, 2000);
         assert_eq!(curves[0].points, vec![[2.0, 2.0]]);
     }
@@ -327,15 +312,5 @@ mod tests {
         assert!(!curves.is_empty());
         // Subsampling steps at a fixed interval from the start, so the first trial always remains.
         assert_eq!(curves[0].trial_id, 0);
-    }
-
-    #[test]
-    fn build_curves_no_subsample_when_under_cap() {
-        let trials: Vec<TrialExtra> = (0..10)
-            .map(|i| trial(i, TrialState::Complete, &[(0, 1.0)]))
-            .collect();
-        let (curves, total) = build_intermediate_curves(&trials, false, 2000);
-        assert_eq!(total, 10);
-        assert_eq!(curves.len(), 10);
     }
 }

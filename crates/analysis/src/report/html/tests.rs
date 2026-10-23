@@ -207,6 +207,19 @@ fn multi_objective_full_section_render() {
     let html = render_html(&report, ReportLang::En);
 
     assert_self_contained(&html);
+    assert_eq!(html, render_html(&report, ReportLang::En));
+    let ja = render_html(&report, ReportLang::Ja);
+    assert!(ja.contains("<html lang=\"ja\">"));
+    for heading in [
+        "まとめ",
+        "最適化結果",
+        "収束",
+        "意思決定分析",
+        "実行情報",
+        "付録",
+    ] {
+        assert!(ja.contains(heading), "missing Japanese heading: {heading}");
+    }
     // All primary section anchors are present (multi-objective + full extras).
     for id in [
         "id=\"key-findings\"",
@@ -286,43 +299,6 @@ fn user_strings_are_escaped() {
     assert!(!html.contains("<b>a</b>"), "パラメータ名の生タグが素通り");
     assert!(html.contains("&lt;script&gt;alert"));
     assert!(html.contains("&lt;b&gt;a&lt;/b&gt;"));
-}
-
-#[test]
-fn output_is_deterministic() {
-    let report = build_study_report(
-        &meta_multi(),
-        &df_multi(),
-        Some(&extras_multi()),
-        &source(),
-        &opts(),
-    );
-    let a = render_html(&report, ReportLang::En);
-    let b = render_html(&report, ReportLang::En);
-    assert_eq!(a, b, "同一入力→バイト同一");
-}
-
-#[test]
-fn japanese_headings_smoke() {
-    let report = build_study_report(
-        &meta_multi(),
-        &df_multi(),
-        Some(&extras_multi()),
-        &source(),
-        &opts(),
-    );
-    let html = render_html(&report, ReportLang::Ja);
-    assert!(html.contains("<html lang=\"ja\">"));
-    for heading in [
-        "まとめ",
-        "最適化結果",
-        "収束",
-        "意思決定分析",
-        "実行情報",
-        "付録",
-    ] {
-        assert!(html.contains(heading), "日本語見出し欠落: {heading}");
-    }
 }
 
 /// Builds a constrained multi-objective row.

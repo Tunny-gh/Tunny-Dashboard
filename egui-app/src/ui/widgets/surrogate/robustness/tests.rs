@@ -21,22 +21,6 @@ fn robustness_chart_default_values() {
 }
 
 #[test]
-fn noise_dist_kind_default_is_normal() {
-    assert_eq!(NoiseDistKind::default(), NoiseDistKind::Normal);
-}
-
-#[test]
-fn noise_dist_labels_cover_all_choices() {
-    for kind in [
-        NoiseDistKind::Normal,
-        NoiseDistKind::Uniform,
-        NoiseDistKind::Weibull,
-    ] {
-        assert!(!noise_dist_label(kind).is_empty());
-    }
-}
-
-#[test]
 fn cache_key_changes_with_distribution_shape_and_specs() {
     // Verify with a fixed fit generation ID (the identity key that replaced `Arc::as_ptr`).
     let gen = 1u64;

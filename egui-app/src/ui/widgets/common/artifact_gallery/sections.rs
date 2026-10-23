@@ -230,7 +230,6 @@ mod tests {
                 objectives: vec![],
                 pareto_rank: 0,
                 cluster_id: None,
-                user_attrs: HashMap::new(),
             })
             .collect();
         let meta = StudyMeta {
@@ -255,12 +254,7 @@ mod tests {
 
         let ids = artifact_trials_with_index(&state.artifact_map, 0);
         assert_eq!(restrict_to_current_study(ids, &state), vec![0, 1]);
-    }
-
-    #[test]
-    fn restrict_to_current_study_empty_without_study() {
-        let mut state = AppState::new();
-        state.artifact_map = map_with(&[0, 1]);
+        state.current_study = None;
         let ids = artifact_trials_with_index(&state.artifact_map, 0);
         assert!(restrict_to_current_study(ids, &state).is_empty());
     }
@@ -269,10 +263,6 @@ mod tests {
     fn filter_ids_by_selection_empty_returns_all() {
         let ids = vec![2u32, 5, 9];
         assert_eq!(filter_ids_by_selection(ids.clone(), &[]), ids);
-    }
-
-    #[test]
-    fn filter_ids_by_selection_keeps_only_selected() {
         let ids = vec![2u32, 5, 9, 11];
         assert_eq!(filter_ids_by_selection(ids, &[5, 11, 99]), vec![5, 11]);
     }
@@ -294,23 +284,16 @@ mod tests {
             labels: vec![1, 0, -1, 0],
             n_clusters: 2,
         };
-        let m = map_with(&[10, 11, 12, 13]);
+        let mut m = map_with(&[10, 11, 12, 13]);
         let sections = cluster_sections(&cr, &trial_ids, &m, 0);
         let labels: Vec<i32> = sections.iter().map(|(l, _)| *l).collect();
         assert_eq!(labels, vec![0, 1, -1]); // unclustered last
                                             // cluster 0 is trials 11, 13
         let c0: Vec<u32> = sections[0].1.iter().map(|(t, _)| *t).collect();
         assert_eq!(c0, vec![11, 13]);
-    }
-
-    #[test]
-    fn cluster_sections_excludes_trials_without_artifacts() {
-        let trial_ids = vec![10, 11, 12];
-        let cr = ClusterResult {
-            labels: vec![0, 0, 1],
-            n_clusters: 2,
-        };
-        let m = map_with(&[10]); // 11, 12 have no artifact
+        for id in [11, 12, 13] {
+            m.remove(&id);
+        }
         let sections = cluster_sections(&cr, &trial_ids, &m, 0);
         let total: usize = sections.iter().map(|(_, v)| v.len()).sum();
         assert_eq!(total, 1);
@@ -349,16 +332,6 @@ mod tests {
         assert_eq!(ordered[0].trial_id, 11); // row index 1 -> trial 11
         assert!((ordered[0].score - 0.9).abs() < 1e-9);
         assert_eq!(ordered[1].trial_id, 12);
-    }
-
-    #[test]
-    fn mcdm_ordered_skips_trials_without_artifacts() {
-        let trial_ids = vec![10, 11, 12];
-        let result = McdmResult::Topsis(TopsisResult {
-            scores: vec![0.1, 0.9, 0.5],
-            ranked_indices: vec![1, 2, 0],
-            duration_ms: 0.0,
-        });
         let m = map_with(&[12]); // row index 2 -> only trial 12
         let ordered = mcdm_ordered(&result, &trial_ids, &m, 0, 10);
         assert_eq!(ordered.len(), 1);

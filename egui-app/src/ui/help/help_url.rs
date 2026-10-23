@@ -86,18 +86,10 @@ mod tests {
                 "https://tunny.hrntsm.com/dashboard/latest/widgets/rank-plot"
             );
         }
-    }
-
-    #[test]
-    fn widget_url_points_at_the_widget_page() {
         assert_eq!(
             widget_url(&PanelItem::TrialTable),
             "https://tunny.hrntsm.com/dashboard/latest/widgets/trial-table"
         );
-    }
-
-    #[test]
-    fn overview_url_points_at_the_documentation_top_page() {
         assert_eq!(
             overview_url(),
             "https://tunny.hrntsm.com/dashboard/latest/overview"

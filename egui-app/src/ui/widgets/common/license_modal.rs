@@ -158,20 +158,8 @@ mod tests {
     #[test]
     fn empty_filter_matches_all() {
         assert!(matches_filter(&entry(), ""));
-    }
-
-    #[test]
-    fn filter_matches_name() {
         assert!(matches_filter(&entry(), "serd"));
-    }
-
-    #[test]
-    fn filter_matches_license() {
         assert!(matches_filter(&entry(), "apache"));
-    }
-
-    #[test]
-    fn filter_rejects_non_match() {
         assert!(!matches_filter(&entry(), "zzz_nonexistent"));
     }
 
@@ -180,12 +168,5 @@ mod tests {
         assert_eq!(APP_ENTRY.license, "MIT");
         assert!(APP_ENTRY.text.contains("MIT License"));
         assert!(APP_ENTRY.text.contains("WITHOUT WARRANTY OF ANY KIND"));
-    }
-
-    #[test]
-    fn default_state_is_closed() {
-        let s = LicenseModalState::default();
-        assert!(!s.open);
-        assert!(s.search.is_empty());
     }
 }

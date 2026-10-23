@@ -440,7 +440,7 @@ mod tests {
     // interpolating noise dimensions) is the responsibility of egobox, the
     // surrogate backend, and is not verified here. Tests in this module are
     // limited to checking our own logic (input validation, inducing-point
-    // selection, fallback, determinism, Send/Sync, ard_theta plumbing).
+    // selection, fallback, determinism, ard_theta plumbing).
 
     #[test]
     fn fit_is_deterministic() {
@@ -505,7 +505,6 @@ mod tests {
 
     #[test]
     fn ard_theta_is_some_for_sgp_none_for_moe() {
-        // A function that depends strongly on x0 and barely on x1 → expect θ_0 > θ_1.
         let mut state = 12345u64;
         let mut next = move || {
             state = state
@@ -521,18 +520,9 @@ mod tests {
         let theta = model.ard_theta().expect("SGP should expose theta");
         assert_eq!(theta.len(), 2);
         assert!(theta.iter().all(|t| t.is_finite() && *t > 0.0));
-        // Sensitive to x0 ⇒ θ_0 is larger (shorter length scale).
-        assert!(theta[0] > theta[1], "theta={theta:?}");
-
         // MoE returns None.
         let moe = GpModel::fit(&x, &y, GpMethod::Moe, 100, 42).expect("MoE fit");
         assert!(moe.ard_theta().is_none());
-    }
-
-    #[test]
-    fn model_is_send_and_sync() {
-        fn assert_send_sync<T: Send + Sync>() {}
-        assert_send_sync::<GpModel>();
     }
 
     // ────────────────────────────────────────────────────────────

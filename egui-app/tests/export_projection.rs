@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use tdashboard_analysis::dataframe::{DataFrame, TrialRow};
-use tdashboard_io::csv::formatting::{escape_csv_field, format_f64};
+use tdashboard_io::csv::formatting::format_f64;
 
 fn serialize_csv_from_df(df: &DataFrame, rows: &[u32], columns: &[String]) -> String {
     use tdashboard_analysis::export::{select_rows, ExportCell};
@@ -73,75 +73,36 @@ fn make_test_df() -> DataFrame {
 }
 
 #[test]
-fn tc_1101_01_csv_header_row() {
-    let df = make_test_df();
-    let csv = serialize_csv_from_df(&df, &[0, 1], &["trial_id".to_string(), "x1".to_string()]);
-
-    let lines: Vec<&str> = csv.lines().collect();
-    assert_eq!(lines[0], "trial_id,x1", "Header row should match");
-}
-
-#[test]
 fn tc_1101_02_trial_id_column() {
     let df = make_test_df();
-    let csv = serialize_csv_from_df(&df, &[0, 1], &["trial_id".to_string()]);
-
-    let lines: Vec<&str> = csv.lines().collect();
-    assert_eq!(lines[1], "0", "row=0 trial_id should be 0");
-    assert_eq!(lines[2], "5", "row=1 trial_id should be 5");
-}
-
-#[test]
-fn tc_1101_03_numeric_column_values() {
-    let df = make_test_df();
-    let csv = serialize_csv_from_df(&df, &[0], &["x1".to_string(), "obj0".to_string()]);
-
-    let lines: Vec<&str> = csv.lines().collect();
-    assert_eq!(
-        lines[1], "1.5,10",
-        "Numeric values should be formatted correctly"
+    let csv = serialize_csv_from_df(
+        &df,
+        &[0, 1],
+        &["trial_id".to_string(), "x1".to_string(), "obj0".to_string()],
     );
+
+    let lines: Vec<&str> = csv.lines().collect();
+    assert_eq!(lines, ["trial_id,x1,obj0", "0,1.5,10", "5,3,30"]);
 }
 
 #[test]
 fn tc_1101_04_index_filtering() {
     let df = make_test_df();
-    let csv = serialize_csv_from_df(&df, &[1], &["x1".to_string()]);
+    let csv = serialize_csv_from_df(&df, &[99, 1], &["x1".to_string()]);
 
     let lines: Vec<&str> = csv.lines().collect();
     assert_eq!(
         lines.len(),
         2,
-        "index=[1] should produce 2 rows (header + 1 data row)"
+        "Invalid indices should be skipped while valid selected rows remain"
     );
     assert_eq!(
         lines[1], "3",
         "row=1 x1=3.0 should be rendered as integer '3'"
     );
-}
-
-#[test]
-fn tc_1101_05_out_of_range_index_skipped() {
-    let df = make_test_df();
-    let csv = serialize_csv_from_df(&df, &[99], &["x1".to_string()]);
-
-    let lines: Vec<&str> = csv.lines().collect();
-    assert_eq!(lines.len(), 1, "Out-of-range indices should be skipped");
-}
-
-#[test]
-fn tc_1101_06_csv_field_escaping() {
-    assert_eq!(escape_csv_field("hello,world"), "\"hello,world\"");
-    assert_eq!(escape_csv_field("say \"hi\""), "\"say \"\"hi\"\"\"");
-    assert_eq!(escape_csv_field("normal"), "normal");
-}
-
-#[test]
-fn tc_1101_08_empty_indices_header_only() {
-    let df = make_test_df();
-    let csv = serialize_csv_from_df(&df, &[], &["x1".to_string()]);
-    let lines: Vec<&str> = csv.lines().collect();
-    assert_eq!(lines.len(), 1, "empty indices should produce header only");
+    for indices in [&[][..], &[99][..]] {
+        assert_eq!(serialize_csv_from_df(&df, indices, &["x1".into()]), "x1\n");
+    }
 }
 
 #[test]
@@ -161,38 +122,6 @@ fn tc_1101_10_nonexistent_column_empty() {
     assert_eq!(
         lines[1], "",
         "nonexistent column should render as empty field"
-    );
-}
-
-#[test]
-fn tc_1102_01_report_stats_numeric_columns() {
-    let df = make_test_df();
-    let json = compute_report_stats_from_df(&df);
-
-    assert!(!json.is_empty(), "report stats JSON should not be empty");
-    assert!(
-        json.contains("\"x1\""),
-        "report stats JSON should contain key x1"
-    );
-    assert!(
-        json.contains("\"min\""),
-        "report stats JSON should contain key min"
-    );
-    assert!(
-        json.contains("\"max\""),
-        "report stats JSON should contain key max"
-    );
-    assert!(
-        json.contains("\"mean\""),
-        "report stats JSON should contain key mean"
-    );
-    assert!(
-        json.contains("\"std\""),
-        "report stats JSON should contain key std"
-    );
-    assert!(
-        json.contains("\"count\""),
-        "report stats JSON should contain key count"
     );
 }
 
@@ -226,12 +155,4 @@ fn tc_1102_03_report_stats_correct_values() {
         "x1 report stats should have count=2: {}",
         json
     );
-}
-
-#[test]
-fn tc_1102_04_report_stats_valid_json_structure() {
-    let df = make_test_df();
-    let json = compute_report_stats_from_df(&df);
-    assert!(json.starts_with('{'), "JSON should start with {{");
-    assert!(json.ends_with('}'), "JSON should end with }}");
 }

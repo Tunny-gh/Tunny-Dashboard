@@ -159,6 +159,7 @@ mod tests {
             "joint P_feas {p} should equal product {}",
             e1 * e2
         );
+        assert_eq!(feasibility_probability(&[], &[0.5, 0.5]), 1.0);
     }
 
     /// Hard indicator path (no posterior variance): violated → 0.0, feasible → 1.0.
@@ -177,12 +178,5 @@ mod tests {
             0.0,
             "infeasible point → 0.0"
         );
-    }
-
-    /// No constraints (empty models) → P_feas = 1.0.
-    #[test]
-    fn empty_models_returns_one() {
-        let p = feasibility_probability(&[], &[0.5, 0.5]);
-        assert_eq!(p, 1.0);
     }
 }

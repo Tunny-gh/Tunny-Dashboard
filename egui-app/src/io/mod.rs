@@ -9,6 +9,4 @@ pub mod rdb;
 pub mod report_export;
 pub mod session;
 pub mod sqlite;
-#[cfg(test)]
-pub mod study;
 pub mod study_worker;

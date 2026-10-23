@@ -329,6 +329,14 @@ mod tests {
         let (highlighted, normal) = compute_plot_points(&view, "x", &obj_names, 0, false, true);
         assert!(highlighted.is_empty());
         assert!(normal.is_empty());
+        let view = make_view(&[1.0, 3.0], &[2.0, 4.0], vec![0, 1]);
+        let (highlighted, normal) = compute_plot_points(&view, "y", &obj_names, 0, false, true);
+        assert!(highlighted.is_empty());
+        assert!(normal.is_empty());
+        let view = make_view(&[1.0], &[2.0], vec![0]);
+        let (highlighted, normal) = compute_plot_points(&view, "x", &obj_names, 1, false, true);
+        assert!(highlighted.is_empty());
+        assert!(normal.is_empty());
     }
 
     #[test]
@@ -350,36 +358,12 @@ mod tests {
         assert_eq!(best.len(), 1);
         assert_eq!(best[0], [2.0, 3.0]);
         assert_eq!(others.len(), 2);
-    }
-
-    #[test]
-    fn test_compute_plot_points_single_obj_maximize() {
         let view = make_view(&[1.0, 2.0, 3.0], &[5.0, 9.0, 7.0], vec![0; 3]);
         let obj_names = vec!["obj0".to_string()];
         let (best, others) = compute_plot_points(&view, "x", &obj_names, 0, true, false);
         assert_eq!(best.len(), 1);
         assert_eq!(best[0], [2.0, 9.0]);
         assert_eq!(others.len(), 2);
-    }
-
-    #[test]
-    fn test_compute_plot_points_unknown_param_returns_empty() {
-        let view = make_view(&[1.0, 3.0], &[2.0, 4.0], vec![0, 1]);
-        let obj_names = vec!["obj0".to_string()];
-        // "y" does not exist in the view → empty
-        let (highlighted, normal) = compute_plot_points(&view, "y", &obj_names, 0, false, true);
-        assert!(highlighted.is_empty());
-        assert!(normal.is_empty());
-    }
-
-    #[test]
-    fn test_compute_plot_points_obj_idx_out_of_bounds() {
-        let view = make_view(&[1.0], &[2.0], vec![0]);
-        let obj_names = vec!["obj0".to_string()];
-        // obj_idx=1 but obj_names has length 1 → empty
-        let (highlighted, normal) = compute_plot_points(&view, "x", &obj_names, 1, false, true);
-        assert!(highlighted.is_empty());
-        assert!(normal.is_empty());
     }
 
     #[test]

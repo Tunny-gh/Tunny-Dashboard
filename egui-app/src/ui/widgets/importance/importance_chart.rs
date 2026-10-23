@@ -777,11 +777,6 @@ mod tests {
     }
 
     #[test]
-    fn test_permutation_cache_id() {
-        assert_eq!(ImportanceMetric::Permutation.cache_id(), 7);
-    }
-
-    #[test]
     fn test_permutation_is_not_sobol() {
         assert!(!ImportanceMetric::Permutation.is_sobol());
     }

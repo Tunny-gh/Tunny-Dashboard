@@ -139,10 +139,6 @@ mod tests {
             );
         }
         assert!(marks.iter().any(|m| m.step_size < 1.0));
-    }
-
-    #[test]
-    fn log10_grid_spacer_thins_to_majors_for_wide_range() {
         let input = egui_plot::GridInput {
             bounds: (-10.0, 10.0),
             base_step_size: 0.1,

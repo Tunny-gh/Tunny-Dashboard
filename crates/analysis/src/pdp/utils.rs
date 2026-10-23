@@ -434,42 +434,6 @@ mod tests {
         assert!((y[1] - 2.0).abs() < 1e-9);
     }
 
-    #[test]
-    fn tc_301_e01_missing_column_excludes_rows() {
-        // Given: DataFrame where requested column doesn't exist
-        use crate::dataframe::DataFrame;
-        use crate::dataframe::TrialRow;
-        use std::collections::HashMap;
-
-        let rows = vec![TrialRow {
-            trial_id: 0,
-            trial_number: 0,
-            param_display: vec![("x".to_string(), 0.5)].into_iter().collect(),
-            distribution_metadata: Default::default(),
-            param_category_label: HashMap::new(),
-            objective_values: vec![1.0],
-            user_attrs_numeric: HashMap::new(),
-            user_attrs_string: HashMap::new(),
-            user_attrs_json: HashMap::new(),
-            constraint_values: vec![],
-        }];
-
-        let df = DataFrame::from_trials(
-            &rows,
-            &["x".to_string()],
-            &["obj0".to_string()],
-            &[],
-            &[],
-            0,
-        );
-
-        // When: extract_xy requests non-existent column "z"
-        let (x_matrix, _y) = extract_xy(&df, &["x".to_string(), "z".to_string()], "obj0", false);
-
-        // A missing feature must not fabricate a training measurement.
-        assert!(x_matrix.is_empty());
-    }
-
     /// Builds a DataFrame with constraints (has an is_feasible column).
     /// constraint <= 0 is feasible (Optuna convention).
     fn make_constrained_df(constraints: &[f64]) -> crate::dataframe::DataFrame {
@@ -499,17 +463,6 @@ mod tests {
             &[],
             1,
         )
-    }
-
-    #[test]
-    fn extract_xy_feasible_only_filters_infeasible_rows() {
-        // row0: feasible (c=-1), row1: infeasible (c=1), row2: feasible (c=0)
-        let df = make_constrained_df(&[-1.0, 1.0, 0.0]);
-        let (x_matrix, y) = extract_xy(&df, &["x".to_string()], "obj0", true);
-        assert_eq!(x_matrix.len(), 2);
-        assert_eq!(y, vec![0.0, 20.0]);
-        assert!((x_matrix[0][0] - 0.0).abs() < 1e-9);
-        assert!((x_matrix[1][0] - 2.0).abs() < 1e-9);
     }
 
     #[test]

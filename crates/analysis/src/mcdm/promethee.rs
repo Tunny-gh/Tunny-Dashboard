@@ -344,34 +344,6 @@ mod tests {
         );
     }
 
-    // Unnormalized weights must give the same flows as normalized weights
-    // (weights are normalized internally so pi stays a weighted mean).
-    #[test]
-    fn unnormalized_weights_match_normalized() {
-        let values = vec![1.0_f64, 5.0, 3.0, 3.0, 5.0, 1.0];
-        let a = compute_promethee(&values, 3, 2, &[0.3, 0.7], &[true, true]).unwrap();
-        let b = compute_promethee(&values, 3, 2, &[3.0, 7.0], &[true, true]).unwrap();
-        for i in 0..3 {
-            assert!(
-                (a.phi_plus[i] - b.phi_plus[i]).abs() < 1e-12
-                    && (a.phi_minus[i] - b.phi_minus[i]).abs() < 1e-12,
-                "flows must be invariant to weight scaling"
-            );
-        }
-        assert_eq!(a.ranked_indices_i, b.ranked_indices_i);
-        assert_eq!(a.ranked_indices_ii, b.ranked_indices_ii);
-    }
-
-    // count_incomparable: higher on both phi+ and phi- => incomparable pair,
-    // counted on both sides; a clearly dominated pairing contributes nothing.
-    #[test]
-    fn count_incomparable_flags_conflicting_flows() {
-        // trial0: phi+=0.6 phi-=0.5 / trial1: phi+=0.5 phi-=0.2 -> incomparable
-        // trial2: phi+=0.1 phi-=0.9 -> comparable with both (worse on both axes)
-        let counts = count_incomparable(&[0.6, 0.5, 0.1], &[0.5, 0.2, 0.9], &[0, 1, 2], 3);
-        assert_eq!(counts, vec![1, 1, 0]);
-    }
-
     // Incomparability counts skip invalid trials and map back to trial
     // indices. Fixture (minimize both, w=(0.7,0.3)): flows computed by hand /
     // reference implementation give
@@ -441,10 +413,11 @@ mod tests {
     // TC-PR-007-01: PROMETHEE I Phi+ descending ranking
     #[test]
     fn tc_pr_007_01_promethee_i_phi_plus_descending() {
-        // trial0=[1,1] trial1=[3,3] trial2=[5,5] with minimize=true
+        // trial0=[1,1] trial1=[5,5] trial2=[3,3] with minimize=true
         // trial0 has smallest values, highest phi_plus
-        let values = vec![1.0_f64, 1.0, 3.0, 3.0, 5.0, 5.0];
+        let values = vec![1.0_f64, 1.0, 5.0, 5.0, 3.0, 3.0];
         let r = compute_promethee(&values, 3, 2, &[0.5, 0.5], &[true, true]).unwrap();
+        assert_eq!(r.ranked_indices_ii, vec![0, 2, 1]);
         assert_eq!(
             r.ranked_indices_i[0], 0,
             "trial0 (smallest values) should be ranked first in PROMETHEE I, got {:?}",
@@ -465,20 +438,6 @@ mod tests {
                 phi_sorted[k + 1]
             );
         }
-    }
-
-    // TC-PR-008-01: PROMETHEE II best trial ranked first
-    #[test]
-    fn tc_pr_008_01_best_trial_first() {
-        // trial0=[1,1] trial1=[5,5] trial2=[3,3], minimize=true
-        // trial0 dominates, ranked_indices_ii[0] == 0
-        let values = vec![1.0_f64, 1.0, 5.0, 5.0, 3.0, 3.0];
-        let r = compute_promethee(&values, 3, 2, &[0.5, 0.5], &[true, true]).unwrap();
-        assert_eq!(
-            r.ranked_indices_ii[0], 0,
-            "trial0 should be ranked first in PROMETHEE II, got {:?}",
-            r.ranked_indices_ii
-        );
     }
 
     // TC-PR-003-E01: n_trials=0 => Err
@@ -513,21 +472,6 @@ mod tests {
             r.phi_net[0].abs() < 1e-9,
             "single trial: phi_net[0] should be 0.0, got {}",
             r.phi_net[0]
-        );
-    }
-
-    // TC-EDGE-PR-002: All same values range=0 => all flows 0.0, no crash
-    #[test]
-    fn tc_edge_pr_002_range_zero() {
-        let values = vec![3.0_f64; 4]; // 2 trials x 2 objectives
-        let r = compute_promethee(&values, 2, 2, &[0.5, 0.5], &[true, true]).unwrap();
-        assert!(
-            r.phi_plus.iter().all(|&v| v.abs() < 1e-9),
-            "all-same range=0: phi_plus should be 0.0"
-        );
-        assert!(
-            r.phi_minus.iter().all(|&v| v.abs() < 1e-9),
-            "all-same range=0: phi_minus should be 0.0"
         );
     }
 

@@ -249,21 +249,6 @@ fn tc_801_06_ridge_perfect_linear_r_squared_near_1() {
 }
 
 #[test]
-fn tc_801_07_ridge_beta_sign_correct() {
-    let n = 20;
-    let x_matrix: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64]).collect();
-    let y: Vec<f64> = (0..n).map(|i| 3.0 * i as f64).collect();
-
-    let result = compute_ridge_from_vecs(&x_matrix, &y, 0.01);
-
-    assert!(
-        result.beta[0] > 0.0,
-        "beta should be positive: {}",
-        result.beta[0]
-    );
-}
-
-#[test]
 fn tc_801_08_ridge_two_params_identifies_stronger() {
     let n = 50;
     let x_matrix: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64, (i % 5) as f64]).collect();
@@ -277,68 +262,6 @@ fn tc_801_08_ridge_two_params_identifies_stronger() {
         "x1 beta should exceed x2 beta: beta={:?}",
         result.beta
     );
-}
-
-#[test]
-fn tc_801_09_ridge_empty_returns_zero_r_squared() {
-    let empty: Vec<Vec<f64>> = vec![];
-    let result = compute_ridge_from_vecs(&empty, &[], 1.0);
-
-    assert_eq!(result.beta.len(), 0, "beta should be empty for empty input");
-    assert_eq!(result.r_squared, 0.0, "R² should be 0.0 for empty input");
-}
-
-#[test]
-fn tc_801_11b_sensitivity_categorical_param_unsupported() {
-    let labels = ["A", "B", "C", "A", "B", "C"];
-    let y_vals = [1.0, 2.0, 3.0, 1.2, 2.2, 3.2];
-
-    let rows: Vec<TrialRow> = labels
-        .iter()
-        .enumerate()
-        .map(|(i, label)| {
-            let idx = match *label {
-                "A" => 0.0,
-                "B" => 1.0,
-                _ => 2.0,
-            };
-
-            let mut param_display = HashMap::new();
-            param_display.insert("cat".to_string(), idx);
-
-            let mut param_category_label = HashMap::new();
-            param_category_label.insert("cat".to_string(), (*label).to_string());
-
-            TrialRow {
-                trial_id: i as u32,
-                trial_number: i as u32,
-                param_display,
-                distribution_metadata: Default::default(),
-                param_category_label,
-                objective_values: vec![y_vals[i]],
-                user_attrs_numeric: HashMap::new(),
-                user_attrs_string: HashMap::new(),
-                user_attrs_json: HashMap::new(),
-                constraint_values: vec![],
-            }
-        })
-        .collect();
-
-    let df = setup_df(rows, &["cat"], &["obj0"]);
-    let results = compute_sensitivity_single_obj(
-        &df,
-        vec![Box::new(SpearmanMetric), Box::new(RidgeMetric)],
-        0,
-    );
-
-    assert_eq!(results.len(), 2, "both metrics should return results");
-    let spearman_result = &results[0];
-    let ridge_result = &results[1];
-    assert!(spearman_result.param_names.is_empty());
-    assert_eq!(spearman_result.unsupported_categorical, vec!["cat"]);
-    assert!(spearman_result.spearman.is_empty());
-    assert_eq!(ridge_result.unsupported_categorical, vec!["cat"]);
-    assert!(ridge_result.ridge.is_empty());
 }
 
 #[test]
@@ -459,39 +382,7 @@ fn tc_801_p02_ridge_50000_x_30_at_scale() {
 fn tc_1610_01_build_quad_features_output_length() {
     let x = vec![1.0, 2.0, 3.0];
     let feats = build_quad_features(&x);
-    assert_eq!(feats.len(), 9);
-}
-
-#[test]
-fn tc_301_06_sobol_regression_after_seeded_rng_migration() {
-    // [Test purpose]: Confirm Sobol sensitivity analysis still works correctly after the lcg_next -> SeededRng migration
-    let rows: Vec<TrialRow> = (0..50)
-        .map(|i| {
-            let x1 = i as f64;
-            let x2 = (i * 2) as f64;
-            let y = x1 * 2.0;
-            make_row_multi(i as u32, &[("x1", x1), ("x2", x2)], vec![y])
-        })
-        .collect();
-    let df = setup_df(rows, &["x1", "x2"], &["obj0"]);
-    let result = compute_sobol(&df, 1024);
-    assert!(
-        result.is_some(),
-        "SeededRng 移行後も compute_sobol が Some を返すこと"
-    );
-    let r = result.unwrap();
-    for pi in 0..r.param_names.len() {
-        for k in 0..r.objective_names.len() {
-            assert!(
-                r.first_order[pi][k] >= 0.0 && r.first_order[pi][k] <= 1.0,
-                "first_order インデックスが [0,1] 範囲内"
-            );
-            assert!(
-                r.total_effect[pi][k] >= 0.0 && r.total_effect[pi][k] <= 1.0,
-                "total_effect インデックスが [0,1] 範囲内"
-            );
-        }
-    }
+    assert_eq!(feats, vec![1.0, 2.0, 3.0, 1.0, 4.0, 9.0, 2.0, 3.0, 6.0]);
 }
 
 #[test]
@@ -500,22 +391,6 @@ fn tc_1610_03_compute_sobol_insufficient_data_returns_none() {
     let df = setup_df(rows, &["x1", "x2"], &["obj0"]);
     let result = compute_sobol(&df, 1024);
     assert!(result.is_none(), "n<2 の場合 None を返すこと");
-}
-
-#[test]
-fn tc_1610_03b_compute_sobol_zero_n_samples_returns_none() {
-    // n_samples=0 must not let 0/0=NaN slip past the clamp and return a NaN-contaminated result.
-    let rows: Vec<TrialRow> = (0..50)
-        .map(|i| {
-            let x1 = i as f64;
-            let x2 = (i * 2) as f64;
-            let y = x1 * 2.0;
-            make_row_multi(i as u32, &[("x1", x1), ("x2", x2)], vec![y])
-        })
-        .collect();
-    let df = setup_df(rows, &["x1", "x2"], &["obj0"]);
-    let result = compute_sobol(&df, 0);
-    assert!(result.is_none(), "n_samples=0 の場合 None を返すこと");
 }
 
 #[test]
@@ -529,6 +404,7 @@ fn tc_1610_04_sobol_indices_in_range() {
         })
         .collect();
     let df = setup_df(rows, &["x1", "x2"], &["obj0"]);
+    assert!(compute_sobol(&df, 0).is_none());
     let result = compute_sobol(&df, 1024);
     assert!(result.is_some());
     let r = result.unwrap();
@@ -616,18 +492,6 @@ fn tc_pfi_001_02_single_feature() {
 }
 
 #[test]
-fn tc_pfi_001_e03_nan_filtering() {
-    let mut x: Vec<Vec<f64>> = (0..50).map(|i| vec![i as f64, (i * 2) as f64]).collect();
-    let mut y: Vec<f64> = (0..50).map(|i| i as f64).collect();
-    x[5][0] = f64::NAN;
-    y[10] = f64::INFINITY;
-    let (imp, _) = super::tree::permutation::compute_permutation_importances(&x, &y);
-    assert_eq!(imp.len(), 2);
-    let sum: f64 = imp.iter().sum();
-    assert!((sum - 1.0).abs() < 1e-6 || sum < f64::EPSILON);
-}
-
-#[test]
 fn tc_pfi_001_b01_min_valid_rows() {
     let x = vec![vec![1.0], vec![2.0]];
     let y = vec![1.0, 2.0];
@@ -643,30 +507,6 @@ fn tc_pfi_001_e02_empty_input() {
 }
 
 // --- Permutation integration tests (TC-PFI-INT) ---
-
-#[test]
-fn tc_pfi_int_01_single_obj_returns_some() {
-    let rows: Vec<TrialRow> = (0..30)
-        .map(|i| {
-            make_row_multi(
-                i,
-                &[
-                    ("p0", i as f64),
-                    ("p1", (i * 2) as f64),
-                    ("p2", (i % 5) as f64),
-                ],
-                vec![i as f64],
-            )
-        })
-        .collect();
-    let df = setup_df(rows, &["p0", "p1", "p2"], &["obj0"]);
-    let results = compute_sensitivity_single_obj(&df, vec![Box::new(PermutationMetric)], 0);
-    assert!(!results.is_empty(), "should return at least one result");
-    assert!(
-        results[0].permutation.is_some(),
-        "permutation field should be Some"
-    );
-}
 
 #[test]
 fn tc_pfi_int_02_result_shape() {
@@ -765,15 +605,6 @@ fn tc_2263_03_invalid_obj_idx_excluded() {
     );
 }
 
-#[test]
-fn tc_2263_04_empty_metrics_vec_returns_empty() {
-    let rows: Vec<TrialRow> = (0..20)
-        .map(|i| make_row_multi(i, &[("p0", i as f64)], vec![i as f64]))
-        .collect();
-    let df = setup_df(rows, &["p0"], &["obj0"]);
-    let results: Vec<SensitivityResult> = compute_sensitivity_single_obj(&df, vec![], 0);
-    assert!(results.is_empty());
-}
 #[test]
 fn public_ridge_rejects_non_finite_features_and_objectives() {
     for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {

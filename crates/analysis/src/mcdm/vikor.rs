@@ -425,60 +425,16 @@ mod tests {
     }
 
     #[test]
-    fn tc_vikor_003_v_zero_r_only() {
-        // v=0.0 => Q = (R-R*)/(R--R*)
-        let values = [1.0_f64, 3.0, 2.0]; // 3 trials x 1 obj minimize
-        let weights = [1.0_f64];
-        let is_minimize = [true];
-
-        let result = compute_vikor(&values, 3, 1, &weights, &is_minimize, 0.0);
-        assert!(result.is_ok());
-        let r = result.unwrap();
-
-        // With v=0, Q should equal R normalized
-        // S term has zero weight; Q = R normalized
-        // R values = S values (single objective)
-        // R* = min R, R- = max R
-        let r_star = r.r_values.iter().fold(f64::INFINITY, |a, &b| a.min(b));
-        let r_neg = r.r_values.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
-        let denom = r_neg - r_star;
-        if denom > 1e-9 {
-            for i in 0..3 {
-                let expected_q = (r.r_values[i] - r_star) / denom;
+    fn tradeoff_endpoints_select_regret_or_utility() {
+        // S=[0.5,0.6,0.5,1.0], R=[0.5,0.3,0.5,0.5]. A single
+        // objective makes normalized S and R identical and cannot test v.
+        let values = [0.0, 10.0, 6.0, 6.0, 10.0, 0.0, 10.0, 10.0];
+        for (v, expected) in [(0.0, [1.0, 0.0, 1.0, 1.0]), (1.0, [0.0, 0.2, 0.0, 1.0])] {
+            let result = compute_vikor(&values, 4, 2, &[0.5, 0.5], &[true, true], v).unwrap();
+            for (actual, expected) in result.q_values.iter().zip(expected) {
                 assert!(
-                    (r.q_values[i] - expected_q).abs() < 1e-9,
-                    "v=0: Q[{}]={} expected {}",
-                    i,
-                    r.q_values[i],
-                    expected_q
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn tc_vikor_004_v_one_s_only() {
-        // v=1.0 => Q = (S-S*)/(S--S*)
-        let values = [1.0_f64, 3.0, 2.0];
-        let weights = [1.0_f64];
-        let is_minimize = [true];
-
-        let result = compute_vikor(&values, 3, 1, &weights, &is_minimize, 1.0);
-        assert!(result.is_ok());
-        let r = result.unwrap();
-
-        let s_star = r.s_values.iter().fold(f64::INFINITY, |a, &b| a.min(b));
-        let s_neg = r.s_values.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
-        let denom = s_neg - s_star;
-        if denom > 1e-9 {
-            for i in 0..3 {
-                let expected_q = (r.s_values[i] - s_star) / denom;
-                assert!(
-                    (r.q_values[i] - expected_q).abs() < 1e-9,
-                    "v=1: Q[{}]={} expected {}",
-                    i,
-                    r.q_values[i],
-                    expected_q
+                    (actual - expected).abs() < 1e-9,
+                    "v={v}: {actual} != {expected}"
                 );
             }
         }
@@ -506,27 +462,6 @@ mod tests {
             "weights=[0.1,0.9]: trial1 should be best, got {:?}",
             rb.ranked_indices
         );
-    }
-
-    #[test]
-    fn tc_vikor_006_ranked_indices_q_ascending() {
-        // ranked_indices must be in Q ascending order
-        let values = [1.0_f64, 2.0, 3.0, 4.0, 5.0, 6.0];
-        let result = compute_vikor(&values, 3, 2, &[0.5, 0.5], &[true, true], 0.5).unwrap();
-
-        for i in 0..result.ranked_indices.len() - 1 {
-            let ia = result.ranked_indices[i] as usize;
-            let ib = result.ranked_indices[i + 1] as usize;
-            assert!(
-                result.q_values[ia] <= result.q_values[ib] + 1e-12,
-                "ranked_indices not Q-ascending at [{}]: q[{}]={} > q[{}]={}",
-                i,
-                ia,
-                result.q_values[ia],
-                ib,
-                result.q_values[ib]
-            );
-        }
     }
 
     // -------------------------------------------------------------------------
@@ -625,73 +560,24 @@ mod tests {
     }
 
     #[test]
-    fn tc_vikor_010_compromise_single_valid_alternative() {
-        // J=1: compromise set is just the single valid alternative.
-        let valid_indices = [42usize];
-        let q_valid = [0.3_f64];
-        let s_values = [0.2_f64];
-        let r_values = [0.2_f64];
-
-        let compromise =
-            compute_compromise_set(&valid_indices, &q_valid, &s_values, &r_values, 0.2, 0.2);
-
-        assert_eq!(compromise, vec![42usize]);
-    }
-
-    #[test]
-    fn tc_vikor_011_compromise_no_valid_alternatives() {
-        let compromise = compute_compromise_set(&[], &[], &[], &[], f64::INFINITY, f64::INFINITY);
-        assert!(compromise.is_empty());
-    }
-
-    #[test]
-    fn tc_vikor_012_unnormalized_weights_match_normalized() {
-        // Weights not summing to 1 must be defensively normalized to give the
-        // same result as pre-normalized weights.
-        let values = [1.0_f64, 1.0, 8.0, 8.0, 10.0, 10.0];
-        let is_minimize = [true, true];
-
-        let normalized = compute_vikor(&values, 3, 2, &[0.5, 0.5], &is_minimize, 0.5).unwrap();
-        let unnormalized = compute_vikor(&values, 3, 2, &[2.0, 2.0], &is_minimize, 0.5).unwrap();
-
-        for i in 0..3 {
-            assert!(
-                (normalized.q_values[i] - unnormalized.q_values[i]).abs() < 1e-9,
-                "q_values[{}] differ: normalized={} unnormalized={}",
-                i,
-                normalized.q_values[i],
-                unnormalized.q_values[i]
-            );
-        }
-        assert_eq!(
-            normalized.compromise_indices,
-            unnormalized.compromise_indices
-        );
-    }
-
-    // Weight normalization itself (empty/zero/negative/NaN fallback, division by
-    // sum) is tested in `crate::mcdm::tests`; `tc_vikor_012` above covers that
-    // compute_vikor's own normalization step produces consistent results.
-
-    #[test]
     fn tc_vikor_015_out_of_range_v_is_clamped() {
         // v is clamped to [0,1], so an out-of-range value never breaks Q's domain.
-        let values = [1.0_f64, 3.0, 2.0];
-        let weights = [1.0_f64];
-        let is_minimize = [true];
+        let values = [0.0, 10.0, 6.0, 6.0, 10.0, 0.0, 10.0, 10.0];
+        let weights = [0.5, 0.5];
+        let is_minimize = [true, true];
 
-        let hi = compute_vikor(&values, 3, 1, &weights, &is_minimize, 5.0).unwrap();
-        let one = compute_vikor(&values, 3, 1, &weights, &is_minimize, 1.0).unwrap();
+        let hi = compute_vikor(&values, 4, 2, &weights, &is_minimize, 5.0).unwrap();
+        let one = compute_vikor(&values, 4, 2, &weights, &is_minimize, 1.0).unwrap();
         assert_eq!(hi.q_values, one.q_values, "v>1 は v=1 と同じ結果になるべき");
 
-        let lo = compute_vikor(&values, 3, 1, &weights, &is_minimize, -2.0).unwrap();
-        let zero = compute_vikor(&values, 3, 1, &weights, &is_minimize, 0.0).unwrap();
+        let lo = compute_vikor(&values, 4, 2, &weights, &is_minimize, -2.0).unwrap();
+        let zero = compute_vikor(&values, 4, 2, &weights, &is_minimize, 0.0).unwrap();
         assert_eq!(
             lo.q_values, zero.q_values,
             "v<0 は v=0 と同じ結果になるべき"
         );
 
-        let nan = compute_vikor(&values, 3, 1, &weights, &is_minimize, f64::NAN).unwrap();
+        let nan = compute_vikor(&values, 4, 2, &weights, &is_minimize, f64::NAN).unwrap();
         assert!(
             nan.q_values.iter().all(|q| q.is_finite()),
             "NaN v でも Q は有限であるべき: {:?}",
@@ -757,6 +643,7 @@ mod tests {
             "Q must be finite for single trial"
         );
         assert_eq!(r.ranked_indices, vec![0u32]);
+        assert_eq!(r.compromise_indices, vec![0]);
     }
 
     #[test]

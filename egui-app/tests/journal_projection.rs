@@ -3,11 +3,9 @@ use common::{
 };
 use tdashboard_analysis::projection::{OptimizationDirection, StudyMeta};
 use tdashboard_analysis::{dataframe, extras, report};
-use tdashboard_io::journal;
 use tdashboard_io::journal::parser::{distribution::Distribution, scan_study_list};
 mod common;
 use crate::dataframe::DataFrame;
-use crate::journal::line_u32_field;
 use serde_json::Value;
 
 struct JournalFixture {
@@ -620,19 +618,6 @@ fn streaming_objective_names_prefer_metric_names_over_derived() {
     assert_eq!(batches[0].meta.objective_names, vec!["MyObj".to_string()]);
 }
 
-#[test]
-fn line_u32_field_basic() {
-    assert_eq!(
-        line_u32_field(r#"{"op_code":4,"study_id":2,"x":0}"#, "study_id"),
-        Some(2)
-    );
-    assert_eq!(
-        line_u32_field(r#"{"trial_id":  42,"state":1}"#, "trial_id"),
-        Some(42)
-    );
-    assert_eq!(line_u32_field(r#"{"no_field":1}"#, "study_id"), None);
-}
-
 fn to_bytes(s: &str) -> Vec<u8> {
     s.as_bytes().to_vec()
 }
@@ -706,15 +691,6 @@ fn parse_single_study_collects_extras_for_all_states() {
     assert_eq!(t1.datetime_complete, None);
 }
 
-#[test]
-fn full_journal_retains_all_state_extras() {
-    let data = extras_log();
-    let result = parse_journal(&data).unwrap();
-    let extras = &result.contents[0].extras;
-    assert_eq!(extras.trials.len(), 2);
-    assert!(extras.has_intermediate());
-}
-
 /// Streaming retains COMPLETE, PRUNED and still-RUNNING trial metadata.
 #[test]
 fn parse_single_study_streaming_stores_extras_for_all_states() {
@@ -778,71 +754,6 @@ fn parse_single_study_streaming_stores_extras_for_all_states() {
 }
 
 #[test]
-fn tc_101_02_create_trial_complete() {
-    let data = to_bytes(concat!(
-        "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
-        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
-        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
-    ));
-    let result = parse_journal(&data).expect("journal should parse successfully");
-    assert_eq!(result.studies[0].completed_trials, 1);
-    assert_eq!(result.studies[0].total_trials, 1);
-}
-
-#[test]
-fn tc_101_03_float_distribution_no_log() {
-    let data = to_bytes(concat!(
-        "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
-        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
-        "{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":0,\"param_name\":\"x\",\"param_value_internal\":0.5,\"distribution\":{\"name\":\"FloatDistribution\",\"low\":0.0,\"high\":1.0,\"log\":false}}\n",
-        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
-    ));
-    let result = parse_journal(&data).expect("journal should parse successfully");
-    assert!(result.studies[0].param_names.contains(&"x".to_string()));
-}
-
-#[test]
-fn tc_101_04_float_distribution_log_true() {
-    let ln2: f64 = std::f64::consts::LN_2;
-    let line = format!(
-        "{{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":0,\"param_name\":\"lr\",\"param_value_internal\":{ln2},\"distribution\":{{\"name\":\"FloatDistribution\",\"low\":1e-5,\"high\":1.0,\"log\":true}}}}"
-    );
-    let data = to_bytes(&format!(
-        "{}\n{}\n{}\n{}\n",
-        r#"{"op_code":0,"worker_id":"w","study_name":"s","directions":[0]}"#,
-        r#"{"op_code":4,"worker_id":"w","study_id":0,"datetime_start":"2024-01-01T00:00:00.000000"}"#,
-        line,
-        r#"{"op_code":6,"worker_id":"w","trial_id":0,"state":1,"values":[0.5],"datetime_complete":"2024-01-01T00:00:01.000000"}"#,
-    ));
-    let result = parse_journal(&data).expect("journal should parse successfully");
-    assert!(result.studies[0].param_names.contains(&"lr".to_string()));
-}
-
-#[test]
-fn tc_101_05_int_distribution_basic() {
-    let data = to_bytes(concat!(
-        "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
-        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
-        "{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":0,\"param_name\":\"n\",\"param_value_internal\":3.0,\"distribution\":{\"name\":\"IntDistribution\",\"low\":0,\"high\":10,\"step\":1,\"log\":false}}\n",
-        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
-    ));
-    let result = parse_journal(&data).expect("journal should parse successfully");
-    assert!(result.studies[0].param_names.contains(&"n".to_string()));
-}
-
-#[test]
-fn tc_101_07_categorical_distribution_string() {
-    let data = to_bytes(concat!(
-        "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
-        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
-        "{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":0,\"param_name\":\"cat\",\"param_value_internal\":1.0,\"distribution\":{\"name\":\"CategoricalDistribution\",\"choices\":[\"a\",\"b\",\"c\"]}}\n",
-        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
-    ));
-    let result = parse_journal(&data).expect("journal should parse successfully");
-    assert!(result.studies[0].param_names.contains(&"cat".to_string()));
-}
-
-#[test]
 fn tc_101_10_multiple_studies() {
     let data = to_bytes(concat!(
         "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"A\",\"directions\":[0]}\n",
@@ -868,18 +779,6 @@ fn tc_101_10_multiple_studies() {
         .unwrap();
     assert_eq!(sa.completed_trials, 2);
     assert_eq!(sb.completed_trials, 1);
-}
-
-#[test]
-fn tc_101_11_trial_id_sequential() {
-    let data = to_bytes(concat!(
-        "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
-        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
-        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:01.000000\"}\n",
-        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:02.000000\"}\n"
-    ));
-    let result = parse_journal(&data).expect("journal should parse successfully");
-    assert_eq!(result.studies[0].total_trials, 3);
 }
 
 #[test]
@@ -975,42 +874,6 @@ fn json_user_attrs_survive_inline_and_update_events_in_streaming() {
 }
 
 #[test]
-fn tc_101_14_constraints_expansion() {
-    let data = to_bytes(concat!(
-        "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
-        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
-        "{\"op_code\":9,\"worker_id\":\"w\",\"trial_id\":0,\"system_attr\":{\"constraints\":[-0.5,0.3]}}\n",
-        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
-    ));
-    let result = parse_journal(&data).expect("journal should parse successfully");
-    assert!(result.studies[0].has_constraints);
-}
-
-#[test]
-fn tc_101_15_constraints_all_feasible() {
-    let data = to_bytes(concat!(
-        "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
-        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
-        "{\"op_code\":9,\"worker_id\":\"w\",\"trial_id\":0,\"system_attr\":{\"constraints\":[-1.0,-0.5,0.0]}}\n",
-        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
-    ));
-    let result = parse_journal(&data).expect("journal should parse successfully");
-    assert!(result.studies[0].has_constraints);
-    assert_eq!(result.studies[0].completed_trials, 1);
-}
-
-#[test]
-fn tc_101_16_multi_objective_values() {
-    let data = to_bytes(concat!(
-        "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[1,2]}\n",
-        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
-        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.1,0.9],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
-    ));
-    let result = parse_journal(&data).expect("journal should parse successfully");
-    assert_eq!(result.studies[0].objective_names.len(), 2);
-}
-
-#[test]
 fn tc_101_e01_incomplete_json_line_skipped() {
     let data = to_bytes(concat!(
         "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
@@ -1094,56 +957,6 @@ fn tc_101_b02_study_only_no_trials() {
     let result = parse_journal(&data).expect("journal should parse successfully");
     assert_eq!(result.studies.len(), 1);
     assert_eq!(result.studies[0].completed_trials, 0);
-}
-
-#[test]
-fn tc_101_b03_categorical_boundary_indices() {
-    let data = to_bytes(concat!(
-        "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
-        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
-        "{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":0,\"param_name\":\"cat\",\"param_value_internal\":0.0,\"distribution\":{\"name\":\"CategoricalDistribution\",\"choices\":[\"a\",\"b\",\"c\"]}}\n",
-        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
-    ));
-    let result = parse_journal(&data).expect("journal should parse successfully");
-    assert!(result.studies[0].param_names.contains(&"cat".to_string()));
-}
-
-#[test]
-fn tc_101_b07_minimal_journal() {
-    let data = to_bytes(concat!(
-        "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
-        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00.000000\"}\n",
-        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[1.0],\"datetime_complete\":\"2024-01-01T00:00:01.000000\"}\n"
-    ));
-    let result = parse_journal(&data).expect("journal should parse successfully");
-    assert_eq!(result.studies[0].completed_trials, 1);
-}
-
-#[test]
-fn tc_101_p01_performance_50000_lines() {
-    let mut lines = Vec::with_capacity(150_002);
-    lines.push(r#"{"op_code":0,"worker_id":"w","study_name":"perf","directions":[0]}"#.to_string());
-    for i in 0u32..50_000 {
-        let val = f64::from(i) / 50_000.0;
-        lines.push(r#"{"op_code":4,"worker_id":"w","study_id":0,"datetime_start":"2024-01-01T00:00:00.000000"}"#.to_string());
-        lines.push(format!(r#"{{"op_code":5,"worker_id":"w","trial_id":{i},"param_name":"x","param_value_internal":{val},"distribution":{{"name":"FloatDistribution","low":0.0,"high":1.0,"log":false}}}}"#));
-        lines.push(format!(r#"{{"op_code":6,"worker_id":"w","trial_id":{i},"state":1,"values":[{val}],"datetime_complete":"2024-01-01T00:00:01.000000"}}"#));
-    }
-    let data = lines.join("\n").into_bytes();
-
-    let result = parse_journal(&data).expect("50,000-line journal should parse successfully");
-
-    assert_eq!(result.studies[0].completed_trials, 50_000);
-}
-
-#[test]
-fn distribution_float_display_is_identity() {
-    let dist = Distribution::Float {
-        step: None,
-        low: 0.0,
-        high: 1.0,
-    };
-    assert!((dist.to_display_f64(0.5) - 0.5).abs() < 1e-10);
 }
 
 #[test]

@@ -143,43 +143,41 @@ pub fn show(ctx: &egui::Context, input: &mut String) -> Option<RdbUrlDialogActio
 mod tests {
     use super::*;
 
-    fn expect_url(check: RdbUrlCheck) -> String {
-        match check {
-            RdbUrlCheck::PlaintextImplicit { url } | RdbUrlCheck::PlaintextExplicit { url } => url,
-            other => panic!("expected openable URL, got {other:?}"),
-        }
-    }
-
     #[test]
     fn classify_accepts_postgresql_and_mysql_loopback() {
-        assert_eq!(
-            expect_url(classify_input("postgresql://user:pass@localhost:5432/db")),
-            "postgresql://user:pass@localhost:5432/db"
-        );
-        assert_eq!(
-            expect_url(classify_input("mysql://user:pass@localhost:3306/db")),
-            "mysql://user:pass@localhost:3306/db"
-        );
-    }
-
-    #[test]
-    fn classify_normalizes_short_scheme_and_driver_suffix() {
-        assert_eq!(
-            expect_url(classify_input("postgres://u:p@localhost/db")),
-            "postgresql://u:p@localhost/db"
-        );
-        assert_eq!(
-            expect_url(classify_input("postgresql+psycopg2://u:p@localhost/db")),
-            "postgresql://u:p@localhost/db"
-        );
-    }
-
-    #[test]
-    fn classify_trims_whitespace() {
-        assert_eq!(
-            expect_url(classify_input("  postgresql://u:p@localhost/db  ")),
-            "postgresql://u:p@localhost/db"
-        );
+        for (input, expected) in [
+            (
+                "postgresql://user:pass@localhost:5432/db",
+                "postgresql://user:pass@localhost:5432/db",
+            ),
+            (
+                "mysql://user:pass@localhost:3306/db",
+                "mysql://user:pass@localhost:3306/db",
+            ),
+            (
+                "postgres://u:p@localhost/db",
+                "postgresql://u:p@localhost/db",
+            ),
+            (
+                "postgresql+psycopg2://u:p@localhost/db",
+                "postgresql://u:p@localhost/db",
+            ),
+            (
+                "  postgresql://u:p@localhost/db  ",
+                "postgresql://u:p@localhost/db",
+            ),
+            (
+                "mysql://u:p@127.0.0.1:3306/db",
+                "mysql://u:p@127.0.0.1:3306/db",
+            ),
+        ] {
+            assert_eq!(
+                classify_input(input),
+                RdbUrlCheck::PlaintextImplicit {
+                    url: expected.into()
+                }
+            );
+        }
     }
 
     #[test]
@@ -190,19 +188,6 @@ mod tests {
             classify_input("/local/path/study.log"),
             RdbUrlCheck::Invalid
         );
-    }
-
-    #[test]
-    fn classify_notifies_when_sslmode_disable_is_not_explicit() {
-        // Loopback + unspecified is connectable but subject to the "not encrypted" notice.
-        assert!(matches!(
-            classify_input("postgresql://u:p@localhost/db"),
-            RdbUrlCheck::PlaintextImplicit { .. }
-        ));
-        assert!(matches!(
-            classify_input("mysql://u:p@127.0.0.1:3306/db"),
-            RdbUrlCheck::PlaintextImplicit { .. }
-        ));
     }
 
     #[test]

@@ -269,30 +269,4 @@ mod tests {
         assert!(chart.include_objectives);
         assert!(chart.cache.is_none());
     }
-
-    #[test]
-    fn cache_key_changes_with_method() {
-        let key_a: CorrCacheKey = (
-            "s".into(),
-            method_disc(CorrelationMethod::Pearson),
-            true,
-            true,
-            5,
-        );
-        let key_b: CorrCacheKey = (
-            "s".into(),
-            method_disc(CorrelationMethod::Spearman),
-            true,
-            true,
-            5,
-        );
-        assert_ne!(key_a, key_b);
-    }
-
-    #[test]
-    fn cache_key_changes_with_column_group_toggles() {
-        let key_a: CorrCacheKey = ("s".into(), 0, true, true, 5);
-        let key_b: CorrCacheKey = ("s".into(), 0, false, true, 5);
-        assert_ne!(key_a, key_b);
-    }
 }

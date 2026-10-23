@@ -474,6 +474,15 @@ fn classifier_preserves_invalid_positions_empty_presence_and_violation_priority(
         (vec![-1.0, f64::INFINITY], 2, Unverified),
         (vec![f64::NAN, 1.0], 3, Infeasible),
         (vec![0.0, -1.0], 2, Feasible),
+        (vec![-1.0, 0.1], 2, Infeasible),
+        (vec![], 2, Unverified),
+        (vec![f64::NAN, -1.0], 2, Unverified),
+        (vec![f64::INFINITY, -1.0], 2, Unverified),
+        (vec![f64::NEG_INFINITY, -1.0], 2, Unverified),
+        (vec![0.1], 2, Infeasible),
+        (vec![0.1, f64::NAN], 2, Infeasible),
+        (vec![f64::INFINITY, 0.1], 2, Infeasible),
+        (vec![f64::NEG_INFINITY, 0.1], 2, Infeasible),
     ] {
         assert_eq!(FeasibilityState::classify(&values, width), expected);
     }

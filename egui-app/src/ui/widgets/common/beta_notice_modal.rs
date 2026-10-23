@@ -102,24 +102,9 @@ mod tests {
     #[test]
     fn shows_when_nothing_acknowledged() {
         assert!(should_show(None, "0.1.0"));
-    }
-
-    #[test]
-    fn hides_when_current_version_acknowledged() {
         assert!(!should_show(Some("0.1.0"), "0.1.0"));
-    }
-
-    #[test]
-    fn shows_again_after_version_change() {
         assert!(should_show(Some("0.1.0"), "0.2.0"));
         // Downgrades count as a change too.
         assert!(should_show(Some("0.2.0"), "0.1.0"));
-    }
-
-    #[test]
-    fn default_state_is_closed_and_unchecked() {
-        let s = BetaNoticeState::default();
-        assert!(!s.open);
-        assert!(!s.dont_show_again);
     }
 }

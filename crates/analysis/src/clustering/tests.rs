@@ -155,43 +155,6 @@ fn clustering_public_boundaries_reject_non_finite_input() {
     }
 }
 
-#[test]
-fn tc_2262_05_kmeans_plusplus_correct_clusters_after_refactor() {
-    let k = 3;
-    let n_per = 50;
-    let data = make_clustered_data(n_per, k);
-    let n = n_per * k;
-    let p = 2;
-    let result = run_kmeans_on_data(&data, n, p, k, InitStrategy::KMeansPlusPlus);
-    let mut counts = vec![0usize; k];
-    for &label in &result.labels {
-        counts[label] += 1;
-    }
-    for (c, &count) in counts.iter().enumerate() {
-        assert_eq!(count, n_per, "cluster {} should have {} points", c, n_per);
-    }
-}
-
-#[test]
-fn tc_2262_06_deterministic_correct_clusters_after_refactor() {
-    let k = 3;
-    let n_per = 50;
-    let data = make_clustered_data(n_per, k);
-    let n = n_per * k;
-    let p = 2;
-    let result = run_kmeans_on_data(&data, n, p, k, InitStrategy::Deterministic);
-    // centroids should be near the true cluster centers (0, 100, 200)
-    let mut cx: Vec<f64> = result.centroids.iter().map(|c| c[0]).collect();
-    cx.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    assert!(cx[0] < 1.0, "first centroid x < 1.0, got {}", cx[0]);
-    assert!(
-        cx[1] > 99.0 && cx[1] < 101.0,
-        "second centroid x ~100, got {}",
-        cx[1]
-    );
-    assert!(cx[2] > 199.0, "third centroid x > 199.0, got {}", cx[2]);
-}
-
 /// Generates 2-feature data where the 1st feature's variance greatly exceeds the 2nd feature's.
 fn make_dominant_axis_data(n: usize) -> Vec<Vec<f64>> {
     (0..n)
@@ -222,45 +185,21 @@ fn make_clustered_data(n_per_cluster: usize, k: usize) -> Vec<f64> {
 // ---- TASK-2267: k-means unnecessary clone reduction regression tests ----
 
 #[test]
-fn tc_2267_01_kmeans_plusplus_determinism_after_clone_reduction() {
+fn kmeans_initialization_is_reproducible() {
     let k = 3;
     let n_per = 30;
     let data = make_clustered_data(n_per, k);
     let n = n_per * k;
     let p = 2;
-    let r1 = run_kmeans_on_data(&data, n, p, k, InitStrategy::KMeansPlusPlus);
-    let r2 = run_kmeans_on_data(&data, n, p, k, InitStrategy::KMeansPlusPlus);
-    assert_eq!(r1.labels, r2.labels, "same seed must produce same labels");
-    for (c1, c2) in r1.centroids.iter().zip(r2.centroids.iter()) {
-        for (v1, v2) in c1.iter().zip(c2.iter()) {
-            assert!((v1 - v2).abs() < 1e-12, "centroids must be identical");
+    for init in [InitStrategy::KMeansPlusPlus, InitStrategy::Deterministic] {
+        let r1 = run_kmeans_on_data(&data, n, p, k, init);
+        let r2 = run_kmeans_on_data(&data, n, p, k, init);
+        assert_eq!(r1.labels, r2.labels, "same seed must produce same labels");
+        for (c1, c2) in r1.centroids.iter().zip(r2.centroids.iter()) {
+            for (v1, v2) in c1.iter().zip(c2.iter()) {
+                assert!((v1 - v2).abs() < 1e-12, "centroids must be identical");
+            }
         }
-    }
-}
-
-#[test]
-fn tc_2267_02_deterministic_init_matches_after_extend_from_slice() {
-    let k = 3;
-    let n_per = 30;
-    let data = make_clustered_data(n_per, k);
-    let n = n_per * k;
-    let p = 2;
-    let r1 = run_kmeans_on_data(&data, n, p, k, InitStrategy::Deterministic);
-    let r2 = run_kmeans_on_data(&data, n, p, k, InitStrategy::Deterministic);
-    assert_eq!(r1.labels, r2.labels, "deterministic init must be identical");
-}
-
-#[test]
-fn tc_2267_03_empty_cluster_fallback_preserves_centroid() {
-    // Single point per "cluster" in 1D → force empty-cluster fallback path
-    let data = vec![0.0, 1.0, 100.0, 101.0];
-    let n = 4;
-    let p = 1;
-    let k = 2;
-    let result = run_kmeans_on_data(&data, n, p, k, InitStrategy::Deterministic);
-    assert_eq!(result.centroids.len(), k);
-    for c in &result.centroids {
-        assert!(c[0].is_finite(), "centroid must be finite after fallback");
     }
 }
 
@@ -268,6 +207,8 @@ fn tc_2267_03_empty_cluster_fallback_preserves_centroid() {
 fn tc_901_01_pca_dominant_axis() {
     let data = make_dominant_axis_data(200);
     let result = run_pca_on_matrix(&data, 2);
+    assert_eq!(result.projections.len(), data.len());
+    assert!(result.projections.iter().all(|row| row.len() == 2));
 
     assert_eq!(result.loadings.len(), 2, "loadings は 2 成分あるべき");
     assert_eq!(
@@ -291,16 +232,6 @@ fn tc_901_01_pca_dominant_axis() {
         loading0,
         loading1
     );
-}
-
-#[test]
-fn tc_901_02_pca_projection_shape() {
-    let n = 100;
-    let data = make_dominant_axis_data(n);
-    let result = run_pca_on_matrix(&data, 2);
-
-    assert_eq!(result.projections.len(), n, "射影は n 行あるべき");
-    assert_eq!(result.projections[0].len(), 2, "射影は 2 成分あるべき");
 }
 
 #[test]
@@ -372,6 +303,15 @@ fn tc_901_04_kmeans_convergence() {
 
     assert_eq!(result.labels.len(), n, "ラベルは n 個あるべき");
     assert_eq!(result.centroids.len(), k, "セントロイドは k 個あるべき");
+    let mut cx: Vec<f64> = result.centroids.iter().map(|c| c[0]).collect();
+    cx.sort_by(f64::total_cmp);
+    assert!(cx[0] < 1.0, "first centroid x < 1.0, got {}", cx[0]);
+    assert!(
+        cx[1] > 99.0 && cx[1] < 101.0,
+        "second centroid x ~100, got {}",
+        cx[1]
+    );
+    assert!(cx[2] > 199.0, "third centroid x > 199.0, got {}", cx[2]);
 
     let mut counts = vec![0usize; k];
     for &label in &result.labels {
@@ -481,11 +421,4 @@ fn tc_101_b01_pca_n2_p2_minimum() {
     assert_eq!(result.projections.len(), 2);
     assert_eq!(result.loadings.len(), 1);
     assert_eq!(result.loadings[0].len(), 2);
-}
-
-#[test]
-fn tc_101_b02_pca_n1_returns_empty() {
-    let data = vec![vec![1.0, 2.0]];
-    let result = run_pca_on_matrix(&data, 1);
-    assert!(result.projections.is_empty());
 }

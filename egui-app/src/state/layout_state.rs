@@ -179,18 +179,6 @@ impl PanelItem {
             PanelItem::TrialTable => None,
         }
     }
-
-    /// List of all available items (in the order shown in the right panel). Used
-    /// only by exhaustiveness tests.
-    #[cfg(test)]
-    pub fn all() -> Vec<PanelItem> {
-        let mut items: Vec<PanelItem> = ChartId::all()
-            .iter()
-            .map(|id| PanelItem::Chart(id.clone()))
-            .collect();
-        items.push(PanelItem::TrialTable);
-        items
-    }
 }
 
 // ----------------------------------------
@@ -339,83 +327,13 @@ impl Default for LayoutState {
 mod tests {
     use super::*;
 
-    // --- PanelItem tests ---
-
-    // --- ChartId::SurrogateOpt tests ---
-
-    #[test]
-    fn chart_id_all_contains_surrogate_opt() {
-        let all = ChartId::all();
-        assert!(all.contains(&ChartId::SurrogateOpt));
-    }
-
-    #[test]
-    fn surrogate_opt_label_is_correct() {
-        assert_eq!(ChartId::SurrogateOpt.label(), "Surrogate Optimizer");
-    }
-
-    // --- PanelItem tests ---
-
-    #[test]
-    fn panel_item_all_includes_all_charts_and_trial_table() {
-        let items = PanelItem::all();
-        // ChartId::all() + TrialTable
-        assert_eq!(items.len(), ChartId::all().len() + 1);
-        assert_eq!(items.last(), Some(&PanelItem::TrialTable));
-    }
-
     #[test]
     fn panel_item_label_returns_chart_label() {
         let item = PanelItem::Chart(ChartId::ParetoScatter2D);
         assert_eq!(item.label(), "Pareto Scatter 2D");
-    }
-
-    #[test]
-    fn panel_item_label_returns_trial_table() {
         let item = PanelItem::TrialTable;
         assert_eq!(item.label(), "Trial Table");
-    }
-
-    #[test]
-    fn panel_item_derives_clone_eq_hash() {
-        use std::collections::HashSet;
-        let a = PanelItem::TrialTable;
-        let b = a.clone();
-        assert_eq!(a, b);
-        let mut set = HashSet::new();
-        set.insert(a);
-        assert!(set.contains(&PanelItem::TrialTable));
-    }
-
-    // --- DragPayload tests ---
-
-    #[test]
-    fn drag_payload_new_widget_returns_item() {
-        let item = PanelItem::Chart(ChartId::ParetoScatter2D);
-        let payload = DragPayload::NewWidget(item.clone());
-        assert_eq!(payload.item(), &item);
-    }
-
-    #[test]
-    fn drag_payload_clone_works() {
-        let a = DragPayload::NewWidget(PanelItem::TrialTable);
-        let b = a.clone();
-        assert_eq!(a, b);
-    }
-
-    #[test]
-    fn drag_payload_partial_eq_works() {
-        let a = DragPayload::NewWidget(PanelItem::Chart(ChartId::OptimizationHistory));
-        let b = DragPayload::NewWidget(PanelItem::Chart(ChartId::OptimizationHistory));
-        assert_eq!(a, b);
-    }
-
-    #[test]
-    fn drag_payload_hash_works_in_set() {
-        use std::collections::HashSet;
-        let mut set = HashSet::new();
-        set.insert(DragPayload::NewWidget(PanelItem::TrialTable));
-        assert!(set.contains(&DragPayload::NewWidget(PanelItem::TrialTable)));
+        assert_eq!(ChartId::SurrogateOpt.label(), "Surrogate Optimizer");
     }
 
     // --- LayoutState tests ---
@@ -426,13 +344,6 @@ mod tests {
         assert_eq!(layout.left_panel_width, 240.0);
         assert!(!layout.right_panel.is_open); // hover-reveal: default closed
         assert_eq!(layout.right_panel.width, 200.0);
-    }
-
-    #[test]
-    fn right_panel_state_default() {
-        let rp = RightPanelState::default();
-        assert!(!rp.is_open); // hover-reveal: default closed
-        assert_eq!(rp.width, 200.0);
     }
 
     // --- CanvasLayout tests ---
@@ -451,26 +362,13 @@ mod tests {
     fn canvas_layout_add_assigns_incrementing_ids() {
         let mut c = CanvasLayout::default();
         let id0 = c.add(PanelItem::TrialTable, 10.0, 20.0, 360.0, 280.0);
-        let id1 = c.add(
-            PanelItem::Chart(ChartId::ParetoScatter2D),
-            30.0,
-            40.0,
-            360.0,
-            280.0,
-        );
+        let id1 = c.add(PanelItem::TrialTable, 30.0, 40.0, 360.0, 280.0);
         assert_eq!(id0, 0);
         assert_eq!(id1, 1);
         assert_eq!(c.items.len(), 2);
         assert_eq!(c.items[0].x, 10.0);
         assert_eq!(c.items[0].y, 20.0);
-    }
-
-    #[test]
-    fn canvas_layout_allows_duplicate_content() {
-        let mut c = CanvasLayout::default();
-        c.add(PanelItem::TrialTable, 0.0, 0.0, 100.0, 100.0);
-        c.add(PanelItem::TrialTable, 50.0, 50.0, 100.0, 100.0);
-        assert_eq!(c.items.len(), 2);
+        assert_eq!(c.items[0].content, c.items[1].content);
         assert_ne!(c.items[0].id, c.items[1].id);
     }
 

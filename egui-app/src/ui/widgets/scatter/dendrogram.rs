@@ -360,10 +360,6 @@ mod tests {
         // k=2 -> cutoff = 4-2 = 2 -> midpoint(merges[1]=2.0, merges[2]=5.0) = 3.5
         let th = cut_threshold(&merges, 4, 2).unwrap();
         assert!((th - 3.5).abs() < 1e-9);
-    }
-
-    #[test]
-    fn cut_threshold_k_one_is_none() {
         let merges = vec![Merge {
             a: 0,
             b: 1,
@@ -371,16 +367,6 @@ mod tests {
             size: 2,
         }];
         assert!(cut_threshold(&merges, 2, 1).is_none());
-    }
-
-    #[test]
-    fn cut_threshold_k_at_least_n_is_none() {
-        let merges = vec![Merge {
-            a: 0,
-            b: 1,
-            distance: 1.0,
-            size: 2,
-        }];
         assert!(cut_threshold(&merges, 2, 2).is_none());
         assert!(cut_threshold(&merges, 2, 5).is_none());
     }

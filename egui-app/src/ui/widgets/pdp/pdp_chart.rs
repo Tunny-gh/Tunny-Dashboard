@@ -562,16 +562,8 @@ mod tests {
     fn r2_quality_good_above_0_8() {
         assert_eq!(r2_quality(0.9), "Good");
         assert_eq!(r2_quality(0.81), "Good");
-    }
-
-    #[test]
-    fn r2_quality_fair_between_0_6_and_0_8() {
         assert_eq!(r2_quality(0.7), "Fair");
         assert_eq!(r2_quality(0.61), "Fair");
-    }
-
-    #[test]
-    fn r2_quality_poor_at_or_below_0_6() {
         assert_eq!(r2_quality(0.6), "Poor");
         assert_eq!(r2_quality(0.0), "Poor");
         assert_eq!(r2_quality(-0.5), "Poor");
@@ -586,13 +578,6 @@ mod tests {
         assert!(chart.result.is_none());
         assert!(chart.cache.is_empty());
         assert!(!chart.feasible_only);
-    }
-
-    // TASK-2062 tests
-
-    #[test]
-    fn pdp_chart_default_show_observed_false() {
-        let chart = PdpChart::default();
         assert!(!chart.show_observed);
     }
 
@@ -625,19 +610,9 @@ mod tests {
         let pts = extract_observed(&view, &obj_names, "x", 0, &[], &[]);
         assert_eq!(pts.len(), 1);
         assert_eq!(pts[0].0, [1.5, 2.0]);
-    }
-
-    #[test]
-    fn extract_observed_missing_param() {
-        let (view, obj_names) = make_view_xobj(&[1.5], &[2.0]);
         // "y" does not exist in the view -> empty
         let pts = extract_observed(&view, &obj_names, "y", 0, &[], &[]);
         assert!(pts.is_empty());
-    }
-
-    #[test]
-    fn extract_observed_out_of_range_obj() {
-        let (view, obj_names) = make_view_xobj(&[1.5], &[2.0]);
         // obj_idx=5 is out of range -> empty
         let pts = extract_observed(&view, &obj_names, "x", 5, &[], &[]);
         assert!(pts.is_empty());
@@ -653,10 +628,6 @@ mod tests {
         assert_eq!(classify_observed(Infeasible, 3), ObservedKind::Infeasible);
         assert_eq!(classify_observed(Unverified, 0), ObservedKind::Unverified);
         assert_eq!(ObservedKind::Unverified.label(), "Feasibility unverified");
-    }
-
-    #[test]
-    fn observed_kind_colors_match_scatter_palette() {
         assert_eq!(ObservedKind::Pareto.color(), COLOR_PARETO());
         assert_eq!(ObservedKind::NonPareto.color(), COLOR_NON_PARETO());
         assert_eq!(ObservedKind::Infeasible.color(), COLOR_INFEASIBLE());
@@ -665,28 +636,13 @@ mod tests {
     // TASK-2025 tests
 
     #[test]
-    fn cache_key_same_inputs_produce_same_key() {
-        let k1 = cache_key("x", "obj0", "Ridge", false);
-        let k2 = cache_key("x", "obj0", "Ridge", false);
-        assert_eq!(k1, k2);
-    }
-
-    #[test]
     fn cache_key_different_model_produces_different_key() {
         let k1 = cache_key("x", "obj0", "ridge", false);
         let k2 = cache_key("x", "obj0", "gp_fitc", false);
         assert_ne!(k1, k2);
-    }
-
-    #[test]
-    fn cache_key_different_param_produces_different_key() {
         let k1 = cache_key("x", "obj0", "Ridge", false);
         let k2 = cache_key("y", "obj0", "Ridge", false);
         assert_ne!(k1, k2);
-    }
-
-    #[test]
-    fn cache_key_different_feasible_flag_produces_different_key() {
         // Toggling feasible_only produces a distinct cache entry (prevents stale hits)
         let k1 = cache_key("x", "obj0", "Ridge", false);
         let k2 = cache_key("x", "obj0", "Ridge", true);
@@ -705,17 +661,9 @@ mod tests {
         assert!(xs.contains(&1.0));
         assert!(xs.contains(&2.0));
         assert!(!xs.contains(&3.0));
-    }
-
-    #[test]
-    fn pdp_overlay_falls_back_to_all_rows_without_selection() {
         let (view, obj_names) = make_view_xobj(&[1.0, 2.0], &[2.0, 3.0]);
         let pts = extract_observed(&view, &obj_names, "x", 0, &[], &[]);
         assert_eq!(pts.len(), 2, "all rows returned when no selection");
-    }
-
-    #[test]
-    fn pinned_row_remains_in_observed_overlay() {
         let (view, obj_names) = make_view_xobj(&[1.0, 2.0, 3.0], &[2.0, 3.0, 4.0]);
         let pts = extract_observed(&view, &obj_names, "x", 0, &[0], &[2]);
         let xs: Vec<f64> = pts.iter().map(|(p, _)| p[0]).collect();

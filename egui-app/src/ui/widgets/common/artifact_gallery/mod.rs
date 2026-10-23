@@ -668,7 +668,6 @@ mod tests {
                 objectives: vec![],
                 pareto_rank: 0,
                 cluster_id: None,
-                user_attrs: HashMap::new(),
             })
             .collect();
         StudyContext::from_rows_for_test(

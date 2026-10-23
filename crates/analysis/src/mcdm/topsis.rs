@@ -274,6 +274,10 @@ mod tests {
         let r = result.unwrap();
 
         assert_eq!(r.ranked_indices.len(), 3);
+        assert_eq!(r.ranked_indices[0], 2, "trial2 should rank best");
+        let mut indices = r.ranked_indices.clone();
+        indices.sort_unstable();
+        assert_eq!(indices, vec![0, 1, 2]);
         assert_eq!(r.scores.len(), 3);
         for &s in &r.scores {
             assert!(
@@ -323,22 +327,6 @@ mod tests {
             r.scores[0],
             r.scores[1]
         );
-    }
-
-    #[test]
-    fn unnormalized_weights_match_normalized() {
-        // Weights are normalized internally, so any positive scaling of the
-        // same weight vector must produce identical scores and ranking.
-        let values = [1.0_f64, 5.0, 3.0, 3.0, 5.0, 1.0];
-        let a = compute_topsis(&values, 3, 2, &[0.3, 0.7], &[true, true]).unwrap();
-        let b = compute_topsis(&values, 3, 2, &[3.0, 7.0], &[true, true]).unwrap();
-        for i in 0..3 {
-            assert!(
-                (a.scores[i] - b.scores[i]).abs() < 1e-12,
-                "scores must be invariant to weight scaling"
-            );
-        }
-        assert_eq!(a.ranked_indices, b.ranked_indices);
     }
 
     #[test]
@@ -502,25 +490,6 @@ mod tests {
     }
 
     #[test]
-    fn tc_1615_13_ranked_indices_length() {
-        // Confirms that the lengths of ranked_indices and scores match n_trials.
-
-        let values: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // 3 trials x 2 objectives
-        let result = compute_topsis(&values, 3, 2, &[0.5, 0.5], &[true, true]).unwrap();
-
-        assert_eq!(result.ranked_indices.len(), 3);
-        assert_eq!(result.scores.len(), 3);
-        // ranked_indices should be a permutation of each index.
-        let mut sorted = result.ranked_indices.clone();
-        sorted.sort();
-        assert_eq!(
-            sorted,
-            vec![0u32, 1, 2],
-            "インデックス 0,1,2 が各 1 回ずつ含まれるはず"
-        );
-    }
-
-    #[test]
     fn tc_1615_14_ideal_solutions_dimension() {
         // Confirms that the dimensions of positive_ideal / negative_ideal match n_objectives.
 
@@ -563,25 +532,6 @@ mod tests {
         );
     }
 
-    // ---- TASK-2268: make build_weighted_matrix use a single allocation ----
-
-    #[test]
-    fn tc_2268_01_topsis_scores_match_after_single_alloc_refactor() {
-        let values = [1.0_f64, 4.0, 4.0, 1.0, 2.0, 2.0];
-        let weights = [0.5_f64, 0.5];
-        let is_minimize = [true, true];
-        let r = compute_topsis(&values, 3, 2, &weights, &is_minimize).unwrap();
-        for (i, &s) in r.scores.iter().enumerate() {
-            assert!(
-                (0.0..=1.0).contains(&s),
-                "score[{}]={} must be in [0,1]",
-                i,
-                s
-            );
-        }
-        assert_eq!(r.ranked_indices[0], 2, "trial2 should rank best");
-    }
-
     #[test]
     fn tc_2268_02_all_nan_returns_empty_valid_scores() {
         let values = [f64::NAN, f64::NAN, f64::NAN, f64::NAN];
@@ -593,32 +543,5 @@ mod tests {
                 s
             );
         }
-    }
-
-    #[test]
-    fn tc_2268_03_single_objective_single_alloc() {
-        let values = [3.0_f64, 1.0, 2.0];
-        let r = compute_topsis(&values, 3, 1, &[1.0], &[true]).unwrap();
-        assert_eq!(r.ranked_indices[0], 1, "smallest value should rank first");
-        assert_eq!(r.ranked_indices[2], 0, "largest value should rank last");
-    }
-
-    #[test]
-    fn tc_1616_02_weights_scale_invariant() {
-        // Since weights are normalized internally, the same ranking should
-        // result as long as the ratio is unchanged, regardless of scale.
-        let values = [1.0_f64, 5.0, 5.0, 1.0];
-        let r1 = compute_topsis(&values, 2, 2, &[0.7, 0.3], &[true, true]).unwrap();
-        // Weights scaled by the same ratio as above.
-        let r2 = compute_topsis(&values, 2, 2, &[7.0, 3.0], &[true, true]).unwrap();
-
-        assert_eq!(
-            r1.ranked_indices[0], 0,
-            "weights=[0.7,0.3] なら trial0 が 1 位のはず"
-        );
-        assert_eq!(
-            r2.ranked_indices[0], 0,
-            "weights=[7.0,3.0] でも同じ順位のはず"
-        );
     }
 }

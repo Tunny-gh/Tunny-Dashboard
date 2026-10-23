@@ -65,18 +65,6 @@ fn expanded_attribute_columns_follow_their_key_and_keep_scalar_rows() {
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-#[test]
-fn colormap_name_all_has_nine_variants() {
-    assert_eq!(ColormapName::all().len(), 9);
-}
-
-#[test]
-fn colormap_name_labels_not_empty() {
-    for cmap in ColormapName::all() {
-        assert!(!cmap.label().is_empty(), "{:?} has empty label", cmap);
-    }
-}
-
 // ── Default derivation for GhOptDialogState::new ──────────────────
 fn make_gh_problem(n_objectives: usize) -> tdashboard_optimization_runner::gh::GhProblem {
     tdashboard_optimization_runner::gh::GhProblem {
@@ -206,6 +194,11 @@ fn gh_methods_labels_restrictions_and_persisted_settings() {
         dialog.adaptive_min_improvement_pct = 2.5;
         let json = serde_json::to_string(&GhComputePrefs::capture(&dialog)).unwrap();
         let prefs: GhComputePrefs = serde_json::from_str(&json).unwrap();
+        let mut dialog = GhOptDialogState::new(
+            PathBuf::from("other.ghx"),
+            String::new(),
+            make_gh_problem(1),
+        );
         prefs.apply_to(&mut dialog);
         assert_eq!(dialog.sampler, method);
         assert_eq!(dialog.cma_generations, 17);
@@ -274,14 +267,6 @@ fn gh_opt_dialog_state_derives_defaults_from_path() {
     assert!(state.error.is_none());
 }
 
-#[test]
-fn gh_opt_dialog_state_maximize_matches_objective_count() {
-    let path = PathBuf::from("model.ghx");
-    let state = GhOptDialogState::new(path, String::new(), make_gh_problem(3));
-    assert_eq!(state.maximize.len(), 3);
-    assert!(state.maximize.iter().all(|&m| !m));
-}
-
 // ── TASK-2331: StudyView tests ──────────────────────────────
 fn make_study_view(n: usize) -> StudyView {
     use tdashboard_analysis::dataframe::{DataFrame, TrialRow as CoreRow};
@@ -317,28 +302,6 @@ fn study_view_row_count_and_columns() {
     assert_eq!(view.numeric_column("x").map(|c| c.len()), Some(3));
     assert!(view.numeric_column("missing").is_none());
     assert_eq!(view.param_names(), &["x".to_string()]);
-}
-
-#[test]
-fn study_view_row_at_matches_columnar_values() {
-    let view = make_study_view(3);
-    let row = view.row_at(2);
-    assert_eq!(row.trial_id, 2);
-    assert_eq!(row.trial_number, 2);
-    assert!((row.params["x"] - 0.2).abs() < 1e-9);
-    assert_eq!(row.objectives, vec![2.0, 4.0]);
-    assert_eq!(row.pareto_rank, 0);
-    assert_eq!(row.cluster_id, None);
-    assert!(row.user_attrs.is_empty());
-}
-
-#[test]
-fn study_view_to_trial_rows_roundtrip() {
-    let view = make_study_view(4);
-    let rows = view.to_trial_rows();
-    assert_eq!(rows.len(), 4);
-    assert_eq!(rows[0].trial_id, 0);
-    assert_eq!(rows[3].objectives, vec![3.0, 6.0]);
 }
 
 #[test]

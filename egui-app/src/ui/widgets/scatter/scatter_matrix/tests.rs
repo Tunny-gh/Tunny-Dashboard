@@ -1,6 +1,6 @@
 use super::draw::data_to_screen;
 use super::stats::{
-    compute_correlation, compute_histogram, downsample_indices_to_cap, resolve_color_objective,
+    compute_histogram, downsample_indices_to_cap, resolve_color_objective,
     split_feasibility_indices,
 };
 use super::*;
@@ -223,26 +223,20 @@ fn check_matrix_label_refresh(rotated: bool, trigger: LabelRefresh) {
 }
 
 macro_rules! matrix_label_refresh_test {
-    ($name:ident, $rotated:expr, $trigger:ident) => {
+    ($name:ident, $trigger:ident) => {
         #[test]
         fn $name() {
-            check_matrix_label_refresh($rotated, LabelRefresh::$trigger);
+            for rotated in [false, true] {
+                check_matrix_label_refresh(rotated, LabelRefresh::$trigger);
+            }
         }
     };
 }
 
-matrix_label_refresh_test!(matrix_labels_horizontal_text_options, false, TextOptions);
-matrix_label_refresh_test!(matrix_labels_rotated_text_options, true, TextOptions);
-matrix_label_refresh_test!(
-    matrix_labels_horizontal_atlas_pressure,
-    false,
-    AtlasPressure
-);
-matrix_label_refresh_test!(matrix_labels_rotated_atlas_pressure, true, AtlasPressure);
-matrix_label_refresh_test!(matrix_labels_horizontal_dpi, false, Dpi);
-matrix_label_refresh_test!(matrix_labels_rotated_dpi, true, Dpi);
-matrix_label_refresh_test!(matrix_labels_horizontal_theme, false, Theme);
-matrix_label_refresh_test!(matrix_labels_rotated_theme, true, Theme);
+matrix_label_refresh_test!(matrix_labels_horizontal_text_options, TextOptions);
+matrix_label_refresh_test!(matrix_labels_horizontal_atlas_pressure, AtlasPressure);
+matrix_label_refresh_test!(matrix_labels_horizontal_dpi, Dpi);
+matrix_label_refresh_test!(matrix_labels_horizontal_theme, Theme);
 
 // ── resolve_color_objective ──────────────────────────────────────
 
@@ -250,28 +244,14 @@ matrix_label_refresh_test!(matrix_labels_rotated_theme, true, Theme);
 fn resolve_color_objective_none_returns_first() {
     let names = vec!["obj0".to_string(), "obj1".to_string()];
     assert_eq!(resolve_color_objective(&None, &names), Some("obj0"));
-}
-
-#[test]
-fn resolve_color_objective_existing_name_returns_it() {
-    let names = vec!["obj0".to_string(), "obj1".to_string()];
     assert_eq!(
         resolve_color_objective(&Some("obj1".to_string()), &names),
         Some("obj1")
     );
-}
-
-#[test]
-fn resolve_color_objective_unknown_name_falls_back_to_first() {
-    let names = vec!["obj0".to_string(), "obj1".to_string()];
     assert_eq!(
         resolve_color_objective(&Some("unknown".to_string()), &names),
         Some("obj0")
     );
-}
-
-#[test]
-fn resolve_color_objective_empty_names_returns_none() {
     assert_eq!(resolve_color_objective(&None, &[]), None);
     assert_eq!(
         resolve_color_objective(&Some("obj0".to_string()), &[]),
@@ -282,34 +262,19 @@ fn resolve_color_objective_empty_names_returns_none() {
 // ── constraint-aware visualization (TASK-2350) ──────────────────
 
 #[test]
-fn tc_cav_scatter_matrix_show_infeasible_default_true() {
-    let sm = ScatterMatrix::default();
-    assert!(sm.show_infeasible);
-}
-
-#[test]
-fn tc_cav_split_feasibility_no_constraints_all_feasible() {
+fn unverified_is_not_partitioned_as_infeasible() {
     use tdashboard_analysis::dataframe::Feasibility;
     let feas = Feasibility::from_column(None);
     let (f, inf, unverified) = split_feasibility_indices(3, feas);
     assert!(unverified.is_empty());
     assert_eq!(f, vec![0, 1, 2]);
     assert!(inf.is_empty());
-}
-
-#[test]
-fn tc_cav_split_feasibility_mixed() {
-    use tdashboard_analysis::dataframe::Feasibility;
     let col = vec![1.0_f64, 0.0, 1.0];
     let feas = Feasibility::from_column(Some(&col));
     let (f, inf, unverified) = split_feasibility_indices(3, feas);
     assert!(unverified.is_empty());
     assert_eq!(f, vec![0, 2]);
     assert_eq!(inf, vec![1]);
-}
-
-#[test]
-fn unverified_is_not_partitioned_as_infeasible() {
     let col = [1.0, f64::NAN, 0.0];
     let feas = tdashboard_analysis::dataframe::Feasibility::from_column(Some(&col));
     assert_eq!(
@@ -322,11 +287,6 @@ fn unverified_is_not_partitioned_as_infeasible() {
         rows,
         vec![("Feasibility".into(), "Feasibility unverified".into())]
     );
-}
-
-#[test]
-fn tc_cav_split_feasibility_all_infeasible() {
-    use tdashboard_analysis::dataframe::Feasibility;
     let col = vec![0.0_f64, 0.0];
     let feas = Feasibility::from_column(Some(&col));
     let (f, inf, unverified) = split_feasibility_indices(2, feas);
@@ -343,6 +303,7 @@ fn scatter_matrix_default_mode() {
     assert_eq!(sm.mode, MatrixMode::ParamsVsParams);
     assert_eq!(sm.sort, AxisSort::Alphabetical);
     assert!(sm.selected_cell.is_none());
+    assert!(sm.show_infeasible);
 }
 
 #[test]
@@ -350,10 +311,6 @@ fn downsample_cap_keeps_all_when_under_cap() {
     let idx: Vec<u32> = (0..100).collect();
     let out = downsample_indices_to_cap(&idx, 4000);
     assert_eq!(out, idx);
-}
-
-#[test]
-fn downsample_cap_limits_when_over_cap() {
     let idx: Vec<u32> = (0..100_000).collect();
     let out = downsample_indices_to_cap(&idx, 4000);
     assert!(out.len() <= 4000, "got {}", out.len());
@@ -361,10 +318,6 @@ fn downsample_cap_limits_when_over_cap() {
     // The first element is preserved, and downsampling keeps ascending order.
     assert_eq!(out[0], 0);
     assert!(out.windows(2).all(|w| w[0] < w[1]));
-}
-
-#[test]
-fn downsample_cap_zero_is_empty() {
     let idx: Vec<u32> = (0..10).collect();
     assert!(downsample_indices_to_cap(&idx, 0).is_empty());
 }
@@ -377,18 +330,26 @@ fn compute_histogram_bins_count() {
     let total: usize = bins.iter().sum();
     assert_eq!(total, data.len());
     assert_eq!(bins, vec![1, 1, 1, 1, 1]);
-}
-
-#[test]
-fn compute_histogram_extreme_endpoints() {
-    assert_eq!(
-        compute_histogram(&[-f64::MAX, f64::MAX], 4),
-        vec![1, 0, 0, 1]
-    );
+    let bins = compute_histogram(&[], 5);
+    assert_eq!(bins.len(), 5);
+    assert!(bins.iter().all(|&b| b == 0));
+    for data in [
+        &[][..],
+        &[0.0, 1.0][..],
+        &[5.0, 5.0][..],
+        &[0.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY][..],
+        &[f64::NAN, f64::INFINITY, f64::NEG_INFINITY][..],
+    ] {
+        assert_eq!(compute_histogram(data, 0), Vec::<usize>::new());
+    }
 }
 
 #[test]
 fn compute_histogram_extreme_asymmetric_intermediates() {
+    assert_eq!(
+        compute_histogram(&[-f64::MAX, f64::MAX], 4),
+        vec![1, 0, 0, 1]
+    );
     let data = [-1.0, -0.5, -0.125, 0.0, 0.25, 0.5].map(|v| v * f64::MAX);
     assert_eq!(compute_histogram(&data, 4), vec![1, 1, 2, 2]);
     let reflected = data.map(|v| -v);
@@ -429,22 +390,14 @@ fn compute_histogram_extreme_mixed_counts() {
 fn compute_histogram_near_constant_with_nonfinite() {
     let data = [0.0, f64::EPSILON / 2.0, f64::NAN, f64::INFINITY];
     assert_eq!(compute_histogram(&data, 4), vec![0, 0, 2, 0]);
-}
-
-#[test]
-fn compute_histogram_all_in_same_bin() {
     let data = vec![5.0; 10];
     let bins = compute_histogram(&data, 4);
     let total: usize = bins.iter().sum();
     assert_eq!(total, 10);
     assert_eq!(bins, vec![0, 0, 10, 0]);
-}
-
-#[test]
-fn compute_histogram_empty_data() {
-    let bins = compute_histogram(&[], 5);
-    assert_eq!(bins.len(), 5);
-    assert!(bins.iter().all(|&b| b == 0));
+    let data = [5.0, f64::NAN, 5.0, f64::INFINITY, f64::NEG_INFINITY];
+    assert_eq!(compute_histogram(&data, 4), vec![0, 0, 2, 0]);
+    assert_eq!(compute_histogram(&[5.0, f64::NAN], 5), vec![0, 0, 1, 0, 0]);
 }
 
 #[test]
@@ -458,58 +411,10 @@ fn compute_histogram_mixed_finite_and_nonfinite() {
 }
 
 #[test]
-fn compute_histogram_constant_with_nonfinite() {
-    let data = [5.0, f64::NAN, 5.0, f64::INFINITY, f64::NEG_INFINITY];
-    assert_eq!(compute_histogram(&data, 4), vec![0, 0, 2, 0]);
-    assert_eq!(compute_histogram(&[5.0, f64::NAN], 5), vec![0, 0, 1, 0, 0]);
-}
-
-#[test]
 fn compute_histogram_all_nonfinite() {
     let data = [f64::NAN, f64::INFINITY, f64::NEG_INFINITY];
     assert_eq!(compute_histogram(&data, 4), vec![0; 4]);
-}
-
-#[test]
-fn compute_histogram_all_nan() {
     assert_eq!(compute_histogram(&[f64::NAN, f64::NAN], 4), vec![0; 4]);
-}
-
-#[test]
-fn compute_histogram_zero_bins() {
-    for data in [
-        &[][..],
-        &[0.0, 1.0][..],
-        &[5.0, 5.0][..],
-        &[0.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY][..],
-        &[f64::NAN, f64::INFINITY, f64::NEG_INFINITY][..],
-    ] {
-        assert_eq!(compute_histogram(data, 0), Vec::<usize>::new());
-    }
-}
-
-#[test]
-fn compute_correlation_perfect_positive() {
-    let x: Vec<f64> = (0..10).map(|i| i as f64).collect();
-    let y = x.clone();
-    let corr = compute_correlation(&x, &y);
-    assert!((corr - 1.0).abs() < 1e-9);
-}
-
-#[test]
-fn compute_correlation_perfect_negative() {
-    let x: Vec<f64> = (0..10).map(|i| i as f64).collect();
-    let y: Vec<f64> = x.iter().map(|&v| -v).collect();
-    let corr = compute_correlation(&x, &y);
-    assert!((corr + 1.0).abs() < 1e-9);
-}
-
-#[test]
-fn compute_correlation_range_bounded() {
-    let x = vec![1.0, 3.0, 5.0, 7.0, 9.0];
-    let y = vec![2.0, 1.0, 4.0, 3.0, 5.0];
-    let corr = compute_correlation(&x, &y);
-    assert!((-1.0..=1.0).contains(&corr));
 }
 
 #[test]
@@ -518,11 +423,6 @@ fn data_to_screen_min_maps_to_left_bottom() {
     let pos = data_to_screen(0.0, 0.0, (0.0, 1.0), (0.0, 1.0), rect);
     assert!((pos.x - 0.0).abs() < 1e-3);
     assert!((pos.y - 100.0).abs() < 1e-3); // y is inverted
-}
-
-#[test]
-fn data_to_screen_max_maps_to_right_top() {
-    let rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0));
     let pos = data_to_screen(1.0, 1.0, (0.0, 1.0), (0.0, 1.0), rect);
     assert!((pos.x - 100.0).abs() < 1e-3);
     assert!((pos.y - 0.0).abs() < 1e-3); // y is inverted

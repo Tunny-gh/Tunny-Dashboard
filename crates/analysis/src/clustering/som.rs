@@ -267,15 +267,14 @@ mod tests {
         assert_eq!(r.bmu.len(), 30);
         assert_eq!(r.hits.iter().sum::<usize>(), 30);
         assert_eq!(r.component_plane(0).len(), 64);
-    }
-
-    #[test]
-    fn deterministic_without_seed() {
-        // PCA initialization + batch updates are fully deterministic.
-        let a = train_som(&blobs(), &SomSpec::default()).unwrap();
         let b = train_som(&blobs(), &SomSpec::default()).unwrap();
-        assert_eq!(a.bmu, b.bmu);
-        assert_eq!(a.u_matrix, b.u_matrix);
+        assert_eq!(r.bmu, b.bmu);
+        assert_eq!(r.u_matrix, b.u_matrix);
+        let max = r
+            .component_plane(0)
+            .into_iter()
+            .fold(f64::NEG_INFINITY, f64::max);
+        assert!(max > 1.0, "destandardized plane should reach data scale");
     }
 
     #[test]
@@ -286,15 +285,6 @@ mod tests {
         let set_b: std::collections::HashSet<usize> =
             r.bmu.iter().skip(1).step_by(2).copied().collect();
         assert!(set_a.is_disjoint(&set_b), "{set_a:?} vs {set_b:?}");
-    }
-
-    #[test]
-    fn component_plane_is_in_original_units() {
-        let r = train_som(&blobs(), &SomSpec::default()).unwrap();
-        let plane = r.component_plane(0);
-        // Original units: x0 has two groups near 0 and near 10 → the plane's range should reach that scale.
-        let max = plane.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        assert!(max > 1.0, "destandardized plane should reach data scale");
     }
 
     #[test]

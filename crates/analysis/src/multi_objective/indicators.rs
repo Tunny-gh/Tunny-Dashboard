@@ -473,31 +473,17 @@ mod tests {
 
     #[test]
     fn additive_epsilon_translation_amount() {
-        // ε=0.5 is required for a=(0.5,0.5) to weakly dominate z=(0,0).
         let reference = vec![vec![0.0, 0.0]];
-        let approx = vec![vec![0.5, 0.5]];
-        approx_eq(additive_epsilon(&approx, &reference), 0.5);
-    }
-
-    #[test]
-    fn additive_epsilon_can_be_negative_when_dominating() {
-        // a=(−0.3,−0.3) strongly weakly-dominates z=(0,0), so ε=−0.3.
-        let reference = vec![vec![0.0, 0.0]];
-        let approx = vec![vec![-0.3, -0.3]];
-        approx_eq(additive_epsilon(&approx, &reference), -0.3);
-    }
-
-    #[test]
-    fn r2_zero_at_ideal() {
-        // With a solution at the ideal (= origin), the Tchebycheff value is 0 for every weight.
-        let weights = simplex_lattice_weights(2);
-        let approx = vec![vec![0.0, 0.0]];
-        approx_eq(r2_indicator(&approx, &weights), 0.0);
+        for shift in [0.5, -0.3] {
+            let approx = vec![vec![shift, shift]];
+            approx_eq(additive_epsilon(&approx, &reference), shift);
+        }
     }
 
     #[test]
     fn r2_decreases_as_set_approaches_ideal() {
         let weights = simplex_lattice_weights(2);
+        approx_eq(r2_indicator(&[vec![0.0, 0.0]], &weights), 0.0);
         let far = vec![vec![1.0, 1.0]];
         let near = vec![vec![0.2, 0.2]];
         assert!(r2_indicator(&near, &weights) < r2_indicator(&far, &weights));
@@ -645,10 +631,10 @@ mod tests {
         let hist = compute_indicator_histories(&series, &is_min, MoIndicator::IgdPlus, None);
         assert_eq!(hist.len(), 2);
         assert_eq!(hist[0].values.len(), 2);
-        // Series 1 eventually reaches the union's ideal (0,0), so its final IGD+ is smaller than series 0's.
-        let last0 = *hist[0].values.last().unwrap();
-        let last1 = *hist[1].values.last().unwrap();
-        assert!(last1 <= last0);
+        approx_eq(hist[0].values[0], 2.0 * std::f64::consts::SQRT_2 / 3.0);
+        approx_eq(hist[0].values[1], std::f64::consts::SQRT_2 / 3.0);
+        approx_eq(hist[1].values[0], std::f64::consts::SQRT_2);
+        approx_eq(hist[1].values[1], 0.0);
     }
 
     #[test]

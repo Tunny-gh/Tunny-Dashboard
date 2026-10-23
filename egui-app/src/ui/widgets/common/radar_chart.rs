@@ -394,18 +394,10 @@ mod tests {
         assert!((value_fraction(10.0, lo, hi) - 1.0).abs() < 1e-6);
         let f_min = value_fraction(2.0, lo, hi);
         assert!(f_min > 0.0 && f_min < 1.0);
-    }
-
-    #[test]
-    fn axis_scale_handles_degenerate_front() {
         // When the front is a single point, the value lands at mid-radius.
         let (lo, hi) = axis_scale(5.0, 5.0);
         assert!((value_fraction(5.0, lo, hi) - 0.5).abs() < 1e-6);
         assert!(lo < 5.0 && hi > 5.0);
-    }
-
-    #[test]
-    fn value_fraction_zero_span_is_center() {
         assert!((value_fraction(3.0, 1.0, 1.0) - 0.5).abs() < 1e-6);
     }
 
