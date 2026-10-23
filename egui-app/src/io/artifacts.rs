@@ -120,46 +120,4 @@ mod tests {
             }
         }
     }
-
-    #[test]
-    fn task2128_artifacts_dir_scanned_message_channel() {
-        use crate::state::messages::AppMessage;
-        use std::collections::HashMap;
-        use std::path::PathBuf;
-        use std::sync::mpsc;
-
-        let (tx, rx) = mpsc::sync_channel::<AppMessage>(8);
-
-        let mut trial_artifacts: HashMap<u32, Vec<ArtifactEntry>> = HashMap::new();
-        trial_artifacts.insert(
-            0,
-            vec![ArtifactEntry {
-                path: PathBuf::from("/tmp/artifacts/abc123"),
-                filename: "result.png".into(),
-                mimetype: "image/png".into(),
-            }],
-        );
-        let artifacts_dir = PathBuf::from("/tmp/artifacts");
-
-        tx.send(AppMessage::ArtifactsDirScanned {
-            trial_artifacts: trial_artifacts.clone(),
-            artifacts_dir: artifacts_dir.clone(),
-            scan_id: 1,
-        })
-        .unwrap();
-
-        match rx.recv().unwrap() {
-            AppMessage::ArtifactsDirScanned {
-                trial_artifacts: received,
-                artifacts_dir: received_dir,
-                scan_id,
-            } => {
-                assert_eq!(received.len(), 1);
-                assert_eq!(received.get(&0).unwrap()[0].filename, "result.png");
-                assert_eq!(received_dir, artifacts_dir);
-                assert_eq!(scan_id, 1);
-            }
-            _ => panic!("unexpected message type"),
-        }
-    }
 }

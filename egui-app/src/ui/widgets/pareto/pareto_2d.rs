@@ -537,22 +537,9 @@ mod tests {
         let widget = ParetoScatter2D::default();
         assert_eq!(widget.x_axis, "obj0");
         assert_eq!(widget.y_axis, "obj1");
-    }
-
-    #[test]
-    fn blank_click_clears_selection_per_policy() {
-        // Simulate blank click: selected_indices should become empty
-        let mut selected: Vec<u32> = vec![0, 1, 2];
-        // Policy: blank click clears selection
-        selected.clear();
-        assert!(selected.is_empty());
-    }
-
-    #[test]
-    fn brush_state_default_is_none() {
-        let widget = ParetoScatter2D::default();
         assert!(widget.brush_start.is_none());
         assert!(widget.brush_end.is_none());
+        assert!(widget.show_surrogate_front);
     }
 
     // ── unit tests for surrogate_front_points ───────────────────────
@@ -583,28 +570,12 @@ mod tests {
         assert_eq!(pts.len(), 2);
         assert_eq!(pts[0], [1.0, 4.0]);
         assert_eq!(pts[1], [2.0, 3.0]);
-    }
-
-    #[test]
-    fn surrogate_front_points_swapped_axes() {
-        let result = make_ui_result();
         let pts = surrogate_front_points(&result, "f1", "f0");
         assert_eq!(pts.len(), 2);
         assert_eq!(pts[0], [4.0, 1.0]);
         assert_eq!(pts[1], [3.0, 2.0]);
-    }
-
-    #[test]
-    fn surrogate_front_points_unknown_axis_returns_empty() {
-        let result = make_ui_result();
         // Nonexistent axis name → empty
         let pts = surrogate_front_points(&result, "f0", "unknown");
         assert!(pts.is_empty());
-    }
-
-    #[test]
-    fn pareto_scatter_2d_show_surrogate_front_default_true() {
-        let widget = ParetoScatter2D::default();
-        assert!(widget.show_surrogate_front);
     }
 }

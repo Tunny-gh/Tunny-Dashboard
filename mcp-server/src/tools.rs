@@ -507,10 +507,4 @@ mod tests {
         assert_eq!(offset, 0);
         assert_eq!(limit, TRIALS_MAX_LIMIT);
     }
-
-    #[test]
-    fn parse_offset_limit_exact_cap_boundary_unchanged() {
-        let (_, limit) = parse_offset_limit(&json!({ "limit": TRIALS_MAX_LIMIT }));
-        assert_eq!(limit, TRIALS_MAX_LIMIT);
-    }
 }

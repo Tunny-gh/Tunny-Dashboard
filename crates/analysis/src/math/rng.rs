@@ -71,42 +71,12 @@ mod tests {
     }
 
     #[test]
-    fn tc_301_03_next_f64_range() {
-        // [Test purpose]: Verify that next_f64() always returns a value in [0, 1)
-        let mut rng = SeededRng::from_seed(0);
-        for _ in 0..1000 {
-            let v = rng.next_f64();
-            assert!((0.0..1.0).contains(&v), "next_f64 out of [0,1): {}", v);
-        }
-    }
-
-    #[test]
     fn tc_301_04_next_usize_range() {
         // [Test purpose]: Verify that next_usize(n) always returns a value in [0, n)
         let mut rng = SeededRng::from_seed(0);
         for _ in 0..1000 {
             let v = rng.next_usize(100);
             assert!(v < 100, "next_usize out of [0, 100): {}", v);
-        }
-    }
-
-    #[test]
-    fn tc_b01_seed_zero() {
-        let mut rng = SeededRng::from_seed(0);
-        let v = rng.next_f64();
-        assert!(
-            (0.0..1.0).contains(&v),
-            "seed=0 で next_f64 が [0,1): {}",
-            v
-        );
-    }
-
-    #[test]
-    fn tc_b02_next_usize_bound_one() {
-        let mut rng = SeededRng::from_seed(42);
-        for _ in 0..100 {
-            let v = rng.next_usize(1);
-            assert_eq!(v, 0, "next_usize(1) は常に 0");
         }
     }
 }

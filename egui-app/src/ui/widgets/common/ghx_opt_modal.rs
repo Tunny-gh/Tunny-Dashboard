@@ -432,12 +432,6 @@ mod tests {
     }
 
     #[test]
-    fn default_state_has_no_maximize_flags_set() {
-        let state = make_state();
-        assert_eq!(state.maximize, vec![false, false]);
-    }
-
-    #[test]
     fn rendered_method_labels_and_hints_are_explicit_and_safe() {
         use crate::state::app_state::GhSamplerChoice;
         for method in GhSamplerChoice::ALL {

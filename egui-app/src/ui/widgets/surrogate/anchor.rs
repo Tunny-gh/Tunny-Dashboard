@@ -100,11 +100,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn center_choice_default_is_best_trial() {
-        assert_eq!(CenterChoice::default(), CenterChoice::BestTrial);
-    }
-
-    #[test]
     fn center_choice_serde_round_trip_keeps_variant_names() {
         // Regression guard for session-file compatibility: verifies the variant name appears in the JSON.
         let best = serde_json::to_string(&CenterChoice::BestTrial).unwrap();

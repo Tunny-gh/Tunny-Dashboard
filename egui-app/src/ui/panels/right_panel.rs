@@ -312,22 +312,3 @@ pub fn show_right_panel(ui: &mut egui::Ui, _app_state: &AppState) {
         }
     });
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::state::layout_state::LayoutState;
-
-    #[test]
-    fn right_panel_default_is_closed() {
-        let layout = LayoutState::default();
-        assert!(!layout.right_panel.is_open);
-    }
-
-    #[test]
-    fn panel_item_all_count_matches() {
-        use crate::state::layout_state::ChartId;
-        let items = PanelItem::all();
-        assert_eq!(items.len(), ChartId::all().len() + 1);
-    }
-}

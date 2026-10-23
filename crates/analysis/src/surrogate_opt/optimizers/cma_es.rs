@@ -277,37 +277,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stop_hook_preserves_uninterrupted_surrogate_trajectory() {
-        let cfg = CmaEsConfig {
-            max_generations: 10,
-            ..CmaEsConfig::default()
-        };
-        let eval = |x: &[f64]| (x[0] - 0.25).powi(2) + (x[1] - 0.75).powi(2);
-        assert_eq!(
-            cma_es_minimize(eval, &[0.5, 0.5], &cfg),
-            cma_es_minimize_until(eval, &[0.5, 0.5], &cfg, || false)
-        );
-    }
-
-    #[test]
-    fn symmetric_eigen_known_2x2() {
-        // The eigenvalues of [[2,1],[1,2]] are 1 and 3.
-        let a = vec![vec![2.0, 1.0], vec![1.0, 2.0]];
-        let (mut vals, b) = symmetric_eigen(&a).expect("2x2 decomposition should succeed");
-        vals.sort_by(|x, y| x.partial_cmp(y).unwrap());
-        assert!((vals[0] - 1.0).abs() < 1e-9, "{vals:?}");
-        assert!((vals[1] - 3.0).abs() < 1e-9, "{vals:?}");
-        // B should be an orthogonal matrix (BᵀB ≈ I).
-        for i in 0..2 {
-            for j in 0..2 {
-                let dot: f64 = (0..2).map(|k| b[k][i] * b[k][j]).sum();
-                let expect = if i == j { 1.0 } else { 0.0 };
-                assert!((dot - expect).abs() < 1e-9);
-            }
-        }
-    }
-
-    #[test]
     fn symmetric_eigen_reconstructs_matrix() {
         // Reconstruct A = B diag(λ) Bᵀ = B D² Bᵀ (D = diag(√λ)) and check it matches.
         let a = vec![

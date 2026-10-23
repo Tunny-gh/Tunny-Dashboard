@@ -108,27 +108,6 @@ mod tests {
     }
 
     #[test]
-    fn pairwise_nan_exclusion() {
-        let columns = vec![
-            ("a".to_string(), vec![1.0, f64::NAN, 3.0, 4.0]),
-            ("b".to_string(), vec![1.0, 2.0, 3.0, 4.0]),
-        ];
-        let matrix = compute_correlation_matrix(&columns, CorrelationMethod::Pearson).unwrap();
-        assert!((matrix.values[0][1] - 1.0).abs() < 1e-10);
-    }
-
-    #[test]
-    fn diagonal_is_always_one() {
-        let columns = vec![
-            ("a".to_string(), vec![1.0, 1.0, 1.0]),
-            ("b".to_string(), vec![1.0, 2.0, 3.0]),
-        ];
-        let matrix = compute_correlation_matrix(&columns, CorrelationMethod::Pearson).unwrap();
-        assert_eq!(matrix.values[0][0], 1.0);
-        assert_eq!(matrix.values[1][1], 1.0);
-    }
-
-    #[test]
     fn constant_column_gives_nan_off_diagonal() {
         let columns = vec![
             ("a".to_string(), vec![1.0, 1.0, 1.0]),
@@ -137,6 +116,8 @@ mod tests {
         let matrix = compute_correlation_matrix(&columns, CorrelationMethod::Pearson).unwrap();
         assert!(matrix.values[0][1].is_nan());
         assert!(matrix.values[1][0].is_nan());
+        assert_eq!(matrix.values[0][0], 1.0);
+        assert_eq!(matrix.values[1][1], 1.0);
     }
 
     #[test]

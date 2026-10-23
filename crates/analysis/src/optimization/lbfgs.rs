@@ -76,6 +76,6 @@ mod tests {
         let optimizer = LbfgsOptimizer::new(0, 5);
         let initial = vec![3.0, -2.0];
         let result = optimizer.optimize(initial.clone(), Quadratic);
-        assert!(result.iter().all(|x| x.is_finite()));
+        assert_eq!(result, initial);
     }
 }

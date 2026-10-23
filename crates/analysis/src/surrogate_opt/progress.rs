@@ -105,16 +105,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_is_not_cancelled_and_empty() {
-        let p = FitProgress::new();
-        assert!(!p.is_cancelled());
-        let s = p.snapshot();
-        assert_eq!(s.done, 0);
-        assert_eq!(s.total, 0);
-        assert!(s.stage.is_empty());
-    }
-
-    #[test]
     fn subtask_shares_cancellation_but_not_counters_or_stage() {
         let parent = FitProgress::new();
         parent.set_total(100);

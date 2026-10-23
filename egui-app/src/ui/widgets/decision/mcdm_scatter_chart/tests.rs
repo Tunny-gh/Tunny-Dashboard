@@ -89,35 +89,15 @@ fn test_scatter_chart_default_values() {
 }
 
 #[test]
-fn test_cache_stale_when_no_key() {
-    use crate::state::types::ColormapName;
-    let chart = McdmScatterChart::default();
-    assert!(chart.is_cache_stale(
-        100,
-        &McdmResult::Topsis(make_topsis(100)),
-        &ColormapName::Viridis,
-        10
-    ));
-}
-
-#[test]
-fn test_cache_stale_when_trial_count_changes() {
-    use crate::state::types::ColormapName;
-    let cmap_name = ColormapName::Viridis;
-    let mut chart = McdmScatterChart::default();
-    let result = McdmResult::Topsis(make_topsis(100));
-    chart.cache_key = Some(chart.make_cache_key(100, &result, &cmap_name, 10));
-    assert!(chart.is_cache_stale(150, &result, &cmap_name, 10)); // 150 ≠ 100
-}
-
-#[test]
 fn test_cache_not_stale_same_key() {
     use crate::state::types::ColormapName;
     let cmap_name = ColormapName::Viridis;
     let mut chart = McdmScatterChart::default();
     let result = McdmResult::Topsis(make_topsis(100));
+    assert!(chart.is_cache_stale(100, &result, &cmap_name, 10));
     chart.cache_key = Some(chart.make_cache_key(100, &result, &cmap_name, 10));
     assert!(!chart.is_cache_stale(100, &result, &cmap_name, 10));
+    assert!(chart.is_cache_stale(150, &result, &cmap_name, 10));
 }
 
 // ── get_axis_options tests ──────────────────────────────────
@@ -141,6 +121,9 @@ fn test_axis_options_topsis() {
     let options = get_axis_options(&result, &["obj".to_string()]);
     assert!(options.iter().any(|o| o.id == "TOPSIS_Score"));
     assert!(!options.iter().any(|o| o.id == "VIKOR_Q"));
+    let options = get_axis_options(&result, &[]);
+    assert_eq!(options.len(), 1);
+    assert_eq!(options[0].id, "TOPSIS_Score");
 }
 
 #[test]
@@ -152,15 +135,6 @@ fn test_axis_options_promethee() {
     assert!(options.iter().any(|o| o.id == "Phi_Net"));
 }
 
-#[test]
-fn test_axis_options_empty_objectives() {
-    let result = McdmResult::Topsis(make_topsis(3));
-    let options = get_axis_options(&result, &[]);
-    // Only TOPSIS_Score
-    assert_eq!(options.len(), 1);
-    assert_eq!(options[0].id, "TOPSIS_Score");
-}
-
 // ── extract_axis_values tests ────────────────────────────────
 
 #[test]
@@ -169,14 +143,11 @@ fn test_extract_objective0() {
     let result = McdmResult::Vikor(make_vikor(2));
     let vals = extract_axis_values("Objective0", &result, &view, &obj_names).unwrap();
     assert_eq!(vals, vec![1.0, 3.0]);
-}
-
-#[test]
-fn test_extract_objective1() {
-    let (view, obj_names) = make_view_with_objectives(&[vec![1.0, 2.0], vec![3.0, 4.0]]);
-    let result = McdmResult::Vikor(make_vikor(2));
     let vals = extract_axis_values("Objective1", &result, &view, &obj_names).unwrap();
     assert_eq!(vals, vec![2.0, 4.0]);
+    let (view, obj_names) = make_view_with_objectives(&[vec![1.0]]);
+    let result = McdmResult::Vikor(make_vikor(1));
+    assert!(extract_axis_values("Objective5", &result, &view, &obj_names).is_err());
 }
 
 #[test]
@@ -187,6 +158,7 @@ fn test_extract_vikor_q() {
     let view = make_empty_view();
     let vals = extract_axis_values("VIKOR_Q", &result, &view, &[]).unwrap();
     assert_eq!(vals, q);
+    assert!(extract_axis_values("NonExistent", &result, &view, &[]).is_err());
 }
 
 #[test]
@@ -209,23 +181,6 @@ fn test_extract_phi_plus() {
     assert_eq!(vals, phi_plus);
 }
 
-#[test]
-fn test_extract_unknown_axis_error() {
-    let result = McdmResult::Vikor(make_vikor(3));
-    let view = make_empty_view();
-    let err = extract_axis_values("NonExistent", &result, &view, &[]);
-    assert!(err.is_err());
-}
-
-#[test]
-fn test_extract_out_of_range_objective() {
-    let (view, obj_names) = make_view_with_objectives(&[vec![1.0]]);
-    let result = McdmResult::Vikor(make_vikor(1));
-    // obj_names is only ["obj0"]. Objective5 is out of range -> error
-    let err = extract_axis_values("Objective5", &result, &view, &obj_names);
-    assert!(err.is_err());
-}
-
 // ── build_rank_map tests ────────────────────────────────────
 
 #[test]
@@ -237,10 +192,6 @@ fn test_build_rank_map_basic() {
     assert_eq!(map[8], 2);
     assert_eq!(map[0], usize::MAX); // outside the ranking
     assert_eq!(map[3], usize::MAX);
-}
-
-#[test]
-fn test_build_rank_map_all_trials() {
     let n = 5usize;
     let ranked: Vec<u32> = vec![4, 3, 2, 1, 0];
     let map = build_rank_map(&ranked, n);

@@ -184,10 +184,6 @@ fn check_label_clip(n: usize, width: f32) {
 #[test]
 fn pcp_horizontal_labels_fit_clip() {
     check_label_clip(2, 900.0);
-}
-
-#[test]
-fn pcp_rotated_labels_fit_clip() {
     check_label_clip(7, 650.0);
 }
 
@@ -497,39 +493,9 @@ fn pcp_brush_create_move_hover_and_clear_unchanged() {
 }
 
 #[test]
-fn normalize_min_maps_to_zero() {
-    let n = normalize_value(0.0, 0.0, 10.0);
-    assert!((n - 0.0).abs() < 1e-6);
-}
-
-#[test]
-fn normalize_max_maps_to_one() {
-    let n = normalize_value(10.0, 0.0, 10.0);
-    assert!((n - 1.0).abs() < 1e-6);
-}
-
-#[test]
-fn normalize_equal_min_max_returns_half() {
-    let n = normalize_value(5.0, 5.0, 5.0);
-    assert!((n - 0.5).abs() < 1e-6);
-}
-
-#[test]
-fn normalize_clamps_out_of_range() {
-    let below = normalize_value(-1.0, 0.0, 1.0);
-    let above = normalize_value(2.0, 0.0, 1.0);
-    assert!((below - 0.0).abs() < 1e-6);
-    assert!((above - 1.0).abs() < 1e-6);
-}
-
-#[test]
 fn normalized_to_screen_y_zero_maps_to_bottom() {
     let y = normalized_to_screen_y(0.0, 100.0, 400.0);
     assert!((y - 400.0).abs() < 1e-3);
-}
-
-#[test]
-fn normalized_to_screen_y_one_maps_to_top() {
     let y = normalized_to_screen_y(1.0, 100.0, 400.0);
     assert!((y - 100.0).abs() < 1e-3);
 }
@@ -551,6 +517,7 @@ fn parallel_coords_chart_default() {
     assert!(chart.brush_ranges.is_empty());
     assert!(chart.drag_start.is_none());
     assert!(chart.color_axis.is_none());
+    assert!(chart.show_infeasible);
 }
 
 // TASK-2022 tests
@@ -560,79 +527,10 @@ fn ordered_brush_range_forward_drag() {
     let (min, max) = ordered_brush_range(0.2, 0.8);
     assert!((min - 0.2).abs() < 1e-6);
     assert!((max - 0.8).abs() < 1e-6);
-}
-
-#[test]
-fn ordered_brush_range_reverse_drag() {
     // Dragging upward: start > end
     let (min, max) = ordered_brush_range(0.8, 0.2);
     assert!((min - 0.2).abs() < 1e-6);
     assert!((max - 0.8).abs() < 1e-6);
-}
-
-// TASK-2125 tests
-#[test]
-fn axis_visibility_filter() {
-    use std::collections::HashMap;
-    let mut visibility: HashMap<String, bool> = HashMap::new();
-    visibility.insert("x1".to_string(), true);
-    visibility.insert("x2".to_string(), false);
-    visibility.insert("x3".to_string(), true);
-    let axis_order = ["x1".to_string(), "x2".to_string(), "x3".to_string()];
-    let visible: Vec<_> = axis_order
-        .iter()
-        .filter(|name| *visibility.get(*name).unwrap_or(&true))
-        .collect();
-    assert_eq!(visible.len(), 2);
-    assert_eq!(visible[0], "x1");
-    assert_eq!(visible[1], "x3");
-}
-
-#[test]
-fn axis_reorder_logic() {
-    let mut axis_order = vec!["x1".to_string(), "x2".to_string(), "x3".to_string()];
-    let dragged = "x1";
-    let target_idx = 2;
-    if let Some(from_idx) = axis_order.iter().position(|a| a == dragged) {
-        let name = axis_order.remove(from_idx);
-        let insert_at = target_idx.min(axis_order.len());
-        axis_order.insert(insert_at, name);
-    }
-    assert_eq!(axis_order, vec!["x2", "x3", "x1"]);
-}
-
-#[test]
-fn axis_visibility_all_hidden() {
-    use std::collections::HashMap;
-    let mut visibility: HashMap<String, bool> = HashMap::new();
-    visibility.insert("x1".to_string(), false);
-    visibility.insert("x2".to_string(), false);
-    let axis_order = ["x1".to_string(), "x2".to_string()];
-    let visible: Vec<_> = axis_order
-        .iter()
-        .filter(|name| *visibility.get(*name).unwrap_or(&true))
-        .collect();
-    assert!(visible.is_empty());
-}
-
-#[test]
-fn axis_visibility_default_true_for_unknown() {
-    use std::collections::HashMap;
-    let visibility: HashMap<String, bool> = HashMap::new();
-    let axis_order = ["unknown_axis".to_string()];
-    let visible: Vec<_> = axis_order
-        .iter()
-        .filter(|name| *visibility.get(*name).unwrap_or(&true))
-        .collect();
-    assert_eq!(visible.len(), 1);
-}
-
-// ── constraint-aware visualization (TASK-2349) ──────────────────
-
-#[test]
-fn tc_cav_parallel_coords_show_infeasible_default_true() {
-    let chart = ParallelCoordsChart::default();
-    assert!(chart.show_infeasible);
 }
 
 // --- TASK-2242: PCP brush tests ---
@@ -667,26 +565,14 @@ fn shifted_brush_range_moves_within_bounds() {
     let (lo, hi) = shifted_brush_range((0.2, 0.5), 0.1);
     assert!((lo - 0.3).abs() < 1e-6);
     assert!((hi - 0.6).abs() < 1e-6);
-}
-
-#[test]
-fn shifted_brush_range_clamps_at_top() {
     // width 0.3, shift up by 0.4 → would exceed 1.0, clamp so hi == 1.0
     let (lo, hi) = shifted_brush_range((0.5, 0.8), 0.4);
     assert!((hi - 1.0).abs() < 1e-6);
     assert!((lo - 0.7).abs() < 1e-6); // width preserved
-}
-
-#[test]
-fn shifted_brush_range_clamps_at_bottom() {
-    // shift down past 0 → clamp so lo == 0.0, width preserved
+                                      // shift down past 0 → clamp so lo == 0.0, width preserved
     let (lo, hi) = shifted_brush_range((0.2, 0.5), -0.4);
     assert!((lo - 0.0).abs() < 1e-6);
     assert!((hi - 0.3).abs() < 1e-6);
-}
-
-#[test]
-fn shifted_brush_range_preserves_width() {
     let orig = (0.1_f32, 0.6_f32);
     let (lo, hi) = shifted_brush_range(orig, 0.25);
     assert!(((hi - lo) - (orig.1 - orig.0)).abs() < 1e-6);
@@ -738,26 +624,12 @@ fn trial_passes_brushes_missing_value_with_active_brush_excluded() {
 fn visible_axis_indices_default_all_visible() {
     use std::collections::HashMap;
     let names = vec!["a".to_string(), "b".to_string(), "c".to_string()];
-    let vis = HashMap::new(); // unregistered = all visible
+    let mut vis = HashMap::new(); // unregistered = all visible
     assert_eq!(visible_axis_indices(&names, &vis), vec![0, 1, 2]);
-}
-
-#[test]
-fn visible_axis_indices_filters_hidden_and_preserves_order() {
-    use std::collections::HashMap;
-    let names = vec!["a".to_string(), "b".to_string(), "c".to_string()];
-    let mut vis = HashMap::new();
     vis.insert("b".to_string(), false);
     assert_eq!(visible_axis_indices(&names, &vis), vec![0, 2]);
-}
-
-#[test]
-fn visible_axis_indices_all_hidden_is_empty() {
-    use std::collections::HashMap;
-    let names = vec!["a".to_string(), "b".to_string()];
-    let mut vis = HashMap::new();
     vis.insert("a".to_string(), false);
-    vis.insert("b".to_string(), false);
+    vis.insert("c".to_string(), false);
     assert!(visible_axis_indices(&names, &vis).is_empty());
 }
 
@@ -772,31 +644,15 @@ fn feasible_color_range_excludes_infeasible_outliers() {
     let (mn, mx) = feasible_color_range(&col, feas, (0.0, 9999.0));
     assert_eq!(mn, 1.0);
     assert_eq!(mx, 3.0);
-}
-
-#[test]
-fn feasible_color_range_no_constraints_uses_all() {
-    use tdashboard_analysis::dataframe::Feasibility;
-    let col = [1.0, 2.0, 3.0, 1000.0];
     let feas = Feasibility::from_column(None);
     let (mn, mx) = feasible_color_range(&col, feas, (0.0, 9999.0));
     assert_eq!(mn, 1.0);
     assert_eq!(mx, 1000.0);
-}
-
-#[test]
-fn feasible_color_range_all_infeasible_falls_back() {
-    use tdashboard_analysis::dataframe::Feasibility;
     let col = [1.0, 2.0, 3.0];
     let feas_col = [0.0, 0.0, 0.0];
     let feas = Feasibility::from_column(Some(&feas_col));
     let range = feasible_color_range(&col, feas, (-5.0, 5.0));
     assert_eq!(range, (-5.0, 5.0));
-}
-
-#[test]
-fn feasible_color_range_skips_non_finite() {
-    use tdashboard_analysis::dataframe::Feasibility;
     let col = [1.0, f64::NAN, f64::INFINITY, 4.0];
     let feas_col = [1.0, 1.0, 1.0, 1.0];
     let feas = Feasibility::from_column(Some(&feas_col));

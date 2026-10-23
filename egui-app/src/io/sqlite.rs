@@ -1,11 +1,4 @@
 use std::path::Path;
-#[cfg(test)]
-use std::path::PathBuf;
-#[cfg(test)]
-use std::sync::mpsc::SyncSender;
-
-#[cfg(test)]
-use crate::state::messages::AppMessage;
 
 /// Determines whether a path is an Optuna SQLite storage (extension db/sqlite/sqlite3,
 /// case-insensitive).
@@ -15,54 +8,6 @@ pub fn is_sqlite_path(path: &Path) -> bool {
             || e.eq_ignore_ascii_case("sqlite")
             || e.eq_ignore_ascii_case("sqlite3")
     })
-}
-
-/// Phase 1: opens the SQLite storage and returns the Study list (same role as
-/// journal's `scan_journal_task`).
-///
-/// Unlike journal, no raw byte buffer cache is needed (Phase 2 re-queries directly
-/// from `path`), so the return value is just `AppMessage`.
-#[cfg(test)]
-pub fn scan_sqlite_task(path: PathBuf) -> AppMessage {
-    match tdashboard_io::sqlite::scan_study_list(&path) {
-        Ok(studies) => {
-            let app_studies: Vec<crate::state::app_state::StudyMeta> = studies
-                .into_iter()
-                .map(crate::io::journal::convert_study_meta)
-                .collect();
-            AppMessage::JournalParsed {
-                studies: app_studies,
-                path,
-            }
-        }
-        Err(e) => AppMessage::Error(e),
-    }
-}
-
-/// Phase 2: reads all COMPLETE trials for the specified study and sends them as a
-/// single chunk via `StudyChunkLoaded` (same role as journal's
-/// `stream_single_study_task`).
-///
-/// Since SQLite can fetch all rows for the target study at once via a row-oriented
-/// query, batch-split streaming like journal's is unnecessary. By packing all rows
-/// into one message with `is_first = is_final = true`, `MessageHandler::handle_study_chunk`
-/// is shared with journal, making UI state such as the param filter sliders and
-/// Pareto rank computation exactly the same as the journal path.
-#[cfg(test)]
-pub fn load_single_study_task(path: &Path, study_id: u32, tx: &SyncSender<AppMessage>) -> bool {
-    match crate::io::study::fixture_chunk(study_id, |key| {
-        tdashboard_io::sqlite::parse_single_study_rows(path, study_id)
-            .map(|rows| rows.into_batch(key))
-    }) {
-        Ok(message) => {
-            let _ = tx.send(message);
-            true
-        }
-        Err(e) => {
-            let _ = tx.send(AppMessage::Error(e));
-            false
-        }
-    }
 }
 
 #[cfg(test)]
@@ -78,26 +23,5 @@ mod tests {
         assert!(!is_sqlite_path(Path::new("study.log")));
         assert!(!is_sqlite_path(Path::new("study.csv")));
         assert!(!is_sqlite_path(Path::new("noext")));
-    }
-
-    #[test]
-    fn scan_sqlite_task_nonexistent_path_returns_error() {
-        let path = PathBuf::from("/nonexistent/study.db");
-        let msg = scan_sqlite_task(path);
-        match msg {
-            AppMessage::Error(_) => {}
-            _ => panic!("Expected Error message"),
-        }
-    }
-
-    #[test]
-    fn load_single_study_task_nonexistent_path_sends_error() {
-        let (tx, rx) = std::sync::mpsc::sync_channel(4);
-        let ok = load_single_study_task(Path::new("/nonexistent/study.db"), 1, &tx);
-        assert!(!ok);
-        match rx.try_recv() {
-            Ok(AppMessage::Error(_)) => {}
-            _ => panic!("Expected Error message"),
-        }
     }
 }

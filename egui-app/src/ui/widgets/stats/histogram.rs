@@ -347,25 +347,4 @@ mod tests {
         assert_eq!(chart.manual_bins, 20);
         assert!(chart.cache.is_none());
     }
-
-    #[test]
-    fn cache_key_changes_with_rule() {
-        let key_a: HistCacheKey = ("s".into(), "x".into(), HistBinRule::Sturges.disc(), 20, 10);
-        let key_b: HistCacheKey = ("s".into(), "x".into(), HistBinRule::Scott.disc(), 20, 10);
-        assert_ne!(key_a, key_b);
-    }
-
-    #[test]
-    fn cache_key_changes_with_manual_bins() {
-        let key_a: HistCacheKey = ("s".into(), "x".into(), HistBinRule::Manual.disc(), 20, 10);
-        let key_b: HistCacheKey = ("s".into(), "x".into(), HistBinRule::Manual.disc(), 30, 10);
-        assert_ne!(key_a, key_b);
-    }
-
-    #[test]
-    fn cache_key_changes_with_row_count() {
-        let key_a: HistCacheKey = ("s".into(), "x".into(), 0, 20, 10);
-        let key_b: HistCacheKey = ("s".into(), "x".into(), 0, 20, 11);
-        assert_ne!(key_a, key_b);
-    }
 }

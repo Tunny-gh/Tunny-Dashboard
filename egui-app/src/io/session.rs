@@ -207,13 +207,6 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_preserves_version_and_defaults() {
-        let restored = from_json(&make_json()).unwrap();
-        assert_eq!(restored.version, SESSION_VERSION);
-        assert!(restored.widgets.is_empty());
-    }
-
-    #[test]
     fn newer_version_is_rejected() {
         let mut value: serde_json::Value = serde_json::from_str(&make_json()).unwrap();
         value["version"] = serde_json::json!(SESSION_VERSION + 1);
@@ -228,17 +221,10 @@ mod tests {
         // Anticipates future field additions: view must still load even as an empty object.
         let mut value: serde_json::Value = serde_json::from_str(&make_json()).unwrap();
         value["view"] = serde_json::json!({});
+        value["future_field"] = serde_json::json!({"nested": true});
         let restored = from_json(&value.to_string()).unwrap();
         assert_eq!(restored.view.selected_colormap, ColormapName::Viridis);
         assert!(restored.view.pinned_trials.is_empty());
-    }
-
-    #[test]
-    fn unknown_fields_are_ignored() {
-        let mut value: serde_json::Value = serde_json::from_str(&make_json()).unwrap();
-        value["future_field"] = serde_json::json!({"nested": true});
-        let restored = from_json(&value.to_string()).unwrap();
-        assert_eq!(restored.version, SESSION_VERSION);
     }
 
     #[test]
@@ -293,9 +279,8 @@ mod tests {
 
     #[test]
     fn write_and_read_roundtrip_via_file() {
-        let dir = std::env::temp_dir().join("tunny_session_test");
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("roundtrip-session.json");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("roundtrip-session.json");
         write_session_to_path(
             &LayoutState::default(),
             &HashMap::new(),
@@ -305,6 +290,6 @@ mod tests {
         .unwrap();
         let restored = read_session_from_path(&path).unwrap();
         assert_eq!(restored.version, SESSION_VERSION);
-        let _ = std::fs::remove_file(&path);
+        assert!(restored.widgets.is_empty());
     }
 }

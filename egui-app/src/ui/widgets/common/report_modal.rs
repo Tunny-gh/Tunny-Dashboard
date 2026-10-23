@@ -283,16 +283,8 @@ mod tests {
             state.selected_formats().unwrap(),
             vec![ReportFormat::Markdown]
         );
-    }
-
-    #[test]
-    fn selected_formats_preserves_html_md_json_order() {
-        let state = ReportDialogState {
-            html: true,
-            markdown: true,
-            json: true,
-            ..Default::default()
-        };
+        state.html = true;
+        state.json = true;
         assert_eq!(
             state.selected_formats().unwrap(),
             vec![
@@ -314,17 +306,8 @@ mod tests {
             default_file_name_for("safe-name_2", &html),
             "report_safe-name_2.html"
         );
-    }
-
-    #[test]
-    fn default_file_name_falls_back_when_fully_sanitized() {
-        let html = [ReportFormat::Html];
         assert_eq!(default_file_name_for("///", &html), "report_study.html");
         assert_eq!(default_file_name_for("", &html), "report_study.html");
-    }
-
-    #[test]
-    fn default_file_name_for_derives_extension_from_first_format() {
         // .html is not emitted when only JSON / Markdown is selected.
         assert_eq!(
             default_file_name_for("s", &[ReportFormat::Json]),
@@ -358,10 +341,6 @@ mod tests {
                 (ReportFormat::Json, PathBuf::from("/tmp/out/report_x.json")),
             ]
         );
-    }
-
-    #[test]
-    fn export_paths_replaces_extension_even_without_dot_in_base() {
         let base = PathBuf::from("report_x");
         let paths = export_paths(&base, &[ReportFormat::Json]);
         assert_eq!(

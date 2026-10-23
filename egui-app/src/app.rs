@@ -507,12 +507,7 @@ impl TunnyApp {
             // Limit streaming-load batches to one per frame so each batch's DataFrame
             // rebuild cost isn't concentrated into a single frame (avoids render stalls).
             // Remaining batches stay in the channel and are processed on the next frame.
-            let is_study_chunk = match &msg {
-                AppMessage::JournalBatch { .. } => true,
-                #[cfg(test)]
-                AppMessage::StudyChunkLoaded { .. } => true,
-                _ => false,
-            };
+            let is_study_chunk = matches!(&msg, AppMessage::JournalBatch { .. });
             // A study finished loading (streamed to its last batch, or activated
             // directly from the shared store). This is where an in-flight reload
             // gets its captured view state re-applied.
@@ -534,13 +529,6 @@ impl TunnyApp {
                 _ => false,
             };
             let is_study_activated = journal_selection_completed;
-            #[cfg(test)]
-            let is_study_activated = is_study_activated
-                || matches!(
-                    &msg,
-                    AppMessage::StudySelected { .. }
-                        | AppMessage::StudyChunkLoaded { is_final: true, .. }
-                );
             // Async compute completion/failure messages only update the global
             // widget_states. Since each canvas item holds independent WidgetStates
             // (commit 73883d8), the completion state (computing/result/cache) must be

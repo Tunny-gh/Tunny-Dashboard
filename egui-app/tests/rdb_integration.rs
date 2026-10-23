@@ -24,21 +24,6 @@ fn test_url() -> RdbUrl {
     RdbUrl::parse(TEST_DB_URL).expect("TEST_DB_URL must parse as a valid RDB URL")
 }
 
-/// Verifies that `scan_rdb_task` connects to a real DB and returns the 3 known studies
-/// (the same function the study worker's `ScanRdb` handler calls).
-#[test]
-#[ignore]
-fn scan_rdb_task_lists_known_studies() {
-    let studies = tdashboard_io::rdb::scan_study_list_url(&test_url()).unwrap();
-
-    let mut names: Vec<&str> = studies.iter().map(|s| s.name.as_str()).collect();
-    names.sort_unstable();
-    assert_eq!(names, vec!["messy_states", "mo_constrained", "pruned_lc"]);
-
-    // JournalParsed.path holds the normalized URL string directly (as designed for the
-    // `journal_path` plumbing).
-}
-
 /// Verifies that `load_single_study_task` (the function the study worker's
 /// `SelectStudy` RDB branch calls) sends every COMPLETE trial of the given study as a
 /// single chunk.
@@ -49,6 +34,9 @@ fn load_single_study_task_loads_mo_constrained() {
     // Pin down study_id via scan first, then select the target study (avoids depending
     // on a hardcoded ID).
     let studies = tdashboard_io::rdb::scan_study_list_url(&url).unwrap();
+    let mut names: Vec<&str> = studies.iter().map(|s| s.name.as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(names, vec!["messy_states", "mo_constrained", "pruned_lc"]);
     let target = studies
         .iter()
         .find(|s| s.name == "mo_constrained")

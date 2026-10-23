@@ -149,9 +149,11 @@ mod tests {
 
     #[test]
     fn constant_values() {
-        let (mean, std) = column_mean_std(&[5.0, 5.0, 5.0]);
-        assert!((mean - 5.0).abs() < 1e-10);
-        assert!((std - 1.0).abs() < 1e-10);
+        for (values, expected_mean) in [(&[5.0, 5.0, 5.0][..], 5.0), (&[3.0][..], 3.0)] {
+            let (mean, std) = column_mean_std(values);
+            assert!((mean - expected_mean).abs() < 1e-10);
+            assert!((std - 1.0).abs() < 1e-10);
+        }
     }
 
     #[test]
@@ -161,22 +163,7 @@ mod tests {
         assert!((std - 1.0).abs() < 1e-10);
     }
 
-    #[test]
-    fn single_element() {
-        let (mean, std) = column_mean_std(&[3.0]);
-        assert!((mean - 3.0).abs() < 1e-10);
-        assert!((std - 1.0).abs() < 1e-10);
-    }
-
     // --- pearson_correlation (TASK-2261) ---
-
-    #[test]
-    fn tc_2261_01_pearson_perfect_positive() {
-        let x = vec![1.0, 2.0, 3.0];
-        let y = vec![1.0, 2.0, 3.0];
-        let r = pearson_correlation(&x, &y);
-        assert!((r - 1.0).abs() < 1e-10, "expected 1.0, got {}", r);
-    }
 
     #[test]
     fn tc_2261_02_pearson_proportional_positive() {
@@ -203,14 +190,6 @@ mod tests {
     }
 
     #[test]
-    fn tc_2261_05_pearson_both_zero_variance_returns_nan() {
-        let x = vec![2.0, 2.0, 2.0];
-        let y = vec![3.0, 3.0, 3.0];
-        let r = pearson_correlation(&x, &y);
-        assert!(r.is_nan(), "expected NaN for both zero-variance, got {}", r);
-    }
-
-    #[test]
     fn tc_2261_06_pearson_empty_returns_nan() {
         let r = pearson_correlation(&[], &[]);
         assert!(r.is_nan(), "expected NaN for empty slices, got {}", r);
@@ -227,9 +206,11 @@ mod tests {
 
     #[test]
     fn value_range_empty_returns_inf_neg_inf() {
-        let (min, max) = value_range(std::iter::empty());
-        assert_eq!(min, f64::INFINITY);
-        assert_eq!(max, f64::NEG_INFINITY);
+        for values in [&[][..], &[f64::NAN, f64::NAN][..]] {
+            let (min, max) = value_range(values.iter().copied());
+            assert_eq!(min, f64::INFINITY);
+            assert_eq!(max, f64::NEG_INFINITY);
+        }
     }
 
     #[test]
@@ -237,12 +218,5 @@ mod tests {
         let (min, max) = value_range([1.0, f64::NAN, 5.0].into_iter());
         assert_eq!(min, 1.0);
         assert_eq!(max, 5.0);
-    }
-
-    #[test]
-    fn value_range_all_nan_returns_inf_neg_inf() {
-        let (min, max) = value_range([f64::NAN, f64::NAN].into_iter());
-        assert_eq!(min, f64::INFINITY);
-        assert_eq!(max, f64::NEG_INFINITY);
     }
 }

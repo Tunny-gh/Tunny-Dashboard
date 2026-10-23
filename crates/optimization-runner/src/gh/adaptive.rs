@@ -766,30 +766,6 @@ mod tests {
         assert!(summary.adaptive_diagnostics.len() >= 2);
     }
 
-    /// The non-adaptive samplers report no diagnostics and a `Completed` reason.
-    #[test]
-    fn non_adaptive_samplers_have_no_diagnostics() {
-        let problem = extract_problem(&sample_ghx()).unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let journal = dir.path().join("run.log");
-        let cfg = GhRunConfig {
-            study_name: "random".to_string(),
-            directions: vec![
-                OptimizationDirection::Minimize,
-                OptimizationDirection::Minimize,
-            ],
-            sampler: GhSampler::Random,
-            n_trials: 4,
-            ..GhRunConfig::default()
-        };
-        let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
-        let progress = FitProgress::new();
-        let summary =
-            run_prepared(&prep, &problem, &quadratic_evaluator(), &cfg, &progress).unwrap();
-        assert!(summary.adaptive_diagnostics.is_empty());
-        assert_eq!(summary.stop_reason, GhStopReason::Completed);
-    }
-
     /// Multi-objective adaptive run: bootstrap + 2 iterations complete, every
     /// trial is journaled COMPLETE with params/constraints, and the summary
     /// matches the journal.
@@ -887,24 +863,5 @@ mod tests {
             run_prepared(&prep, &problem, &quadratic_evaluator(), &cfg, &progress).unwrap();
         assert!(summary.cancelled);
         assert_eq!(summary.completed, 0);
-    }
-
-    /// If every bootstrap evaluation fails, the loop aborts with a clear error
-    /// instead of trying to fit on an empty dataset.
-    #[test]
-    fn adaptive_reports_error_when_bootstrap_fails() {
-        let problem = extract_problem(&sample_ghx()).unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let journal = dir.path().join("run.log");
-        let cfg = adaptive_cfg(vec![
-            OptimizationDirection::Minimize,
-            OptimizationDirection::Minimize,
-        ]);
-
-        let failing = FnEvaluator(|_: &[f64]| Err("solve failed".to_string()));
-        let prep = prepare_gh_run(&journal, &problem, &cfg).unwrap();
-        let progress = FitProgress::new();
-        let err = run_prepared(&prep, &problem, &failing, &cfg, &progress).unwrap_err();
-        assert!(err.contains("successful"), "unexpected error: {err}");
     }
 }

@@ -158,28 +158,6 @@ mod tests {
     }
 
     #[test]
-    fn permissive_in_and_out_of_range() {
-        let rows = vec![
-            make_row(0, &[("x", 1.0)], vec![]),
-            make_row(1, &[("x", 5.0)], vec![]),
-            make_row(2, &[("x", 9.0)], vec![]),
-        ];
-        let df = setup_df(rows, &["x"], &[]);
-        let mut ranges = HashMap::new();
-        ranges.insert(
-            "x".to_string(),
-            Range {
-                min: Some(3.0),
-                max: Some(7.0),
-            },
-        );
-
-        let result = filter_rows_permissive(&df, &ranges);
-
-        assert_eq!(result, vec![1]);
-    }
-
-    #[test]
     fn permissive_mixed_known_and_missing_columns() {
         // Existing columns are filtered normally, and non-existent columns are ignored (AND condition).
         let rows = vec![
@@ -196,6 +174,7 @@ mod tests {
                 max: Some(7.0),
             },
         );
+        assert_eq!(filter_rows_permissive(&df, &ranges), vec![1]);
         ranges.insert(
             "nonexistent".to_string(),
             Range {

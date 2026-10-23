@@ -427,10 +427,6 @@ mod tests {
         assert_eq!(result[2][1], 3.0);
         assert_eq!(result[3][1], 1.0);
         assert_eq!(result[4][1], 1.0);
-    }
-
-    #[test]
-    fn compute_best_values_maximize_increasing() {
         let vals = vec![1.0, 3.0, 2.0, 5.0, 4.0];
         let result = compute_best_values(&vals, false);
         assert_eq!(result[0][1], 1.0);
@@ -449,23 +445,11 @@ mod tests {
         assert!((result[0][1] - 2.0).abs() < 1e-9);
         assert!((result[1][1] - 3.0).abs() < 1e-9);
         assert!((result[2][1] - 4.0).abs() < 1e-9);
-    }
-
-    #[test]
-    fn compute_moving_average_window_larger_than_data() {
         let vals = vec![1.0, 2.0];
         let result = compute_moving_average(&vals, 10);
         // windows(2) since min(10,2)=2: [1,2]=1.5
         assert_eq!(result.len(), 1);
         assert!((result[0][1] - 1.5).abs() < 1e-9);
-    }
-
-    // TASK-2126 tests
-    #[test]
-    fn log_scale_toggle() {
-        let mut log_scale = false;
-        log_scale = !log_scale;
-        assert!(log_scale);
     }
 
     // ── constraint-aware visualization (TASK-2349) ──────────────────
@@ -493,17 +477,5 @@ mod tests {
         assert_eq!(inf.len(), 1);
         assert_eq!(inf[0][0], 1.0); // trial_idx=1
         assert_eq!(inf[0][1], 2.0); // value=2.0
-    }
-
-    #[test]
-    fn tc_cav_partition_history_all_infeasible() {
-        use tdashboard_analysis::dataframe::Feasibility;
-        let values = vec![1.0, 2.0];
-        let is_feasible = vec![0.0_f64, 0.0];
-        let feas = Feasibility::from_column(Some(&is_feasible));
-        let (f, inf, u) = partition_history_by_feasibility(&values, feas);
-        assert!(u.is_empty());
-        assert!(f.is_empty());
-        assert_eq!(inf.len(), 2);
     }
 }

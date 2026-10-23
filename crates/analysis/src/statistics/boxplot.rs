@@ -169,6 +169,8 @@ mod tests {
     fn quantile_interpolates() {
         let sorted = vec![1.0, 2.0, 3.0, 4.0];
         assert!((quantile(&sorted, 0.5) - 2.5).abs() < 1e-10);
+        assert_eq!(quantile(&sorted, 0.0), 1.0);
+        assert_eq!(quantile(&sorted, 1.0), 4.0);
     }
 
     #[test]

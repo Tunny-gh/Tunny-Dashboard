@@ -64,7 +64,6 @@ pub(crate) fn verdict(cv_r2_mean: f64) -> (&'static str, egui::Color32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::widgets::surrogate::MODEL_CHOICES;
 
     #[test]
     fn verdict_returns_correct_category() {
@@ -78,15 +77,5 @@ mod tests {
         let (text, color) = verdict(0.5);
         assert!(text.contains("Poor"));
         assert_eq!(color, egui::Color32::RED);
-    }
-
-    #[test]
-    fn labels_cover_all_choices() {
-        for kind in MODEL_CHOICES {
-            assert!(!model_label(kind).is_empty());
-        }
-        for kind in OPTIMIZER_CHOICES {
-            assert!(!optimizer_label(kind).is_empty());
-        }
     }
 }

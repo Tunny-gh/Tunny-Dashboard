@@ -105,14 +105,6 @@ mod esc_tests {
     use super::{code_span, esc};
 
     #[test]
-    fn escapes_backslash_before_pipe() {
-        // Because processing is single-pass, escaping `\` and `|` in
-        // `a\|b` does not collide, and the table structure is not broken.
-        assert_eq!(esc("a\\|b"), "a\\\\\\|b");
-        assert_eq!(esc("trail\\"), "trail\\\\");
-    }
-
-    #[test]
     fn escapes_html_amp_and_lt() {
         // Guards against XSS / structure breakage when converted to HTML downstream.
         assert_eq!(esc("a&b"), "a&amp;b");
@@ -138,12 +130,8 @@ mod esc_tests {
     }
 
     #[test]
-    fn code_span_wraps_plain_names() {
-        assert_eq!(code_span("spearman_abs"), "`spearman_abs`");
-    }
-
-    #[test]
     fn code_span_handles_embedded_backticks() {
+        assert_eq!(code_span("spearman_abs"), "`spearman_abs`");
         // Wraps with a fence one longer than the content's longest backtick run.
         assert_eq!(code_span("a`b"), "``a`b``");
         assert_eq!(code_span("a``b"), "```a``b```");

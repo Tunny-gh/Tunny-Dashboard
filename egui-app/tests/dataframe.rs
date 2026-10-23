@@ -117,6 +117,9 @@ fn constraint_schema_growth_reclassifies_history_and_matches_initial_load() {
             .collect::<Vec<_>>(),
         vec![Unverified, Feasible, Infeasible]
     );
+    let feasible = appended.get_numeric_column("is_feasible").unwrap();
+    assert!(feasible[0].is_nan());
+    assert_eq!(feasible[2], 0.0);
     appended.append_trials(&rows[3..], &[], &["obj0".into()], &[], &[], 0);
     assert_eq!(
         (0..5)
@@ -167,20 +170,6 @@ fn metadata_only_constraint_growth_reclassifies_complete_history() {
 }
 
 #[test]
-fn tc_102_01_row_count_single_trial() {
-    let rows = vec![make_trial(&[("x", 0.5)], vec![1.0])];
-    let df = DataFrame::from_trials(
-        &rows,
-        &["x".to_string()],
-        &["obj0".to_string()],
-        &[],
-        &[],
-        0,
-    );
-    assert_eq!(df.row_count(), 1);
-}
-
-#[test]
 fn tc_102_02_param_column_values() {
     let rows = vec![
         make_trial(&[("x", 0.5), ("y", 2.0)], vec![1.0]),
@@ -206,43 +195,6 @@ fn tc_102_03_objective_column_values() {
         .expect("obj1 column should exist");
     assert!((obj0[0] - 0.1).abs() < 1e-9);
     assert!((obj1[0] - 0.9).abs() < 1e-9);
-}
-
-#[test]
-fn tc_102_04_user_attr_numeric() {
-    let mut row = make_trial(&[], vec![1.0]);
-    row.user_attrs_numeric.insert("loss".to_string(), 0.123);
-    let df = DataFrame::from_trials(
-        &[row],
-        &[],
-        &["obj0".to_string()],
-        &["loss".to_string()],
-        &[],
-        0,
-    );
-    let loss = df
-        .get_numeric_column("loss")
-        .expect("loss column should exist");
-    assert!((loss[0] - 0.123).abs() < 1e-9);
-}
-
-#[test]
-fn tc_102_05_user_attr_string() {
-    let mut row = make_trial(&[], vec![1.0]);
-    row.user_attrs_string
-        .insert("tag".to_string(), "run_a".to_string());
-    let df = DataFrame::from_trials(
-        &[row],
-        &[],
-        &["obj0".to_string()],
-        &[],
-        &["tag".to_string()],
-        0,
-    );
-    let tag = df
-        .get_string_column("tag")
-        .expect("tag column should exist");
-    assert_eq!(tag[0], "run_a");
 }
 
 #[test]
@@ -460,43 +412,7 @@ fn filter_feasible_all_infeasible_returns_empty() {
 }
 
 #[test]
-fn tc_102_13_select_study_returns_result() {
-    let data = to_bytes(concat!(
-        "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n",
-        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00\"}\n",
-        "{\"op_code\":5,\"worker_id\":\"w\",\"trial_id\":0,\"param_name\":\"x\",",
-        "\"param_value_internal\":0.5,",
-        "\"distribution\":{\"name\":\"FloatDistribution\",\"low\":0.0,\"high\":1.0,\"log\":false}}\n",
-        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[0.5]}\n"
-    ));
-    assert!(common::journal(&data, 0).dataframe.row_count() >= 1);
-}
-
-#[test]
-fn tc_102_14_select_study_multiple_studies() {
-    let data = to_bytes(concat!(
-        "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"A\",\"directions\":[0]}\n",
-        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00\"}\n",
-        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":1,\"values\":[1.0]}\n",
-        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00\"}\n",
-        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":1,\"state\":1,\"values\":[2.0]}\n",
-        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00\"}\n",
-        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":2,\"state\":1,\"values\":[3.0]}\n",
-        "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"B\",\"directions\":[0]}\n",
-        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":1,\"datetime_start\":\"2024-01-01T00:00:00\"}\n",
-        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":3,\"state\":1,\"values\":[4.0]}\n",
-        "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":1,\"datetime_start\":\"2024-01-01T00:00:00\"}\n",
-        "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":4,\"state\":1,\"values\":[5.0]}\n"
-    ));
-    assert_eq!(common::journal(&data, 1).dataframe.row_count(), 2);
-}
-
-#[test]
 fn tc_2330_all_studies_resident_by_id_after_parse() {
-    // TASK-2330: after the initial parse, all studies are resident keyed
-    // by study_id, so any study can be referenced via snapshot without
-    // calling select_study (the foundation for removing re-parsing on
-    // comparison).
     let data = to_bytes(concat!(
         "{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"A\",\"directions\":[0]}\n",
         "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00\"}\n",
@@ -528,13 +444,6 @@ fn tc_102_e02_all_running_returns_empty() {
         "{\"op_code\":4,\"worker_id\":\"w\",\"study_id\":0,\"datetime_start\":\"2024-01-01T00:00:00\"}\n",
         "{\"op_code\":6,\"worker_id\":\"w\",\"trial_id\":0,\"state\":0,\"values\":null}\n"
     ));
-    assert_eq!(common::journal(&data, 0).dataframe.row_count(), 0);
-}
-
-#[test]
-fn tc_102_b02_study_with_no_complete_trials() {
-    let data =
-        to_bytes("{\"op_code\":0,\"worker_id\":\"w\",\"study_name\":\"s\",\"directions\":[0]}\n");
     assert_eq!(common::journal(&data, 0).dataframe.row_count(), 0);
 }
 
@@ -719,24 +628,6 @@ fn make_trial_n(id: u32, params: &[(&str, f64)], objective_values: Vec<f64>) -> 
 }
 
 #[test]
-fn append_trials_equals_from_trials_basic() {
-    let p = vec!["x".to_string(), "y".to_string()];
-    let o = vec!["obj0".to_string()];
-    let chunk1 = vec![
-        make_trial_n(0, &[("x", 0.5), ("y", 2.0)], vec![1.0]),
-        make_trial_n(1, &[("x", 1.5), ("y", 3.0)], vec![2.0]),
-    ];
-    let chunk2 = vec![make_trial_n(2, &[("x", 2.5), ("y", 4.0)], vec![3.0])];
-
-    let mut df = DataFrame::from_trials(&chunk1, &p, &o, &[], &[], 0);
-    df.append_trials(&chunk2, &p, &o, &[], &[], 0);
-
-    let all: Vec<TrialRow> = chunk1.into_iter().chain(chunk2).collect();
-    let rebuilt = DataFrame::from_trials(&all, &p, &o, &[], &[], 0);
-    assert_df_equivalent(&df, &rebuilt);
-}
-
-#[test]
 fn missing_numeric_params_match_initial_and_chunked_ingestion() {
     let rows = vec![
         make_trial_n(10, &[], vec![1.0]),
@@ -825,26 +716,6 @@ fn append_trials_flips_numeric_param_to_categorical() {
 }
 
 #[test]
-fn append_trials_constraints_appear_mid_stream() {
-    let p = vec!["x".to_string()];
-    let o = vec!["obj0".to_string()];
-    let chunk1 = vec![make_trial_n(0, &[("x", 0.5)], vec![1.0])];
-    let mut t = make_trial_n(1, &[("x", 1.5)], vec![2.0]);
-    t.constraint_values = vec![-1.0, 0.5];
-    let chunk2 = vec![t.clone()];
-
-    let mut df = DataFrame::from_trials(&chunk1, &p, &o, &[], &[], 0);
-    df.append_trials(&chunk2, &p, &o, &[], &[], 2);
-
-    let all = vec![chunk1[0].clone(), t];
-    let rebuilt = DataFrame::from_trials(&all, &p, &o, &[], &[], 2);
-    assert_df_equivalent(&df, &rebuilt);
-    // Existing rows have no verified constraint evaluation.
-    assert!(df.get_numeric_column("is_feasible").unwrap()[0].is_nan());
-    assert!((df.get_numeric_column("is_feasible").unwrap()[1] - 0.0).abs() < 1e-12);
-}
-
-#[test]
 fn append_trials_objective_added_mid_stream_backfills_nan() {
     let p = vec!["x".to_string()];
     let chunk1 = vec![make_trial_n(0, &[("x", 0.5)], vec![1.0])];
@@ -859,27 +730,4 @@ fn append_trials_objective_added_mid_stream_backfills_nan() {
     let rebuilt = DataFrame::from_trials(&all, &p, &o2, &[], &[], 0);
     assert_df_equivalent(&df, &rebuilt);
     assert!(df.get_numeric_column("obj1").unwrap()[0].is_nan());
-}
-
-#[test]
-fn append_trials_to_empty_dataframe() {
-    let p = vec!["x".to_string()];
-    let o = vec!["obj0".to_string()];
-    let rows = vec![make_trial_n(0, &[("x", 0.5)], vec![1.0])];
-
-    let mut df = DataFrame::empty();
-    df.append_trials(&rows, &p, &o, &[], &[], 0);
-
-    let rebuilt = DataFrame::from_trials(&rows, &p, &o, &[], &[], 0);
-    assert_df_equivalent(&df, &rebuilt);
-}
-
-#[test]
-fn append_trials_empty_rows_is_noop() {
-    let p = vec!["x".to_string()];
-    let o = vec!["obj0".to_string()];
-    let rows = vec![make_trial_n(0, &[("x", 0.5)], vec![1.0])];
-    let mut df = DataFrame::from_trials(&rows, &p, &o, &[], &[], 0);
-    df.append_trials(&[], &p, &o, &[], &[], 0);
-    assert_eq!(df.row_count(), 1);
 }

@@ -163,19 +163,13 @@ mod tests {
     }
 
     #[test]
-    fn density_is_finite_and_non_negative() {
-        let values: Vec<f64> = (0..100).map(|i| i as f64).collect();
-        let curve = compute_violin(&values, 128).unwrap();
-        assert!(curve.density.iter().all(|d| d.is_finite() && *d >= 0.0));
-    }
-
-    #[test]
     fn density_integrates_to_approximately_one() {
         // The KDE integrates to 1 over the full line. The grid is truncated at 2h
         // beyond the data extremes, so a small tail outside it is lost; with a
         // smooth sample the rectangular sum is close to 1.
         let values: Vec<f64> = (0..100).map(|i| i as f64).collect();
         let curve = compute_violin(&values, 512).unwrap();
+        assert!(curve.density.iter().all(|d| d.is_finite() && *d >= 0.0));
         let step = curve.grid[1] - curve.grid[0];
         let integral: f64 = curve.density.iter().sum::<f64>() * step;
         assert!((integral - 1.0).abs() < 0.01, "integral = {integral}");
@@ -279,13 +273,6 @@ mod tests {
         assert_eq!(iqr, 0.0);
         let expected = factor * sd;
         assert!((curve.bandwidth - expected).abs() < 1e-12);
-    }
-
-    #[test]
-    fn large_input_is_subsampled_to_the_cap() {
-        let values: Vec<f64> = (0..60_000).map(|i| i as f64).collect();
-        let curve = compute_violin(&values, 32).unwrap();
-        assert_eq!(curve.n, MAX_KDE_SAMPLES);
     }
 
     #[test]

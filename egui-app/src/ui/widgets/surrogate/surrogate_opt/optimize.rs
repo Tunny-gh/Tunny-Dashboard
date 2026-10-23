@@ -540,52 +540,22 @@ mod tests {
         // observed 0.5, predicted 0.1 -> improvement = 0.5 - 0.1 = 0.4 (positive)
         let d = improvement_delta(true, 0.5, 0.1);
         assert!((d - 0.4).abs() < 1e-12, "delta = {d}");
-    }
-
-    #[test]
-    fn improvement_delta_minimize_no_improvement() {
         // Negative or zero when the prediction is worse than the observed value.
         let d = improvement_delta(true, 0.1, 0.5);
         assert!(d < 0.0, "delta = {d}");
-    }
-
-    #[test]
-    fn improvement_delta_maximize_positive() {
         // observed 0.8, predicted 1.2 -> improvement = 1.2 - 0.8 = 0.4 (positive)
         let d = improvement_delta(false, 0.8, 1.2);
         assert!((d - 0.4).abs() < 1e-12, "delta = {d}");
-    }
-
-    #[test]
-    fn improvement_delta_maximize_no_improvement() {
         // Negative or zero when the prediction is worse than the observed value.
         let d = improvement_delta(false, 1.2, 0.8);
         assert!(d < 0.0, "delta = {d}");
-    }
-
-    #[test]
-    fn improvement_delta_exact_zero() {
         // No improvement when observed and predicted are equal.
         assert_eq!(improvement_delta(true, 0.5, 0.5), 0.0);
         assert_eq!(improvement_delta(false, 0.5, 0.5), 0.0);
     }
 
     #[test]
-    fn result_arrival_switches_spinner_off() {
-        let mut state = SurrogateOptState {
-            optimizing: true,
-            ..Default::default()
-        };
-        state.result = Some(ui_result());
-        state.optimizing = false;
-        assert!(!state.optimizing);
-        assert!(state.result.is_some());
-    }
-
-    #[test]
     fn adopt_compute_state_keeps_selections() {
-        use std::sync::Arc;
-
         let global = SurrogateOptState {
             result: Some(ui_result()),
             fitting: false,
@@ -617,6 +587,5 @@ mod tests {
         assert!(item.trained.is_none());
         // multi_trained is also propagated (None here).
         assert!(item.multi_trained.is_none());
-        drop(Arc::<u8>::new(0)); // Confirm Arc is usable (compile check).
     }
 }

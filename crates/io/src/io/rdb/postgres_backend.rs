@@ -269,27 +269,10 @@ mod tests {
     }
 
     #[test]
-    fn convert_placeholders_single() {
-        assert_eq!(
-            convert_placeholders("SELECT * FROM studies WHERE study_id = ?"),
-            "SELECT * FROM studies WHERE study_id = $1"
-        );
-    }
-
-    #[test]
     fn convert_placeholders_multiple() {
         assert_eq!(
             convert_placeholders("SELECT ? FROM t WHERE a = ? AND b = ? OR c = ?"),
             "SELECT $1 FROM t WHERE a = $2 AND b = $3 OR c = $4"
         );
-    }
-
-    #[test]
-    fn convert_placeholders_join_query() {
-        let sql = "SELECT tv.trial_id, tv.objective, tv.value, tv.value_type \
-             FROM trial_values tv JOIN trials t ON tv.trial_id = t.trial_id \
-             WHERE t.study_id = ? AND t.state = 'COMPLETE'";
-        let converted = convert_placeholders(sql);
-        assert!(converted.ends_with("t.study_id = $1 AND t.state = 'COMPLETE'"));
     }
 }

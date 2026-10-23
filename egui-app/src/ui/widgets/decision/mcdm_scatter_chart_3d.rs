@@ -497,27 +497,6 @@ mod tests {
     }
 
     #[test]
-    fn ranked_hash_changes_when_order_changes() {
-        let r1 = make_topsis(vec![5, 2, 8]);
-        let r2 = make_topsis(vec![2, 5, 8]);
-        assert_ne!(
-            McdmScatterChart3D::ranked_hash(&r1),
-            McdmScatterChart3D::ranked_hash(&r2),
-            "hash changes when the ranking order changes"
-        );
-    }
-
-    #[test]
-    fn ranked_hash_stable_for_same_order() {
-        let r1 = make_topsis(vec![5, 2, 8]);
-        let r2 = make_topsis(vec![5, 2, 8]);
-        assert_eq!(
-            McdmScatterChart3D::ranked_hash(&r1),
-            McdmScatterChart3D::ranked_hash(&r2)
-        );
-    }
-
-    #[test]
     fn cache_stale_after_ranking_change() {
         let mut w = McdmScatterChart3D::default();
         // Artificially set cache_key to simulate the "old ranking" state
@@ -531,6 +510,12 @@ mod tests {
             result_method: crate::state::results::McdmMethod::Topsis,
             ranked_indices_hash: McdmScatterChart3D::ranked_hash(&make_topsis(vec![5, 2, 8])),
         });
+        assert!(!w.is_cache_stale(
+            10,
+            &make_topsis(vec![5, 2, 8]),
+            &crate::state::types::ColormapName::Viridis,
+            10
+        ));
         // New result with a changed ranking
         let new_result = make_topsis(vec![2, 5, 8]);
         assert!(
@@ -541,26 +526,6 @@ mod tests {
                 10
             ),
             "cache is invalidated when the ranking changes"
-        );
-    }
-
-    #[test]
-    fn cache_not_stale_for_same_ranking() {
-        let mut w = McdmScatterChart3D::default();
-        let result = make_topsis(vec![5, 2, 8]);
-        w.cache_key = Some(CacheKey {
-            trial_count: 10,
-            x_axis: w.x_axis.clone(),
-            y_axis: w.y_axis.clone(),
-            z_axis: w.z_axis.clone(),
-            colormap_name: crate::state::types::ColormapName::Viridis,
-            top_n: 10,
-            result_method: crate::state::results::McdmMethod::Topsis,
-            ranked_indices_hash: McdmScatterChart3D::ranked_hash(&result),
-        });
-        assert!(
-            !w.is_cache_stale(10, &result, &crate::state::types::ColormapName::Viridis, 10),
-            "cache stays valid for the same ranking"
         );
     }
 
@@ -580,17 +545,9 @@ mod tests {
         let (mn, mx) = val_range(&[1.0, 3.0, 2.0]);
         assert!((mn - 1.0).abs() < 1e-10);
         assert!((mx - 3.0).abs() < 1e-10);
-    }
-
-    #[test]
-    fn val_range_empty_returns_fallback() {
         let (mn, mx) = val_range(&[]);
         assert!((mn - (-1.0)).abs() < 1e-10);
         assert!((mx - 1.0).abs() < 1e-10);
-    }
-
-    #[test]
-    fn val_range_equal_values_expands() {
         let (mn, mx) = val_range(&[5.0, 5.0]);
         assert!(mn < 5.0);
         assert!(mx > 5.0);

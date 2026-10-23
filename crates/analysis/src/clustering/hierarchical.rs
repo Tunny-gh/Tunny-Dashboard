@@ -321,6 +321,9 @@ mod tests {
         let mut order = r.leaf_order.clone();
         order.sort_unstable();
         assert_eq!(order, (0..data.len()).collect::<Vec<_>>());
+        for w in r.merges.windows(2) {
+            assert!(w[0].distance <= w[1].distance + 1e-9);
+        }
     }
 
     #[test]
@@ -338,31 +341,6 @@ mod tests {
             }),
             "labels = {labels:?}"
         );
-    }
-
-    #[test]
-    fn merge_distances_are_monotone_nondecreasing() {
-        // NN chain + Ward is monotone (no inversions). Verified since rendering relies on this.
-        let data = two_blobs();
-        let r = ward_linkage(&data, false).unwrap();
-        for w in r.merges.windows(2) {
-            assert!(w[0].distance <= w[1].distance + 1e-9);
-        }
-    }
-
-    #[test]
-    fn standardize_makes_columns_comparable() {
-        // Only the 2nd column has a huge scale: without standardization it dominates;
-        // with it, both columns contribute.
-        // Wiring check only (numerical quality not assessed): confirms it still splits
-        // into 2 clusters after standardization.
-        let mut data = Vec::new();
-        for i in 0..8 {
-            data.push(vec![0.0, i as f64 * 1e6]);
-            data.push(vec![1.0, i as f64 * 1e6]);
-        }
-        let r = ward_linkage(&data, true).unwrap();
-        assert_eq!(r.merges.len(), data.len() - 1);
     }
 
     #[test]

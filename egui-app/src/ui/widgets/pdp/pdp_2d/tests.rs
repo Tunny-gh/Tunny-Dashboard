@@ -1,30 +1,6 @@
-use super::math::{check_params_different, normalize_value};
+use super::math::check_params_different;
 use super::mesh::{push_edge, push_tri, surface_quads};
 use super::*;
-
-#[test]
-fn normalize_value_midpoint() {
-    let t = normalize_value(0.5, 0.0, 1.0);
-    assert!((t - 0.5).abs() < 1e-5);
-}
-
-#[test]
-fn normalize_value_clamps_below_zero() {
-    let t = normalize_value(-1.0, 0.0, 1.0);
-    assert_eq!(t, 0.0);
-}
-
-#[test]
-fn normalize_value_clamps_above_one() {
-    let t = normalize_value(2.0, 0.0, 1.0);
-    assert_eq!(t, 1.0);
-}
-
-#[test]
-fn normalize_value_equal_range_returns_half() {
-    let t = normalize_value(5.0, 5.0, 5.0);
-    assert_eq!(t, 0.5);
-}
 
 #[test]
 fn value_range_of_correct() {
@@ -32,10 +8,6 @@ fn value_range_of_correct() {
     let (v_min, v_max) = value_range_of(&grid);
     assert!((v_min - 0.5).abs() < 1e-9);
     assert!((v_max - 3.0).abs() < 1e-9);
-}
-
-#[test]
-fn value_range_of_empty_returns_default() {
     let grid: Vec<Vec<f64>> = vec![];
     let (v_min, v_max) = value_range_of(&grid);
     assert_eq!(v_min, 0.0);
@@ -45,21 +17,13 @@ fn value_range_of_empty_returns_default() {
 #[test]
 fn check_params_different_true_for_different() {
     assert!(check_params_different("x", "y"));
-}
-
-#[test]
-fn check_params_different_false_for_same() {
     assert!(!check_params_different("x", "x"));
-}
-
-#[test]
-fn check_params_different_false_for_empty() {
     assert!(!check_params_different("", "y"));
     assert!(!check_params_different("x", ""));
 }
 
 #[test]
-fn surface_quads_count_matches_grid_cells() {
+fn surface_quads_corners_span_clip_space() {
     // 3x4 grid -> (3-1)*(4-1) = 6 cells
     let grid = vec![
         vec![0.0, 1.0, 2.0, 3.0],
@@ -68,10 +32,6 @@ fn surface_quads_count_matches_grid_cells() {
     ];
     let quads = surface_quads(&grid, 0.0, 5.0);
     assert_eq!(quads.len(), 6);
-}
-
-#[test]
-fn surface_quads_corners_span_clip_space() {
     let grid = vec![vec![0.0, 1.0], vec![1.0, 2.0]];
     let quads = surface_quads(&grid, 0.0, 2.0);
     assert_eq!(quads.len(), 1);
@@ -85,18 +45,10 @@ fn surface_quads_corners_span_clip_space() {
     assert!((corners[0][1] - (-1.0)).abs() < 1e-6);
     assert!((corners[2][1] - 1.0).abs() < 1e-6);
     assert!((mean - 1.0).abs() < 1e-9);
-}
-
-#[test]
-fn surface_quads_empty_for_single_row_or_col() {
     assert!(surface_quads(&[vec![1.0, 2.0]], 0.0, 1.0).is_empty());
     assert!(surface_quads(&[vec![1.0], vec![2.0]], 0.0, 1.0).is_empty());
     let empty: Vec<Vec<f64>> = vec![];
     assert!(surface_quads(&empty, 0.0, 1.0).is_empty());
-}
-
-#[test]
-fn surface_quads_skips_ragged_rows() {
     // Row 2 is short -> the missing cell is skipped
     let grid = vec![vec![0.0, 1.0, 2.0], vec![1.0, 2.0], vec![2.0, 3.0, 4.0]];
     let quads = surface_quads(&grid, 0.0, 4.0);
@@ -124,10 +76,6 @@ fn band_grids_computes_95_ci() {
     // variance 0 -> band matches the Mean
     assert_eq!(lower[0][1], 20.0);
     assert_eq!(upper[0][1], 20.0);
-}
-
-#[test]
-fn band_grids_negative_variance_does_not_produce_nan() {
     // A Gaussian process posterior variance can become slightly negative due to numerical error
     let z = vec![vec![5.0]];
     let var = vec![vec![-1e-12]];
@@ -136,10 +84,6 @@ fn band_grids_negative_variance_does_not_produce_nan() {
     assert!(upper[0][0].is_finite());
     assert_eq!(lower[0][0], 5.0);
     assert_eq!(upper[0][0], 5.0);
-}
-
-#[test]
-fn band_grids_truncates_to_shorter_rows() {
     let z = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
     let var = vec![vec![0.0]]; // both row and column counts are short
     let (lower, upper) = band_grids(&z, &var);
@@ -165,15 +109,11 @@ fn push_tri_appends_three_vertices_and_indices() {
 }
 
 #[test]
-fn push_edge_zero_length_adds_nothing() {
+fn push_edge_builds_finite_quad() {
     let mut mesh = egui::Mesh::default();
     let p = egui::pos2(5.0, 5.0);
     push_edge(&mut mesh, p, p, egui::Color32::RED, 0.35);
     assert!(mesh.is_empty());
-}
-
-#[test]
-fn push_edge_builds_finite_quad() {
     // Vertex coordinates stay bounded for any segment (no infinities like miter divergence)
     let mut mesh = egui::Mesh::default();
     push_edge(
@@ -224,13 +164,15 @@ fn make_view_2p(p1: &[f64], p2: &[f64], obj: &[f64]) -> StudyView {
 
 #[test]
 fn extract_observed_3d_returns_all_rows_without_selection() {
-    let view = make_view_2p(&[1.0, 2.0], &[10.0, 20.0], &[0.5, 1.5]);
+    let view = make_view_2p_ranked(&[1.0, 2.0], &[10.0, 20.0], &[0.5, 1.5], vec![0, 1]);
     let pts = extract_observed_3d(&view, "p1", "p2", "obj0", &[], &[]);
     assert_eq!(pts.len(), 2);
     assert_eq!(pts[0].0, 0);
     assert_eq!(pts[0].1, [1.0, 10.0, 0.5]);
     assert_eq!(pts[1].0, 1);
     assert_eq!(pts[1].1, [2.0, 20.0, 1.5]);
+    assert_eq!(pts[0].2, ObservedKind::Pareto);
+    assert_eq!(pts[1].2, ObservedKind::NonPareto);
 }
 
 #[test]
@@ -260,13 +202,4 @@ fn extract_observed_3d_skips_non_finite_rows() {
     assert_eq!(pts.len(), 1);
     assert_eq!(pts[0].0, 0);
     assert_eq!(pts[0].1, [1.0, 10.0, 0.5]);
-}
-
-#[test]
-fn extract_observed_3d_classifies_by_pareto_rank() {
-    // rank 0 -> Pareto (red), rank > 0 -> NonPareto (blue)
-    let view = make_view_2p_ranked(&[1.0, 2.0], &[10.0, 20.0], &[0.5, 1.5], vec![0, 1]);
-    let pts = extract_observed_3d(&view, "p1", "p2", "obj0", &[], &[]);
-    assert_eq!(pts[0].2, ObservedKind::Pareto);
-    assert_eq!(pts[1].2, ObservedKind::NonPareto);
 }

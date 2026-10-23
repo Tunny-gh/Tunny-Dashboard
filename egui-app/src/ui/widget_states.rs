@@ -606,12 +606,6 @@ impl WidgetStates {
 mod tests {
     use super::*;
 
-    #[test]
-    fn widget_states_default_has_capture_slot() {
-        let ws = WidgetStates::default();
-        assert!(ws.capture.last_error.is_none());
-    }
-
     // ── Regression tests for SurrogateOptState's new 2-stage fields ──
 
     #[test]
@@ -668,39 +662,5 @@ mod tests {
         // multi_trained / multi_result are also propagated
         assert!(dst.multi_trained.is_none());
         assert!(dst.multi_result.is_none());
-    }
-
-    // F-008: PNG capture state transitions
-    #[test]
-    fn png_capture_state_transitions_are_covered() {
-        use crate::state::layout_state::{ChartId, PanelItem};
-
-        let mut capture = ChartCaptureState::default();
-        assert!(capture.pending_capture.is_none());
-        assert!(!capture.screenshot_requested);
-        assert!(capture.pending_capture_rect.is_none());
-
-        // "Save as PNG" pressed → pending set
-        capture.pending_capture = Some(PanelItem::Chart(ChartId::ParallelCoordinates));
-        capture.pending_capture_rect = Some(egui::Rect::from_min_max(
-            egui::pos2(0.0, 0.0),
-            egui::pos2(100.0, 80.0),
-        ));
-        assert!(capture.pending_capture.is_some());
-
-        // Screenshot command issued
-        capture.screenshot_requested = true;
-        assert!(capture.screenshot_requested);
-
-        // Screenshot received → consumed and reset
-        capture.screenshot_requested = false;
-        capture.pending_capture = None;
-        capture.pending_capture_rect = None;
-        assert!(!capture.screenshot_requested);
-        assert!(capture.pending_capture.is_none());
-
-        // Failure path: error stored
-        capture.last_error = Some("crop rect outside image".into());
-        assert!(capture.last_error.is_some());
     }
 }

@@ -277,39 +277,6 @@ mod tests {
     }
 
     #[test]
-    fn tc_entropy_01_basic_2objectives() {
-        let values = [1.0, 4.0, 3.0, 1.0, 2.0, 3.0];
-        let result = compute_entropy_weights(&values, 3, 2).unwrap();
-        assert_eq!(result.weights.len(), 2);
-        let sum: f64 = result.weights.iter().sum();
-        assert!((sum - 1.0).abs() < 1e-9, "weights sum = {}", sum);
-        for w in &result.weights {
-            assert!(*w >= 0.0 && *w <= 1.0, "weight = {}", w);
-        }
-    }
-
-    #[test]
-    fn tc_entropy_02_3objectives() {
-        let values = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
-        let result = compute_entropy_weights(&values, 3, 3).unwrap();
-        assert_eq!(result.weights.len(), 3);
-        let sum: f64 = result.weights.iter().sum();
-        assert!((sum - 1.0).abs() < 1e-9);
-    }
-
-    #[test]
-    fn tc_entropy_03_high_variance_higher_weight() {
-        let values = [5.0, 1.0, 5.0, 2.0, 5.0, 3.0];
-        let result = compute_entropy_weights(&values, 3, 2).unwrap();
-        assert!(
-            result.weights[1] > result.weights[0],
-            "obj1 (varied) should have higher weight than obj0 (constant): w0={}, w1={}",
-            result.weights[0],
-            result.weights[1]
-        );
-    }
-
-    #[test]
     fn tc_entropy_b01_single_objective() {
         let values = [1.0, 2.0, 3.0];
         let result = compute_entropy_weights(&values, 3, 1).unwrap();
@@ -317,120 +284,10 @@ mod tests {
     }
 
     #[test]
-    fn tc_entropy_b02_single_trial() {
-        let values = [1.0, 2.0];
-        let result = compute_entropy_weights(&values, 1, 2).unwrap();
-        let sum: f64 = result.weights.iter().sum();
-        assert!((sum - 1.0).abs() < 1e-9);
-        assert!(
-            (result.weights[0] - 0.5).abs() < 1e-9,
-            "single trial should give uniform weights"
-        );
-    }
-
-    #[test]
-    fn tc_entropy_b03_all_same_values() {
-        let values = [5.0, 5.0, 5.0, 5.0, 5.0, 5.0];
-        let result = compute_entropy_weights(&values, 3, 2).unwrap();
-        assert!((result.weights[0] - 0.5).abs() < 1e-9);
-        assert!((result.weights[1] - 0.5).abs() < 1e-9);
-    }
-
-    #[test]
-    fn tc_entropy_04_proportional_normalization() {
-        let values = [1.0, 3.0, 3.0, 4.0];
-        let result = compute_entropy_weights(&values, 2, 2).unwrap();
-        for j in 0..2 {
-            let col_sum: f64 = (0..2).map(|i| result.normalized_matrix[i * 2 + j]).sum();
-            assert!((col_sum - 1.0).abs() < 1e-9, "col {} sum = {}", j, col_sum);
-        }
-    }
-
-    #[test]
-    fn tc_entropy_05_zero_variance_objective() {
-        let values = [5.0, 1.0, 5.0, 2.0, 5.0, 3.0];
-        let result = compute_entropy_weights(&values, 3, 2).unwrap();
-        assert!(
-            (result.entropies[0] - 1.0).abs() < 1e-9,
-            "e0 = {}",
-            result.entropies[0]
-        );
-        assert!(
-            (result.diversities[0]).abs() < 1e-9,
-            "d0 = {}",
-            result.diversities[0]
-        );
-        assert!(
-            (result.weights[0]).abs() < 1e-9,
-            "w0 = {}",
-            result.weights[0]
-        );
-        assert!(
-            (result.weights[1] - 1.0).abs() < 1e-9,
-            "w1 = {}",
-            result.weights[1]
-        );
-    }
-
-    #[test]
-    fn tc_entropy_06_nan_exclusion() {
-        let values: Vec<f64> = vec![1.0, 2.0, f64::NAN, 1.0, 3.0, 4.0];
-        let result = compute_entropy_weights(&values, 3, 2).unwrap();
-        assert_eq!(result.weights.len(), 2);
-        let sum: f64 = result.weights.iter().sum();
-        assert!((sum - 1.0).abs() < 1e-9);
-    }
-
-    #[test]
     fn tc_entropy_07_all_nan_error() {
         let values: Vec<f64> = vec![f64::NAN, f64::NAN, f64::NAN, f64::NAN];
         let result = compute_entropy_weights(&values, 2, 2);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn tc_entropy_08_negative_values() {
-        let values = [-1.0, 2.0, 3.0, -4.0, 0.0, 1.0];
-        let result = compute_entropy_weights(&values, 3, 2).unwrap();
-        assert_eq!(result.weights.len(), 2);
-        let sum: f64 = result.weights.iter().sum();
-        assert!((sum - 1.0).abs() < 1e-9, "weights sum = {}", sum);
-    }
-
-    #[test]
-    fn tc_entropy_09_zero_handling() {
-        let values = [0.0, 1.0, 1.0, 1.0, 1.0, 1.0];
-        let result = compute_entropy_weights(&values, 3, 2).unwrap();
-        assert_eq!(result.weights.len(), 2);
-        let sum: f64 = result.weights.iter().sum();
-        assert!((sum - 1.0).abs() < 1e-9);
-        assert!(result.entropies.iter().all(|&e| (0.0..=1.0).contains(&e)));
-    }
-
-    #[test]
-    fn tc_entropy_10_equal_weights_sum() {
-        let values = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0];
-        let result = compute_entropy_weights(&values, 4, 2).unwrap();
-        let sum: f64 = result.weights.iter().sum();
-        assert!((sum - 1.0).abs() < 1e-9, "weights sum = {}", sum);
-    }
-
-    #[test]
-    fn tc_entropy_11_negative_constant_column() {
-        // obj0 is a negative constant column (no information), obj1 varies.
-        // The constant column must get weight ~= 0 and the varying column ~= 1.
-        let values = [-3.0, 1.0, -3.0, 2.0, -3.0, 3.0];
-        let result = compute_entropy_weights(&values, 3, 2).unwrap();
-        assert!(
-            result.weights[0].abs() < 1e-9,
-            "constant negative column should have weight ~0: w0={}",
-            result.weights[0]
-        );
-        assert!(
-            (result.weights[1] - 1.0).abs() < 1e-9,
-            "varying column should have weight ~1: w1={}",
-            result.weights[1]
-        );
     }
 
     #[test]

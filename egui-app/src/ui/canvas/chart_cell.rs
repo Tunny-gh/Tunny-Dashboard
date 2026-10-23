@@ -253,36 +253,16 @@ pub(crate) fn show_maximized_modal(
 mod tests {
     use super::*;
 
-    // ── TASK-2244 tests ─────────────────────────────────────────
-
-    #[test]
-    fn cell_toolbar_shows_menu_for_chart_cells() {
-        use crate::state::layout_state::{ChartId, PanelItem};
-        // Chart cells have a SaveAsPng menu entry (CellToolbarAction has a SaveAsPng variant)
-        let item = PanelItem::Chart(ChartId::OptimizationHistory);
-        let action = CellToolbarAction::SaveAsPng(item);
-        assert!(matches!(action, CellToolbarAction::SaveAsPng(_)));
-    }
-
     #[test]
     fn save_as_png_action_records_target_cell() {
         use crate::state::layout_state::{ChartId, PanelItem};
         use crate::ui::widget_states::{CaptureDest, ChartCaptureState};
         let mut state = ChartCaptureState::default();
         let item = PanelItem::Chart(ChartId::ParallelCoordinates);
-        record_capture_target(&mut state, item.clone(), CaptureDest::File);
-        assert_eq!(state.pending_capture, Some(item));
-        assert_eq!(state.pending_capture_dest, CaptureDest::File);
-    }
-
-    #[test]
-    fn copy_image_action_records_clipboard_dest() {
-        use crate::state::layout_state::{ChartId, PanelItem};
-        use crate::ui::widget_states::{CaptureDest, ChartCaptureState};
-        let mut state = ChartCaptureState::default();
-        let item = PanelItem::Chart(ChartId::ParallelCoordinates);
-        record_capture_target(&mut state, item.clone(), CaptureDest::Clipboard);
-        assert_eq!(state.pending_capture, Some(item));
-        assert_eq!(state.pending_capture_dest, CaptureDest::Clipboard);
+        for dest in [CaptureDest::File, CaptureDest::Clipboard] {
+            record_capture_target(&mut state, item.clone(), dest);
+            assert_eq!(state.pending_capture, Some(item.clone()));
+            assert_eq!(state.pending_capture_dest, dest);
+        }
     }
 }

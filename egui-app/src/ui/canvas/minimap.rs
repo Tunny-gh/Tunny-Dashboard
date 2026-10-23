@@ -263,38 +263,14 @@ mod tests {
 
     // ── compute_minimap_layout ────────────────────────────────────────────
 
-    /// When width is the constraining dimension, the map width doesn't exceed MAX_W
-    #[test]
-    fn layout_respects_max_width() {
-        let area = make_area();
-        let wb = make_world_bounds(10000.0, 100.0);
-        let layout = compute_minimap_layout(area, wb);
-        assert!(
-            layout.map_rect.width() <= MAX_W + f32::EPSILON,
-            "map_w={} exceeds MAX_W={}",
-            layout.map_rect.width(),
-            MAX_W
-        );
-    }
-
-    /// When height is the constraining dimension, the map height doesn't exceed MAX_H
-    #[test]
-    fn layout_respects_max_height() {
-        let area = make_area();
-        let wb = make_world_bounds(100.0, 10000.0);
-        let layout = compute_minimap_layout(area, wb);
-        assert!(
-            layout.map_rect.height() <= MAX_H + f32::EPSILON,
-            "map_h={} exceeds MAX_H={}",
-            layout.map_rect.height(),
-            MAX_H
-        );
-    }
-
     /// The aspect ratio is preserved (tolerance 1%)
     #[test]
     fn layout_preserves_aspect_ratio() {
         let area = make_area();
+        let wide = compute_minimap_layout(area, make_world_bounds(10000.0, 100.0));
+        assert!(wide.map_rect.width() <= MAX_W + f32::EPSILON);
+        let tall = compute_minimap_layout(area, make_world_bounds(100.0, 10000.0));
+        assert!(tall.map_rect.height() <= MAX_H + f32::EPSILON);
         let w = 800.0_f32;
         let h = 400.0_f32;
         let wb = make_world_bounds(w, h);
@@ -359,28 +335,6 @@ mod tests {
             assert!(
                 (back.x - p.x).abs() < 0.01 && (back.y - p.y).abs() < 0.01,
                 "roundtrip failed for {p:?}: got {back:?}"
-            );
-        }
-    }
-
-    /// map -> world -> map returns to the original map coordinates
-    #[test]
-    fn map_world_roundtrip() {
-        let area = make_area();
-        let wb = make_world_bounds(1500.0, 600.0);
-        let layout = compute_minimap_layout(area, wb);
-
-        let map_pts = [
-            layout.map_rect.min,
-            layout.map_rect.center(),
-            layout.map_rect.max,
-        ];
-        for mp in map_pts {
-            let w = map_to_world(&layout, mp);
-            let back = world_to_map(&layout, w);
-            assert!(
-                (back.x - mp.x).abs() < 0.01 && (back.y - mp.y).abs() < 0.01,
-                "roundtrip failed for {mp:?}: got {back:?}"
             );
         }
     }

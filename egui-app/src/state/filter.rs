@@ -71,7 +71,6 @@ mod tests {
                 objectives: vec![],
                 pareto_rank: 0,
                 cluster_id: None,
-                user_attrs: HashMap::new(),
             },
             TrialRow {
                 trial_id: 1,
@@ -80,7 +79,6 @@ mod tests {
                 objectives: vec![],
                 pareto_rank: 0,
                 cluster_id: None,
-                user_attrs: HashMap::new(),
             },
             TrialRow {
                 trial_id: 2,
@@ -89,7 +87,6 @@ mod tests {
                 objectives: vec![],
                 pareto_rank: 0,
                 cluster_id: None,
-                user_attrs: HashMap::new(),
             },
         ];
         let meta = StudyMeta {
@@ -104,55 +101,6 @@ mod tests {
         StudyContext::from_rows_for_test(meta, trial_rows)
     }
 
-    // TASK-2032 performance tests
-
-    #[test]
-    fn filter_5k_trials_at_scale() {
-        // Generate 5000 trials
-        let trial_rows: Vec<TrialRow> = (0u32..5000)
-            .map(|i| {
-                let mut params = HashMap::new();
-                params.insert("x".to_string(), (i as f64) / 5000.0);
-                params.insert("y".to_string(), (i as f64 % 100.0) / 100.0);
-                TrialRow {
-                    trial_id: i,
-                    trial_number: i,
-                    params,
-                    objectives: vec![i as f64],
-                    pareto_rank: 0,
-                    cluster_id: None,
-                    user_attrs: HashMap::new(),
-                }
-            })
-            .collect();
-
-        let mut filter_ranges = HashMap::new();
-        filter_ranges.insert("x".to_string(), (0.2, 0.8));
-        filter_ranges.insert("y".to_string(), (0.1, 0.9));
-
-        let selected: Vec<u32> = trial_rows
-            .iter()
-            .filter(|row| {
-                filter_ranges.iter().all(|(param, (min, max))| {
-                    if let Some(&val) = row.params.get(param) {
-                        val >= *min && val <= *max
-                    } else {
-                        true
-                    }
-                })
-            })
-            .map(|r| r.trial_id)
-            .collect();
-
-        // The range filter must keep some rows and exclude others.
-        assert!(!selected.is_empty(), "filter excluded everything");
-        assert!(
-            selected.len() < trial_rows.len(),
-            "filter kept all rows ({}), expected some to be excluded",
-            selected.len()
-        );
-    }
-
     #[test]
     fn set_filter_excludes_out_of_range_trials() {
         let mut state = AppState::new();
@@ -162,5 +110,9 @@ mod tests {
         assert!(state.selected_indices.contains(&0));
         assert!(!state.selected_indices.contains(&1));
         assert!(!state.selected_indices.contains(&2));
+        assert_eq!(state.filter_ranges.get("x"), Some(&(0.0, 0.5)));
+        state.set_filter("x", 0.2, 0.8);
+        assert_eq!(state.filter_ranges.get("x"), Some(&(0.2, 0.8)));
+        assert_eq!(state.selected_indices, [0, 1]);
     }
 }

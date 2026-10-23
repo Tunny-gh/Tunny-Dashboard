@@ -250,15 +250,6 @@ mod tests {
     }
 
     #[test]
-    fn sensitivity_heatmap_default() {
-        let hm = SensitivityHeatmap::default();
-        assert!(!hm.computing);
-        assert_eq!(hm.metric, ImportanceMetric::Spearman);
-        assert!(!hm.feasible_only);
-        assert!(hm.pending_compute.is_none());
-    }
-
-    #[test]
     fn adopt_compute_state_copies_computing_flag() {
         let global = SensitivityHeatmap {
             computing: true,

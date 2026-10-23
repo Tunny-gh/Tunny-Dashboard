@@ -140,17 +140,12 @@ mod tests {
 
     #[test]
     fn from_meta_sorts_bounds_and_defaults_to_minimize() {
-        let s = CsvImportSettings::from_meta(&make_meta());
+        let mut s = CsvImportSettings::from_meta(&make_meta());
         assert_eq!(s.maximize, vec![false, false]);
         // Parameter names in ascending order.
         assert_eq!(s.param_bounds[0].name, "a");
         assert_eq!(s.param_bounds[1].name, "x");
         assert!(s.bounds_valid());
-    }
-
-    #[test]
-    fn apply_to_overwrites_directions_and_bounds() {
-        let mut s = CsvImportSettings::from_meta(&make_meta());
         s.maximize = vec![false, true];
         s.param_bounds[1].low = 2.0;
         s.param_bounds[1].high = 20.0;

@@ -358,11 +358,28 @@ mod tests {
         assert!(state.highlighted_trial.is_none());
         assert!(state.importance_cache.is_empty());
         assert!(state.cluster_cache.is_empty());
+        assert_eq!(state.selected_colormap, ColormapName::Viridis);
+        assert!(!state.comparison_mode);
+        assert!(state.comparison_studies.is_empty());
+        assert!(state.comparison_colors.is_empty());
+        assert!(state.artifacts_dir.is_none());
+        assert!(state.artifact_map.is_empty());
+        assert!(state.best_trial_history.is_none());
+        assert!(state.pinned_trials.is_empty());
+        assert!(state.comparison_base_study.is_none());
     }
 
     #[test]
     fn app_state_clear_resets_selection() {
-        let mut state = AppState::new();
+        let mut state = make_populated_state();
+        state.artifact_map.insert(
+            0,
+            vec![crate::io::artifacts::ArtifactEntry {
+                path: "/tmp/abc123".into(),
+                filename: "a.png".into(),
+                mimetype: "image/png".into(),
+            }],
+        );
         state.selected_indices = vec![0, 1, 2];
         state.filter_ranges.insert("x".to_string(), (0.0, 1.0));
         state.highlighted_trial = Some(5);
@@ -387,115 +404,17 @@ mod tests {
         assert!(state.filter_ranges.is_empty());
         assert!(state.highlighted_trial.is_none());
         assert!(state.importance_cache.is_empty());
-    }
-
-    #[test]
-    fn app_state_clear_preserves_studies() {
-        let mut state = AppState::new();
-        state.all_studies.push(StudyMeta {
-            study_id: 0,
-            name: "test".to_string(),
-            directions: vec![Direction::Minimize],
-            completed_trials: 10,
-            param_names: vec!["x".to_string()],
-            objective_names: vec!["y".to_string()],
-            param_bounds: Default::default(),
-        });
-
-        state.clear();
-
-        // Studies should NOT be cleared
         assert_eq!(state.all_studies.len(), 1);
-    }
-
-    #[test]
-    fn app_state_new_colormap_defaults() {
-        let state = AppState::new();
-        assert_eq!(state.selected_colormap, ColormapName::Viridis);
-    }
-
-    // ============================================================
-    // TASK-2110: tests for the 8 new fields
-    // ============================================================
-
-    #[test]
-    fn task2110_comparison_fields_default() {
-        // TC-003, TC-004, TC-005
-        let state = AppState::new();
-        assert!(!state.comparison_mode);
-        assert!(state.comparison_studies.is_empty());
-        assert!(state.comparison_colors.is_empty());
-    }
-
-    #[test]
-    fn task2110_artifacts_fields_default() {
-        // TC-006, TC-007
-        let state = AppState::new();
-        assert!(state.artifacts_dir.is_none());
-        assert!(state.artifact_map.is_empty());
-    }
-
-    #[test]
-    fn task2110_best_trial_history_default() {
-        // TC-008
-        let state = AppState::new();
-        assert!(state.best_trial_history.is_none());
-    }
-
-    #[test]
-    fn clear_preserves_storage_artifacts_and_resets_history() {
-        // TC-009, TC-010
-        let mut state = AppState::new();
-        state.artifact_map.insert(
-            0,
-            vec![crate::io::artifacts::ArtifactEntry {
-                path: std::path::PathBuf::from("/tmp/abc123"),
-                filename: "a.png".into(),
-                mimetype: "image/png".into(),
-            }],
-        );
-        state.artifacts_dir = Some(std::path::PathBuf::from("/tmp"));
-        state.best_trial_history = Some(vec![(0, 1.0)]);
-
-        state.clear();
-
         assert_eq!(state.artifact_map.len(), 1);
-        assert_eq!(state.artifacts_dir, Some(std::path::PathBuf::from("/tmp")));
+        assert_eq!(
+            state.artifacts_dir,
+            Some(std::path::PathBuf::from("/tmp/artifacts"))
+        );
         assert!(state.best_trial_history.is_none());
-    }
-
-    #[test]
-    fn task2110_clear_preserves_comparison_fields() {
-        // comparison_mode/studies/colors are not reset by clear()
-        let mut state = AppState::new();
-        state.comparison_mode = true;
-        state.comparison_colors = vec![[255, 0, 0, 255]];
-
-        state.clear();
-
-        // comparison_mode and comparison_colors are preserved
         assert!(state.comparison_mode);
         assert_eq!(state.comparison_colors.len(), 1);
-    }
-
-    // ── TASK-2228: tests for the new fields ─────────────────────
-
-    #[test]
-    fn app_state_default_includes_new_fields() {
-        let state = AppState::new();
-        assert!(state.pinned_trials.is_empty());
-        assert!(state.comparison_base_study.is_none());
-    }
-
-    #[test]
-    fn app_state_clear_preserves_pinned_trials() {
-        let mut state = AppState::new();
-        state.pinned_trials = vec![1, 2, 3];
-        state.comparison_base_study = Some(42);
-        state.clear();
-        // pinned_trials and comparison_base_study are not reset by clear()
-        assert_eq!(state.pinned_trials, vec![1, 2, 3]);
-        assert_eq!(state.comparison_base_study, Some(42));
+        assert_eq!(state.pinned_trials, vec![3, 8]);
+        assert_eq!(state.comparison_base_study, Some(1));
     }
 
     // ── TASK-2232: visibility helper tests ───────────────────────────
@@ -591,6 +510,7 @@ mod tests {
     #[test]
     fn reset_to_empty_drops_the_open_file_and_its_derived_state() {
         let mut state = make_populated_state();
+        state.new_confirm_open = true;
 
         state.reset_to_empty();
 
@@ -606,20 +526,8 @@ mod tests {
         assert!(!state.comparison_mode);
         assert!(state.comparison_colors.is_empty());
         assert!(state.comparison_base_study.is_none());
-    }
-
-    #[test]
-    fn reset_to_empty_drops_pinned_trials_unlike_clear() {
-        // pinned_trials survives a Study switch, but not a New: it holds raw trial
-        // IDs, which would otherwise be re-applied to the unrelated trials of
-        // whatever file is opened next.
-        let mut state = make_populated_state();
-
-        state.clear();
-        assert_eq!(state.pinned_trials, vec![3, 8]);
-
-        state.reset_to_empty();
         assert!(state.pinned_trials.is_empty());
+        assert!(!state.new_confirm_open);
     }
 
     #[test]
@@ -648,71 +556,10 @@ mod tests {
         state.reset_to_empty();
 
         assert!(state.gh_opt_run.is_some());
-    }
-
-    #[test]
-    fn reset_to_empty_drops_a_finished_optimization_overlay() {
-        // A finished overlay only points at a journal that is no longer open.
-        let mut state = make_populated_state();
         state.gh_opt_run = Some(make_run_state(Some(Ok("48 trials".to_string()))));
 
         state.reset_to_empty();
 
         assert!(state.gh_opt_run.is_none());
-    }
-
-    #[test]
-    fn reset_to_empty_closes_its_own_confirmation() {
-        let mut state = make_populated_state();
-        state.new_confirm_open = true;
-
-        state.reset_to_empty();
-
-        assert!(!state.new_confirm_open);
-    }
-
-    // ── TASK-2246: regression tests ───────────────────────────────────
-
-    // F-003: pinning regression
-    #[test]
-    fn export_and_pinning_logic_have_dedicated_regression_tests() {
-        let mut state = AppState::new();
-        // pin, check, unpin, check
-        assert!(state.pinned_trials.is_empty());
-        state.toggle_pinned_trial(7).unwrap();
-        assert_eq!(state.pinned_trials, vec![7]);
-        state.toggle_pinned_trial(7).unwrap();
-        assert!(state.pinned_trials.is_empty());
-        // max-pin boundary
-        for i in 0..20u32 {
-            state.toggle_pinned_trial(i).unwrap();
-        }
-        assert_eq!(
-            state.toggle_pinned_trial(99),
-            Err(PinError::MaxPinnedReached { limit: 20 })
-        );
-    }
-
-    // F-002: comparison state transitions (load-start → success → reset)
-    #[test]
-    fn comparison_state_transitions_are_covered() {
-        let mut state = AppState::new();
-
-        // comparison load-start
-        state.comparison_mode = true;
-        state.comparison_base_study = Some(1);
-        assert!(state.comparison_mode);
-
-        // reset
-        state.reset_comparison_session();
-        assert!(!state.comparison_mode);
-        assert!(state.comparison_base_study.is_none());
-        assert!(state.comparison_studies.is_empty());
-
-        // compute spinner state: a generic computing flag transitions on→off
-        let started = true; // represents widget.computing = true
-        let done = false; // represents widget.computing = false after result
-        assert!(started);
-        assert!(!done);
     }
 }

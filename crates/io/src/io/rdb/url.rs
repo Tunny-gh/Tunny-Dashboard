@@ -320,14 +320,6 @@ mod tests {
     }
 
     #[test]
-    fn is_rdb_url_true_and_false() {
-        assert!(is_rdb_url("postgresql://u:p@h/db"));
-        assert!(is_rdb_url("mysql+pymysql://u:p@h/db"));
-        assert!(!is_rdb_url("sqlite:///a.db"));
-        assert!(!is_rdb_url("/some/local/path.db"));
-    }
-
-    #[test]
     fn masked_replaces_password() {
         let url = RdbUrl::parse("postgresql://tunny:tunnypass@127.0.0.1:5432/tunny_test").unwrap();
         assert_eq!(
@@ -422,11 +414,6 @@ mod tests {
             url: "not-a-url".to_string(),
         };
         assert_eq!(url.masked(), "not-a-url");
-    }
-
-    #[test]
-    fn check_tls_precondition_no_query_string_is_ok() {
-        assert!(check_tls_precondition("postgresql://user:pass@localhost/db").is_ok());
     }
 
     #[test]

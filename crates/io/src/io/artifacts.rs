@@ -421,7 +421,7 @@ mod tests {
     }
 
     #[test]
-    fn test_artifact_file_type_image() {
+    fn file_type_from_extension() {
         assert_eq!(
             ArtifactFileType::from_path(Path::new("result.png")),
             ArtifactFileType::Image
@@ -430,18 +430,10 @@ mod tests {
             ArtifactFileType::from_path(Path::new("result.JPG")),
             ArtifactFileType::Image
         );
-    }
-
-    #[test]
-    fn test_artifact_file_type_csv() {
         assert_eq!(
             ArtifactFileType::from_path(Path::new("data.csv")),
             ArtifactFileType::Csv
         );
-    }
-
-    #[test]
-    fn test_artifact_file_type_other() {
         assert_eq!(
             ArtifactFileType::from_path(Path::new("data.txt")),
             ArtifactFileType::Other

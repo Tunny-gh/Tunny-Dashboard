@@ -182,14 +182,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sample_categorical_single_is_midpoint() {
-        let cmap = ColorMap::viridis();
-        assert_eq!(cmap.sample_categorical(0, 1), cmap.interpolate(0.5));
-    }
-
-    #[test]
     fn sample_categorical_spans_full_range() {
         let cmap = ColorMap::viridis();
+        assert_eq!(cmap.sample_categorical(0, 1), cmap.interpolate(0.5));
         assert_eq!(cmap.sample_categorical(0, 3), cmap.interpolate(0.0));
         assert_eq!(cmap.sample_categorical(1, 3), cmap.interpolate(0.5));
         assert_eq!(cmap.sample_categorical(2, 3), cmap.interpolate(1.0));
@@ -200,13 +195,10 @@ mod tests {
         let cmap = ColorMap::viridis();
         let color = cmap.interpolate(0.0);
         assert_eq!(color, egui::Color32::from_rgb(68, 1, 84));
-    }
-
-    #[test]
-    fn interpolate_at_one_returns_last_stop() {
-        let cmap = ColorMap::viridis();
         let color = cmap.interpolate(1.0);
         assert_eq!(color, egui::Color32::from_rgb(253, 231, 37));
+        assert_eq!(cmap.interpolate(-0.1), cmap.interpolate(0.0));
+        assert_eq!(cmap.interpolate(1.1), cmap.interpolate(1.0));
     }
 
     #[test]
@@ -217,21 +209,5 @@ mod tests {
         assert_eq!(color.r(), 128);
         assert_eq!(color.g(), 150);
         assert_eq!(color.b(), 100);
-    }
-
-    #[test]
-    fn interpolate_clamped_negative() {
-        let cmap = ColorMap::viridis();
-        let color_neg = cmap.interpolate(-0.1);
-        let color_zero = cmap.interpolate(0.0);
-        assert_eq!(color_neg, color_zero);
-    }
-
-    #[test]
-    fn interpolate_clamped_above_one() {
-        let cmap = ColorMap::viridis();
-        let color_over = cmap.interpolate(1.1);
-        let color_one = cmap.interpolate(1.0);
-        assert_eq!(color_over, color_one);
     }
 }

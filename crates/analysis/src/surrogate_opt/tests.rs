@@ -179,6 +179,8 @@ fn lbfgs_finds_exact_quadratic_minimum() {
         .cloned()
         .fold(f64::INFINITY, f64::min);
     assert_eq!(result.best_observed_value.to_bits(), expected.to_bits());
+    assert!(result.feasibility_probability.is_none());
+    assert!(result.predicted_constraints.is_empty());
 }
 
 #[test]
@@ -375,17 +377,6 @@ fn non_finite_input_returns_error() {
     x_matrix[3][0] = f64::NAN;
     let req = base_request(x_matrix, y);
     assert!(run_surrogate_optimization(&req).is_err());
-}
-
-// ============================================================================
-// Send + Sync assertions for TrainedSurrogate
-// ============================================================================
-
-/// Verifies at compile time that TrainedSurrogate satisfies Send + Sync.
-#[test]
-fn trained_surrogate_is_send_sync() {
-    fn assert_send_sync<T: Send + Sync>() {}
-    assert_send_sync::<TrainedSurrogate>();
 }
 
 // ============================================================================
@@ -732,13 +723,6 @@ fn multi_opt_front_spans_full_tradeoff() {
         .iter()
         .any(|p| p.params[0] > 0.8 || p.values[1] < 0.05);
     assert!(has_f2_side, "front should reach f2-dominated region");
-}
-
-#[test]
-fn multi_opt_front_sorted_by_first_objective() {
-    // The front should be sorted ascending by the first objective.
-    let result = optimize_schaffer(vec![true, true], None);
-
     for w in result.front.windows(2) {
         assert!(
             w[0].values[0] <= w[1].values[0],
@@ -747,13 +731,6 @@ fn multi_opt_front_sorted_by_first_objective() {
             w[1].values[0]
         );
     }
-}
-
-#[test]
-fn multi_opt_point_dimensions_match() {
-    // Each ParetoFrontPoint's params/values length matches param_names/objective_names.
-    let result = optimize_schaffer(vec![true, true], None);
-
     for (i, p) in result.front.iter().enumerate() {
         assert_eq!(
             p.params.len(),
@@ -775,6 +752,7 @@ fn multi_opt_point_dimensions_match() {
         assert!((p.values[1] - schaffer_f2(&p.params)).abs() < 1e-9);
     }
     assert_eq!(result.r_squared.len(), 2, "r_squared should have 2 entries");
+    assert!(result.slices.is_empty());
 }
 
 #[test]
@@ -784,9 +762,13 @@ fn multi_opt_maximize_objective_direction() {
     // f2 = (x0 − 1)² has its maximum value 1 at x0=0 and minimum value 0 at x0=1.
     let result = optimize_schaffer(vec![true, false], None);
 
-    // A point with a value ≥ 0.5 for the maximized objective f2 should exist
-    // on the front.
-    let has_large_f2 = result.front.iter().any(|p| p.values[1] > 0.5);
+    // Both criteria now favor x0=0. Merely finding one high-f2 point would
+    // also pass for a front computed with the wrong minimize direction.
+    let has_large_f2 = !result.front.is_empty()
+        && result
+            .front
+            .iter()
+            .all(|p| p.params[0] < 0.2 && p.values[1] > 0.5);
     assert!(
         has_large_f2,
         "front should include high-f2 point when maximizing f2, max f2 = {}",
@@ -813,16 +795,6 @@ fn multi_opt_slices_returned_for_each_objective() {
         assert_eq!(slice.y_values.len(), 10, "slice[{}] y_values len", k);
         assert_eq!(slice.z_values.len(), 10, "slice[{}] z_values rows", k);
     }
-}
-
-#[test]
-fn multi_opt_no_slices_without_slice_params() {
-    // slices should be empty when slice_params = None.
-    let result = optimize_schaffer(vec![true, true], None);
-    assert!(
-        result.slices.is_empty(),
-        "slices should be empty when slice_params is None"
-    );
 }
 
 #[test]
@@ -920,13 +892,13 @@ fn fit_schaffer_trained(n: usize) -> (TrainedSurrogate, TrainedSurrogate) {
 #[test]
 fn staged_multi_opt_error_on_single_trained() {
     // Only a single trained surrogate is an error.
-    let (t1, _) = fit_schaffer_trained(30);
+    let trained = analytic_schaffer_trained();
     let spec = SurrogateMultiOptimizeSpec {
         minimize: vec![true],
         slice_params: None,
         n_grid: 10,
     };
-    let err = optimize_multi_on_trained(&[&t1], &spec).unwrap_err();
+    let err = optimize_multi_on_trained(&[&trained[0]], &spec).unwrap_err();
     assert!(
         err.contains("At least 2 objectives"),
         "unexpected error: {err}"
@@ -936,13 +908,13 @@ fn staged_multi_opt_error_on_single_trained() {
 #[test]
 fn staged_multi_opt_error_on_minimize_length_mismatch() {
     // It's an error when minimize's length differs from trained's.
-    let (t1, t2) = fit_schaffer_trained(30);
+    let trained = analytic_schaffer_trained();
     let spec = SurrogateMultiOptimizeSpec {
         minimize: vec![true], // length mismatch
         slice_params: None,
         n_grid: 10,
     };
-    let err = optimize_multi_on_trained(&[&t1, &t2], &spec).unwrap_err();
+    let err = optimize_multi_on_trained(&[&trained[0], &trained[1]], &spec).unwrap_err();
     assert!(
         err.contains("minimize length mismatch"),
         "unexpected error: {err}"
@@ -1247,35 +1219,6 @@ fn constrained_opt_pushes_x_toward_feasible_region() {
 }
 
 #[test]
-fn unconstrained_opt_finds_true_minimum_near_0_3() {
-    // No constraint: exactly finds the true minimum (0.3, 0.7) of the known surface.
-    let trained = analytic_trained(quad_surface, true);
-    let result = optimize_on_trained(
-        &trained,
-        &SurrogateOptimizeSpec {
-            minimize: true,
-            optimizer: OptimizerKind::MultiStartLbfgs,
-            slice_params: None,
-            n_grid: 10,
-        },
-    );
-
-    assert!(
-        (result.best_params[0] - 0.3).abs() < 0.01,
-        "x ≈ 0.3 (unconstrained), got {}",
-        result.best_params[0]
-    );
-    assert!(
-        result.feasibility_probability.is_none(),
-        "制約なしのとき feasibility_probability は None"
-    );
-    assert!(
-        result.predicted_constraints.is_empty(),
-        "制約なしのとき predicted_constraints は空"
-    );
-}
-
-#[test]
 fn constrained_fit_validation_succeeds() {
     // fit_surrogate_with_validation succeeds with constraints, and constraint_names is set.
     let (x_matrix, y, c) = constrained_quadratic_samples(40);
@@ -1550,31 +1493,6 @@ fn explicit_single_gp_fits_support_ei_without_auto() {
 }
 
 #[test]
-fn select_best_model_picks_gp_on_nonlinear_smooth() {
-    let (x_matrix, y) = nonlinear_smooth_samples(50);
-    let report = select_best_model(&x_matrix, &y, 42).expect("selection should succeed");
-
-    // The candidates are the 4 in AUTO_CANDIDATES.
-    assert_eq!(report.scores.len(), 4);
-
-    // For a nonlinear, smooth function, GP is chosen (not Ridge).
-    assert!(
-        matches!(
-            report.chosen,
-            SurrogateModelKind::GpFitc | SurrogateModelKind::GpVfe
-        ),
-        "expected a GP, got {:?}",
-        report.chosen
-    );
-
-    // GP's CV R² exceeds Ridge's.
-    let ridge = score_of(&report, SurrogateModelKind::Ridge);
-    let gp = score_of(&report, SurrogateModelKind::GpFitc)
-        .max(score_of(&report, SurrogateModelKind::GpVfe));
-    assert!(gp > ridge, "GP cv_r2 {gp} should exceed Ridge {ridge}");
-}
-
-#[test]
 fn select_best_model_picks_ridge_on_linear() {
     // Keep enough samples for a reliable linear-data comparison.
     let (x_matrix, y) = linear_samples(80);
@@ -1625,6 +1543,10 @@ fn fit_surrogate_with_validation_auto_select_end_to_end() {
         .as_ref()
         .expect("auto fit must attach a model_selection report");
     assert_eq!(selection.scores.len(), 4);
+    let ridge = score_of(selection, SurrogateModelKind::Ridge);
+    let gp = score_of(selection, SurrogateModelKind::GpFitc)
+        .max(score_of(selection, SurrogateModelKind::GpVfe));
+    assert!(gp > ridge, "GP cv_r2 {gp} should exceed Ridge {ridge}");
 
     // model_kind is the concretely selected model kind (not the Ridge placeholder).
     assert_eq!(trained.model_kind, selection.chosen);
@@ -1694,11 +1616,8 @@ fn subsample_is_deterministic() {
 
 #[test]
 fn subsample_multi_keeps_pareto_front() {
-    // 2 objectives, both minimized. Plants clear non-dominated points (rank 0) and
-    // verifies they are retained.
+    // The random population has a small front that fits within the elite quota.
     let n = MAX_TRAIN_FOR_FIT * 2;
-    // obj0 = i, obj1 = n - i is a monotonic trade-off → every point is rank 0 (a strong Pareto set).
-    // Here we only verify that a "representative of the rank-0 set" is definitely retained.
     let mut rng = SeededRng::from_seed(3);
     let obj0: Vec<f64> = (0..n).map(|_| rng.next_f64()).collect();
     let obj1: Vec<f64> = (0..n).map(|_| rng.next_f64()).collect();
@@ -1708,12 +1627,13 @@ fn subsample_multi_keeps_pareto_front() {
     assert_eq!(idx.len(), MAX_TRAIN_FOR_FIT);
     assert!(idx.windows(2).all(|w| w[0] < w[1]));
 
-    // At least one of the true non-dominated points (rank 0) is retained.
+    // The full front fits within the elite quota, so every front row must remain.
     let rows: Vec<Vec<f64>> = (0..n).map(|i| vec![obj0[i], obj1[i]]).collect();
     let ranks = crate::multi_objective::pareto::nd_sort(&rows, &minimize);
     let front: Vec<usize> = (0..n).filter(|&i| ranks[i] == 0).collect();
+    assert!(front.len() <= MAX_TRAIN_FOR_FIT / 2);
     assert!(
-        front.iter().any(|f| idx.contains(f)),
+        front.iter().all(|f| idx.contains(f)),
         "パレートフロント上の点が保持されること"
     );
 }
@@ -1743,22 +1663,6 @@ fn fit_tracked_reports_progress_to_completion() {
     assert_eq!(s.total, 7, "total fit count");
     assert_eq!(s.done, s.total, "progress should reach 100%");
     assert!(!s.stage.is_empty(), "stage label should be set");
-}
-
-#[test]
-fn fit_tracked_cancel_before_start_returns_err() {
-    let (x_matrix, y) = quadratic_samples(60);
-    let req = SurrogateFitRequest {
-        x_matrix,
-        y,
-        param_names: vec!["x".to_string(), "y".to_string()],
-        objective_name: "f".to_string(),
-        model: SurrogateModelKind::Ridge,
-        auto_select: false,
-        constraints: vec![],
-        priority_rows: vec![],
-        param_bounds: None,
-    };
     let progress = FitProgress::new();
     progress.request_cancel();
     let res = fit_surrogate_with_validation_tracked(&req, &progress);

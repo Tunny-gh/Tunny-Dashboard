@@ -191,10 +191,6 @@ mod tests {
     fn parses_fractional_seconds() {
         let v = parse_naive_datetime("2024-01-01T00:00:00.500000").unwrap();
         assert!((v - 1_704_067_200.5).abs() < 1e-9);
-    }
-
-    #[test]
-    fn parses_fractional_seconds_arbitrary_digits() {
         let v = parse_naive_datetime("2024-01-01 00:00:00.123").unwrap();
         assert!((v - 1_704_067_200.123).abs() < 1e-9);
     }

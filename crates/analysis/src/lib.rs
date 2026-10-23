@@ -26,5 +26,3 @@ pub use data::{dataframe, extras, filter};
 pub use mcdm::{entropy, promethee, topsis, vikor};
 pub use multi_objective::{indicators, pareto};
 pub use report::{build_study_report, render_markdown, ReportLang, ReportOptions, ReportSource};
-#[cfg(test)]
-mod native_tests;

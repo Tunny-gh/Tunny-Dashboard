@@ -231,11 +231,6 @@ mod tests {
         // The (0, h) corner — the start of the text — drops below it.
         assert!(c.lowest.1 > 0.0);
         assert!(c.highest.1 < c.lowest.1);
-    }
-
-    #[test]
-    fn rotated_corners_ry_range_matches_highest_and_lowest() {
-        let c = rotated_label_corners(LABEL_SIZE, -std::f32::consts::FRAC_PI_4);
         assert!((c.ry_range.0 - c.highest.1).abs() < 1e-4);
         assert!((c.ry_range.1 - c.lowest.1).abs() < 1e-4);
     }
@@ -251,22 +246,12 @@ mod tests {
     }
 
     #[test]
-    fn stride_is_one_when_labels_have_room() {
-        // 100px between categories, far beyond the ~17px a 12px-tall rotated label needs.
-        assert_eq!(band(true, 100.0, 12.0).stride(100.0, 10), 1);
-    }
-
-    #[test]
-    fn stride_thins_out_when_rotated_labels_would_still_overlap() {
-        // 2px between categories; a rotated 12px-tall label needs ~17px.
-        assert!(band(true, 100.0, 12.0).stride(2.0, 200) > 1);
-    }
-
-    #[test]
     fn stride_relaxes_as_the_spacing_grows() {
         // Zooming in widens the gap between categories, which must bring dropped
         // labels back rather than leaving the initial thinning in place.
         let plan = band(true, 100.0, 12.0);
+        assert_eq!(plan.stride(100.0, 10), 1);
+        assert!(plan.stride(2.0, 200) > 1);
         assert!(plan.stride(8.0, 40) > plan.stride(20.0, 40));
         assert_eq!(plan.stride(20.0, 40), 1);
     }
@@ -281,12 +266,8 @@ mod tests {
     }
 
     #[test]
-    fn stride_of_single_label_is_one() {
-        assert_eq!(band(false, 100.0, 12.0).stride(400.0, 1), 1);
-    }
-
-    #[test]
     fn degenerate_spacing_falls_back_to_a_single_label() {
+        assert_eq!(band(false, 100.0, 12.0).stride(400.0, 1), 1);
         // A collapsed or non-finite transform must not produce `step_by(0)`.
         assert_eq!(band(true, 100.0, 12.0).stride(0.0, 40), 40);
         assert_eq!(band(true, 100.0, 12.0).stride(f32::NAN, 40), 40);

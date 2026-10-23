@@ -400,15 +400,6 @@ mod tests {
     }
 
     #[test]
-    fn pending_ref_point_encodes_auto_and_manual() {
-        // A change request is represented as one of two values: Auto / Manual(value).
-        let to_auto = Some(RefPointChange::Auto);
-        let to_manual = Some(RefPointChange::Manual(vec![1.0, 2.0]));
-        assert!(matches!(to_auto, Some(RefPointChange::Auto)));
-        assert!(matches!(to_manual, Some(RefPointChange::Manual(ref v)) if v == &[1.0, 2.0]));
-    }
-
-    #[test]
     fn adopt_compute_state_clears_stuck_computing() {
         // Pulling in computing=false from the global side after compute finishes drops
         // the computing flag on the item side that had been stuck showing a spinner.
@@ -430,16 +421,10 @@ mod tests {
             ref_point: vec![],
         };
         // x values should be 0, 50, 100 — not 10000, 10050, 10100
-        let step = history.sample_step;
-        let points: Vec<[f64; 2]> = history
-            .values
-            .iter()
-            .enumerate()
-            .map(|(i, &v)| [(i * step) as f64, v])
-            .collect();
-        assert_eq!(points[0][0], 0.0);
-        assert_eq!(points[1][0], 50.0);
-        assert_eq!(points[2][0], 100.0);
+        assert_eq!(
+            ConvergenceChart::to_points(&history),
+            vec![[0.0, 0.1], [50.0, 0.5], [100.0, 0.8]]
+        );
     }
 
     #[test]

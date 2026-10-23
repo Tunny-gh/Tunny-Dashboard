@@ -315,10 +315,6 @@ mod tests {
             false,
         );
         assert_eq!(pts, vec![[1.0, 0.0], [1.0, 0.5], [2.0, 0.5], [2.0, 1.0],]);
-    }
-
-    #[test]
-    fn build_edf_points_log_scale_drops_non_positive() {
         let pts = build_edf_points(&[-1.0, 0.0, 1.0, 2.0], true);
         assert_eq!(pts, vec![[1.0, 0.0], [1.0, 0.5], [2.0, 0.5], [2.0, 1.0],]);
     }
@@ -326,22 +322,7 @@ mod tests {
     #[test]
     fn build_edf_points_empty_input_returns_empty() {
         assert!(build_edf_points(&[], false).is_empty());
-    }
-
-    #[test]
-    fn build_edf_points_all_non_finite_returns_empty() {
         assert!(build_edf_points(&[f64::NAN, f64::INFINITY], false).is_empty());
-    }
-
-    #[test]
-    fn build_edf_points_all_dropped_by_log_filter_returns_empty() {
         assert!(build_edf_points(&[-1.0, 0.0], true).is_empty());
-    }
-
-    #[test]
-    fn edf_plot_chart_default() {
-        let chart = EdfPlotChart::default();
-        assert_eq!(chart.obj_idx, 0);
-        assert!(!chart.log_x);
     }
 }

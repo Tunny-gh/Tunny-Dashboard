@@ -150,15 +150,7 @@ mod tests {
     fn compute_point_alpha_empty_selected_returns_opaque() {
         assert_eq!(compute_point_alpha(0, &[]), 255);
         assert_eq!(compute_point_alpha(99, &[]), 255);
-    }
-
-    #[test]
-    fn compute_point_alpha_selected_returns_opaque() {
         assert_eq!(compute_point_alpha(5, &[1, 5, 10]), 255);
-    }
-
-    #[test]
-    fn compute_point_alpha_not_selected_returns_transparent() {
         assert_eq!(compute_point_alpha(3, &[1, 5, 10]), 50);
     }
 
@@ -176,38 +168,18 @@ mod tests {
     fn diverging_colormap_negative_one_is_blue() {
         let color = diverging_colormap(-1.0);
         assert!(color.b() > color.r(), "score=-1 should be blue-dominant");
-    }
-
-    #[test]
-    fn diverging_colormap_zero_is_white() {
         let color = diverging_colormap(0.0);
         assert_eq!(color.r(), 255);
         assert_eq!(color.g(), 255);
         assert_eq!(color.b(), 255);
-    }
-
-    #[test]
-    fn diverging_colormap_positive_one_is_red() {
         let color = diverging_colormap(1.0);
         assert!(color.r() > color.b(), "score=+1 should be red-dominant");
-    }
-
-    #[test]
-    fn diverging_colormap_intermediate_values_bounded() {
-        for i in -10..=10 {
-            let score = i as f64 / 10.0;
-            let _ = diverging_colormap(score);
-        }
     }
 
     #[test]
     fn correlation_color_negative_is_reddish() {
         let color = correlation_color(-1.0);
         assert!(color.r() > color.b());
-    }
-
-    #[test]
-    fn correlation_color_positive_is_bluish() {
         let color = correlation_color(1.0);
         assert!(color.b() > color.r());
     }

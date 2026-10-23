@@ -40,6 +40,7 @@ fn reports_keep_nominal_parameters_unsupported_not_ranked() {
         assert_eq!(importance.scores.len(), usize::from(mixed));
         assert!(importance.scores.iter().all(|(name, _)| name == "x"));
         let json = serde_json::to_value(&report).unwrap();
+        assert!(json.get("schema_version").is_some());
         assert_eq!(
             json["importance"]["unsupported_categorical"],
             serde_json::json!(["cat"])
@@ -218,12 +219,7 @@ fn single_objective_outcome_and_convergence() {
     assert_eq!(report.convergence.status, ConvergenceStatus::Converged);
     assert_eq!(report.convergence.found_at_trial_number, Some(0));
     assert!(!report.convergence.improved_in_last_20pct);
-}
-
-#[test]
-fn single_objective_importance_orders_a_first() {
-    let report = build_study_report(&meta_single(), &df_single(), None, &source(), &opts());
-    let imp = report.importance.expect("importance computed");
+    let imp = report.importance.as_ref().expect("importance computed");
     assert_eq!(imp.method, "spearman_abs");
     assert_eq!(imp.objective_name, "obj0");
     assert_eq!(imp.scores[0].0, "a", "a は obj0 と完全相関で最重要");
@@ -231,11 +227,6 @@ fn single_objective_importance_orders_a_first() {
     for w in imp.scores.windows(2) {
         assert!(w[0].1 >= w[1].1, "importance は降順");
     }
-}
-
-#[test]
-fn single_objective_key_findings_present() {
-    let report = build_study_report(&meta_single(), &df_single(), None, &source(), &opts());
     let kinds: Vec<FindingKind> = report.key_findings.iter().map(|f| f.kind).collect();
     assert!(kinds.contains(&FindingKind::BestSingle));
     assert!(kinds.contains(&FindingKind::ConvergenceStatus));
@@ -479,6 +470,10 @@ fn multi_objective_pareto_and_mcdm_consensus() {
         _ => panic!("multi-objective study must yield MultiObj"),
     }
 
+    assert_eq!(
+        render_markdown(&report, ReportLang::En),
+        render_markdown(&report, ReportLang::En)
+    );
     let mcdm = report.mcdm.expect("mcdm present for multi-objective");
     assert_eq!(mcdm.weight_scheme, "equal");
     assert_eq!(mcdm.weights, vec![0.5, 0.5]);
@@ -738,26 +733,10 @@ fn markdown_contains_all_sections_for_full_study() {
             "markdown must contain heading: {heading}"
         );
     }
-}
-
-#[test]
-fn markdown_is_deterministic() {
-    let report = build_study_report(&meta_multi(), &df_multi(), None, &source(), &opts());
-    let a = render_markdown(&report, ReportLang::En);
-    let b = render_markdown(&report, ReportLang::En);
-    assert_eq!(a, b, "同一入力→バイト同一");
-}
-
-#[test]
-fn markdown_escapes_pipe_in_names() {
-    let mut meta = meta_single();
-    meta.name = "a|b".to_string();
-    let report = build_study_report(&meta, &df_single(), None, &source(), &opts());
-    let md = render_markdown(&report, ReportLang::En);
-    assert!(
-        md.contains("a\\|b"),
-        "study 名のパイプはエスケープされるべき"
-    );
+    let ja = render_markdown(&report, ReportLang::Ja);
+    assert!(ja.contains("## まとめ"));
+    assert!(ja.contains("## 最適化結果"));
+    assert!(ja.contains("## 再現情報"));
 }
 
 #[test]
@@ -773,22 +752,4 @@ fn markdown_escapes_backslash_before_pipe() {
         md.contains(r"a\\\|b\\"),
         "バックスラッシュは `|` エスケープより前に二重化されるべき: {md}"
     );
-}
-
-#[test]
-fn markdown_japanese_smoke() {
-    let report = build_study_report(&meta_single(), &df_single(), None, &source(), &opts());
-    let md = render_markdown(&report, ReportLang::Ja);
-    assert!(md.contains("## まとめ"));
-    assert!(md.contains("## 最適化結果"));
-    assert!(md.contains("## 再現情報"));
-}
-
-#[test]
-fn json_serialization_is_deterministic() {
-    let report = build_study_report(&meta_multi(), &df_multi(), None, &source(), &opts());
-    let a = serde_json::to_string_pretty(&report).unwrap();
-    let b = serde_json::to_string_pretty(&report).unwrap();
-    assert_eq!(a, b);
-    assert!(a.contains("\"schema_version\""));
 }

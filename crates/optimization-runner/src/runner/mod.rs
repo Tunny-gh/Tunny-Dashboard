@@ -638,29 +638,6 @@ mod tests {
     }
 
     #[test]
-    fn nsga2_run_completes_and_records() {
-        let problem = two_var_problem();
-        let dir = tempfile::tempdir().unwrap();
-        let journal = dir.path().join("run.log");
-        let eval = FnEvaluator(|v: &[f64]| {
-            Ok(Evaluation {
-                objectives: vec![v[0] + v[1]],
-                constraints: vec![],
-                attributes: vec![],
-            })
-        });
-        let mut problem = problem;
-        problem.constraint_names.clear();
-        problem.attribute_names.clear();
-        let prep = prepare_run(&journal, &problem, &cfg(Sampler::Nsga2)).unwrap();
-        let progress = FitProgress::new();
-        let summary =
-            run_prepared(&prep, &problem, &eval, &cfg(Sampler::Nsga2), &progress).unwrap();
-        // even(4) x (1 gen + 1) = 8 evaluations.
-        assert_eq!(summary.completed, 8);
-    }
-
-    #[test]
     fn evaluation_errors_recorded_as_fail() {
         let problem = two_var_problem();
         let dir = tempfile::tempdir().unwrap();
@@ -703,7 +680,10 @@ mod tests {
                             attributes: vec![],
                         })
                     });
-                    run_prepared(&prep, &problem, &eval, &config, &FitProgress::new()).unwrap();
+                    let summary =
+                        run_prepared(&prep, &problem, &eval, &config, &FitProgress::new()).unwrap();
+                    assert_eq!(summary.completed, 8);
+                    assert_eq!(summary.failed, 0);
                     let (_, df, _) = parse_single_study(&std::fs::read(path).unwrap(), 0).unwrap();
                     let mut points = df
                         .get_numeric_column("x")

@@ -261,23 +261,15 @@ mod tests {
     }
 
     #[test]
-    fn build_bars_skips_trials_without_start() {
-        let trials = vec![
-            trial(0, TrialState::Complete, Some(100.0), Some(105.0)),
-            trial(1, TrialState::Waiting, None, None),
-        ];
-        let bars = build_timeline_bars(&trials);
-        assert_eq!(bars.len(), 1);
-        assert_eq!(bars[0].trial_id, 0);
-    }
-
-    #[test]
     fn build_bars_rebases_to_earliest_start() {
         let trials = vec![
             trial(0, TrialState::Complete, Some(100.0), Some(110.0)),
             trial(1, TrialState::Complete, Some(105.0), Some(120.0)),
+            trial(2, TrialState::Waiting, None, None),
         ];
         let bars = build_timeline_bars(&trials);
+        assert_eq!(bars.len(), 2);
+        assert_eq!([bars[0].trial_id, bars[1].trial_id], [0, 1]);
         assert_eq!(bars[0].start, 0.0);
         assert_eq!(bars[0].end, 10.0);
         assert_eq!(bars[1].start, 5.0);

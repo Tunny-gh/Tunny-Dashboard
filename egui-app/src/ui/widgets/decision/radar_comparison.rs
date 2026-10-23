@@ -222,22 +222,10 @@ mod tests {
     fn normalize_normal_case() {
         assert!((normalize(5.0, 0.0, 10.0, false) - 0.5).abs() < 1e-9);
         assert!((normalize(2.0, 0.0, 10.0, false) - 0.2).abs() < 1e-9);
-    }
-
-    #[test]
-    fn normalize_flip_case() {
         assert!((normalize(5.0, 0.0, 10.0, true) - 0.5).abs() < 1e-9);
         assert!((normalize(2.0, 0.0, 10.0, true) - 0.8).abs() < 1e-9);
-    }
-
-    #[test]
-    fn normalize_degenerate_range_is_mid_radius() {
         assert!((normalize(5.0, 3.0, 3.0, false) - 0.5).abs() < 1e-9);
         assert!((normalize(5.0, 3.0, 3.0, true) - 0.5).abs() < 1e-9);
-    }
-
-    #[test]
-    fn normalize_clamps_out_of_range_values() {
         assert!((normalize(-5.0, 0.0, 10.0, false) - 0.0).abs() < 1e-9);
         assert!((normalize(15.0, 0.0, 10.0, false) - 1.0).abs() < 1e-9);
     }

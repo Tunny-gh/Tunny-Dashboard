@@ -503,14 +503,7 @@ mod tests {
         };
         cam.apply_zoom(1.0);
         assert!((cam.zoom - 0.5).abs() < f32::EPSILON);
-    }
-
-    #[test]
-    fn apply_zoom_clamps_to_max() {
-        let mut cam = ArcballCamera {
-            zoom: 9.5,
-            ..Default::default()
-        };
+        cam.zoom = 9.5;
         cam.apply_zoom(-1.0);
         assert!((cam.zoom - 10.0).abs() < f32::EPSILON);
     }
@@ -519,16 +512,8 @@ mod tests {
     fn normalize_to_clip_min_maps_to_minus_one() {
         let v = normalize_to_clip(0.0, 0.0, 10.0);
         assert!((v - (-1.0)).abs() < 1e-6);
-    }
-
-    #[test]
-    fn normalize_to_clip_max_maps_to_plus_one() {
         let v = normalize_to_clip(10.0, 0.0, 10.0);
         assert!((v - 1.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn normalize_to_clip_equal_range_returns_zero() {
         let v = normalize_to_clip(5.0, 5.0, 5.0);
         assert!((v - 0.0).abs() < f32::EPSILON);
     }
@@ -587,10 +572,6 @@ mod tests {
                 }
             }
         }
-    }
-
-    #[test]
-    fn axis_segments_3d_clamps_zero_subdivisions_to_one() {
         let segs = axis_segments_3d(0);
         assert_eq!(segs.len(), 3);
     }
@@ -618,15 +599,10 @@ mod tests {
     }
 
     #[test]
-    fn rotate_by_drag_changes_rotation_from_identity() {
+    fn rotate_by_drag_preserves_unit_quaternion_length() {
         let mut cam = ArcballCamera::default();
         cam.rotate_by_drag(100.0, 0.0);
         assert_ne!(cam.rotation, [0.0, 0.0, 0.0, 1.0]);
-    }
-
-    #[test]
-    fn rotate_by_drag_preserves_unit_quaternion_length() {
-        let mut cam = ArcballCamera::default();
         for _ in 0..100 {
             cam.rotate_by_drag(13.7, -7.3);
         }

@@ -316,16 +316,6 @@ mod wfg_tests {
         }
     }
 
-    /// Hand-computed check: points (0,1,1), (1,0,0), ref point (1.1, 1.1, 1.1).
-    /// Inclusion-exclusion: 1.1·0.1·0.1 + 0.1·1.1·1.1 − 0.1³ = 0.011 + 0.121 − 0.001 = 0.131
-    #[test]
-    fn wfg_3d_two_points_hand_computed() {
-        let pts = vec![vec![0.0, 1.0, 1.0], vec![1.0, 0.0, 0.0]];
-        let ref_pt = vec![1.1, 1.1, 1.1];
-        let hv = hypervolume_nd(&pts, &ref_pt);
-        assert!((hv - 0.131).abs() < 1e-12, "HV = {hv}, expected 0.131");
-    }
-
     /// Mixing in dominated points does not change the HV (they are reduced to the non-dominated set internally).
     #[test]
     fn wfg_unaffected_by_dominated_points() {
@@ -336,18 +326,9 @@ mod wfg_tests {
         let a = hypervolume_nd(&front, &ref_pt);
         let b = hypervolume_nd(&with_dominated, &ref_pt);
         assert!((a - b).abs() < 1e-12, "a={a} b={b}");
-    }
-
-    /// Duplicate points are counted only once.
-    #[test]
-    fn wfg_duplicate_points_counted_once() {
-        let front = vec![vec![0.2, 0.8, 0.5], vec![0.8, 0.2, 0.5]];
-        let mut with_dup = front.clone();
-        with_dup.push(vec![0.2, 0.8, 0.5]);
-        let ref_pt = vec![1.0, 1.0, 1.0];
-        let a = hypervolume_nd(&front, &ref_pt);
-        let b = hypervolume_nd(&with_dup, &ref_pt);
-        assert!((a - b).abs() < 1e-12, "a={a} b={b}");
+        with_dominated.push(front[0].clone());
+        let with_duplicate = hypervolume_nd(&with_dominated, &ref_pt);
+        assert!((a - with_duplicate).abs() < 1e-12);
     }
 
     /// A single point's HV equals the inclusive HV (box volume).

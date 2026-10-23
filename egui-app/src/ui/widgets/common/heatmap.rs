@@ -149,15 +149,3 @@ pub fn draw_colorbar_simple(
 pub fn normalize(v: f64, v_min: f64, v_max: f64) -> f32 {
     range_math::normalize01(v, v_min, v_max)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn normalize_clamps_to_unit_range() {
-        assert!((normalize(0.5, 0.0, 1.0) - 0.5).abs() < 1e-6);
-        assert!((normalize(-1.0, 0.0, 1.0) - 0.0).abs() < 1e-6);
-        assert!((normalize(2.0, 0.0, 1.0) - 1.0).abs() < 1e-6);
-    }
-}

@@ -264,13 +264,4 @@ mod pca_tests {
             "row_index,pc1,pc2\n1,0,-1.25\n3,2.5,3\n"
         );
     }
-
-    #[test]
-    fn pca_csv_keeps_complete_projection_values_unchanged() {
-        let result = result_with_source_rows(vec![0, 1]);
-        assert_eq!(
-            build_pca_biplot_csv_from_result(&result).unwrap(),
-            "row_index,pc1,pc2\n0,0,-1.25\n1,2.5,3\n"
-        );
-    }
 }

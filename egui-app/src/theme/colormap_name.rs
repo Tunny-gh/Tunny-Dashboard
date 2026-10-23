@@ -30,15 +30,4 @@ mod tests {
         assert_eq!(jet.interpolate(-0.1), jet.interpolate(0.0));
         assert_eq!(jet.interpolate(1.1), jet.interpolate(1.0));
     }
-
-    #[test]
-    fn colormap_name_to_colormap_each_boundary() {
-        for name in ColormapName::all() {
-            let cmap = colormap_from_name(name);
-            let _ = cmap.interpolate(0.0);
-            let _ = cmap.interpolate(1.0);
-            let _ = cmap.interpolate(-0.5);
-            let _ = cmap.interpolate(1.5);
-        }
-    }
 }

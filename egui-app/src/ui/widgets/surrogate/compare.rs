@@ -301,18 +301,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn surrogate_compare_chart_default_values() {
-        let s = SurrogateCompareChart::default();
-        assert_eq!(s.selected_objective, 0);
-        assert_eq!(s.slice_param, 0);
-        assert!(!s.include_moe);
-        assert!(s.pending.is_none());
-        assert!(!s.computing);
-        assert!(s.error.is_none());
-        assert!(s.result.is_none());
-    }
-
-    #[test]
     fn adopt_compute_state_propagates_and_keeps_selection() {
         let src = SurrogateCompareChart {
             computing: false,

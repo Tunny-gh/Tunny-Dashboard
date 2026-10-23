@@ -297,8 +297,13 @@ fn journal_sink_failure_retains_only_accepted_prefix_and_empty_reload_replaces()
     })
     .unwrap_err();
     assert_eq!(error, "fixture sink rejected");
+    assert_eq!(deliveries, 2);
     manager.fail(ticket).unwrap();
     let retained = manager.acquire().unwrap();
+    assert_eq!(
+        study_projection::project(&retained).dataframe.row_count(),
+        1
+    );
     assert_eq!(
         retained
             .data()

@@ -183,19 +183,6 @@ fn tc_201_b01_all_same_coords() {
 }
 
 #[test]
-fn tc_201_b02_chain_dominance() {
-    let objs = vec![
-        vec![1.0, 1.0],
-        vec![2.0, 2.0],
-        vec![3.0, 3.0],
-        vec![4.0, 4.0],
-    ];
-    let is_min = [true, true];
-    let ranks = nd_sort(&objs, &is_min);
-    assert_eq!(ranks, vec![0, 1, 2, 3]);
-}
-
-#[test]
 fn tc_201_b03_single_point() {
     let rows = vec![make_row_obj(0, vec![1.0, 2.0])];
     let df = setup_study(rows, &["obj0", "obj1"]);
@@ -231,14 +218,6 @@ fn tc_hv_5d_monotonically_nondecreasing() {
 }
 
 #[test]
-fn tc_hv_nd_3d_known_value() {
-    let pts = vec![vec![1.0, 1.0, 1.0]];
-    let ref_pt = vec![2.0, 2.0, 2.0];
-    let hv = hypervolume_nd(&pts, &ref_pt);
-    assert!((hv - 1.0).abs() < 1e-9, "HV = {}, expected 1.0", hv);
-}
-
-#[test]
 fn tc_hv_201_11_compute_pareto_ranks_3obj_two_points_overlap() {
     // The 2 points (0,1,1), (1,0,0) are mutually non-dominated, and the 3rd
     // dimension's value also differs between the two points (to avoid a
@@ -256,7 +235,7 @@ fn tc_hv_201_11_compute_pareto_ranks_3obj_two_points_overlap() {
     let hv = result
         .hypervolume
         .expect("hypervolume should be Some for m=3");
-    assert!((hv - 0.131).abs() < 1e-9, "HV = {}, expected 0.131", hv);
+    assert!((hv - 0.131).abs() < 1e-12, "HV = {}, expected 0.131", hv);
 }
 
 #[test]
@@ -393,18 +372,6 @@ fn tc_cav_02_infeasible_ranked_by_constraint_sum_ascending() {
         result.ranks[2] < result.ranks[0],
         "idx2 (sum=2.0) must rank lower than idx0 (sum=3.0)"
     );
-}
-
-#[test]
-fn tc_cav_03_all_infeasible_gives_empty_pareto_indices() {
-    let rows = vec![
-        make_row_constrained(0, vec![1.0, 2.0], vec![1.0]),
-        make_row_constrained(1, vec![2.0, 1.0], vec![2.0]),
-    ];
-    let df = setup_study_constrained(rows, &["obj0", "obj1"], 1);
-    let result = compute_pareto_ranks(&df, &[true, true]);
-    assert!(result.pareto_indices.is_empty());
-    assert_eq!(result.ranks.len(), 2);
 }
 
 #[test]

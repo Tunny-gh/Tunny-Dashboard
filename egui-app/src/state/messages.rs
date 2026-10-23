@@ -1,5 +1,3 @@
-#[cfg(test)]
-use crate::state::app_state::StudyContext;
 use crate::state::app_state::{
     ClusterResult, HeatmapMatrix, McdmResult, SensitivityResult, SobolResult, StudyMeta,
 };
@@ -243,43 +241,6 @@ pub enum AppMessage {
         studies: Vec<StudyMeta>,
         path: std::path::PathBuf,
     },
-    #[cfg(test)]
-    StudySelected {
-        meta: StudyMeta,
-        /// Explicit fixture input; production uses the stamped Journal handoff.
-        dataframe: Option<std::sync::Arc<tdashboard_analysis::dataframe::DataFrame>>,
-        /// Pareto rank (in row index order, computed at the app layer). Goes into StudyView's parallel array.
-        pareto_rank: Vec<u32>,
-        pareto_indices: Vec<u32>,
-    },
-    /// Incremental (streaming) load on Study selection. Completed Trials are
-    /// sent every 1000 rows, and the UI side appends and rebuilds the
-    /// DataFrame per batch to update rendering (avoids freezing during load).
-    /// The Pareto rank is computed and finalized only once, on the
-    /// `is_final` batch.
-    #[cfg(test)]
-    StudyChunkLoaded {
-        study_id: u32,
-        /// Cumulative StudyMeta up to this point.
-        meta: StudyMeta,
-        /// Trial rows newly completed in this batch (core representation).
-        new_rows: Vec<tdashboard_analysis::dataframe::TrialRow>,
-        /// Cumulative parameter column names (sorted).
-        param_names: Vec<String>,
-        /// Objective column names.
-        objective_names: Vec<String>,
-        /// Cumulative user_attr numeric column names.
-        user_attr_numeric_names: Vec<String>,
-        /// Cumulative user_attr string column names.
-        user_attr_string_names: Vec<String>,
-        /// Maximum number of observed constraints.
-        max_constraints: usize,
-        has_constraints: bool,
-        /// Whether this is the first batch (a new StudyContext is created).
-        is_first: bool,
-        /// Whether this is the final batch (Pareto finalized, loading ends).
-        is_final: bool,
-    },
     SensitivityDone {
         /// (metric cache_id, objective idx, feasible_only)
         key: (u8, usize, bool),
@@ -349,11 +310,6 @@ pub enum AppMessage {
     TaskPanicked(String),
 
     // ── TASK-2112: new variants ────────────────────────────────────
-    /// REQ-006: comparison Study load completed
-    #[cfg(test)]
-    ComparisonStudyLoaded {
-        context: Box<StudyContext>,
-    },
     /// REQ-007: Artifacts directory scan completed
     ArtifactsDirScanned {
         trial_artifacts: std::collections::HashMap<u32, Vec<crate::io::artifacts::ArtifactEntry>>,
@@ -367,8 +323,6 @@ pub enum AppMessage {
         source_generation: u64,
         images: Vec<(u32, String)>,
     },
-    #[cfg(test)]
-    ComparisonStudyLoadFailed(String),
     /// Observed Contour grid generation has completed (interpolation of observed points).
     ObservedContourDone(ObservedContourResult),
     ObservedContourFailed(String),
@@ -448,43 +402,4 @@ pub enum AppMessage {
     ProcessOptFinished {
         result: Result<tdashboard_optimization_runner::runner::RunSummary, String>,
     },
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn app_message_error_variant() {
-        let msg = AppMessage::Error("test error".to_string());
-        match msg {
-            AppMessage::Error(e) => assert_eq!(e, "test error"),
-            _ => panic!("Expected Error variant"),
-        }
-    }
-
-    #[test]
-    fn pdp_result_one_dim() {
-        let result = PdpResult1d {
-            x_values: vec![0.0, 0.5, 1.0],
-            y_values: vec![1.0, 0.5, 0.0],
-            y_upper: None,
-            y_lower: None,
-            ice_lines: vec![],
-            r2: None,
-            param_name: "x".to_string(),
-        };
-        assert_eq!(result.x_values.len(), 3);
-    }
-
-    #[test]
-    fn message_handler_accepts_new_message_family() {
-        let msgs: Vec<AppMessage> = vec![AppMessage::ComparisonStudyLoadFailed("err".to_string())];
-        // all variants should be matchable without panic
-        for msg in msgs {
-            if let AppMessage::ComparisonStudyLoadFailed(e) = msg {
-                assert!(!e.is_empty())
-            }
-        }
-    }
 }

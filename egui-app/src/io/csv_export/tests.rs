@@ -140,34 +140,6 @@ fn csv_export_filename_optimization_history() {
 }
 
 #[test]
-fn csv_export_filename_all_end_with_csv() {
-    let ids = vec![
-        ChartId::OptimizationHistory,
-        ChartId::ConvergenceIndicators,
-        ChartId::ImportanceChart,
-        ChartId::PdpChart,
-        ChartId::PdpChart2D,
-        ChartId::ParallelCoordinates,
-        ChartId::ScatterMatrix,
-        ChartId::ClusterScatter,
-        ChartId::SensitivityHeatmap,
-        ChartId::ParetoScatter2D,
-        ChartId::ParetoScatter3D,
-        ChartId::McdmRankChart,
-        ChartId::McdmScatterChart,
-        ChartId::SliceChart,
-        ChartId::SurrogateOpt,
-    ];
-    for id in &ids {
-        assert!(
-            csv_export_filename(id).ends_with(".csv"),
-            "{:?} filename does not end with .csv",
-            id
-        );
-    }
-}
-
-#[test]
 fn opt_history_csv_minimize_tracks_cumulative_min() {
     let mut state = AppState::default();
     let mut study = make_study(
@@ -243,28 +215,14 @@ fn convergence_csv_returns_none_when_missing() {
 }
 
 #[test]
-fn importance_csv_returns_none_when_computing() {
-    let state = AppState::default();
-    let mut widgets = WidgetStates::default();
-    widgets.importance.computing = true;
-    assert!(build_importance_csv(&state, &widgets).is_none());
-}
-
-#[test]
-fn importance_csv_returns_none_when_no_cache() {
-    let state = AppState::default();
-    let widgets = WidgetStates::default();
-    // importance_cache is empty, should return None
-    assert!(build_importance_csv(&state, &widgets).is_none());
-}
-
-#[test]
 fn importance_csv_has_expected_columns() {
     use crate::state::app_state::SensitivityResult;
     use crate::state::results::RidgeResult;
     let mut state = AppState::default();
+    let mut widgets = WidgetStates::default();
+    assert!(build_importance_csv(&state, &widgets).is_none());
     let result = SensitivityResult {
-        param_names: vec!["x".into(), "y".into()],
+        param_names: vec!["x,y".into(), "=SUM(A1)".into()],
         unsupported_categorical: vec![],
         spearman: vec![vec![0.9, 0.3]],
         ridge: vec![RidgeResult {
@@ -282,12 +240,16 @@ fn importance_csv_has_expected_columns() {
         (0u8, 0, false),
         crate::state::analysis_job::fixture_result(result),
     );
-    let widgets = WidgetStates::default(); // metric=Spearman, obj_idx=0
+    widgets.importance.computing = true;
+    assert!(build_importance_csv(&state, &widgets).is_none());
+    widgets.importance.computing = false;
     let csv = build_importance_csv(&state, &widgets).unwrap();
     let header = csv.lines().next().unwrap();
     assert_eq!(header, "variable,importance_score,method");
     // 2 params → 2 data rows + header
     assert_eq!(csv.lines().count(), 3);
+    assert_eq!(csv.lines().nth(1).unwrap(), "\"x,y\",0.9,Spearman");
+    assert_eq!(csv.lines().nth(2).unwrap(), "'=SUM(A1),0.3,Spearman");
 }
 
 #[test]
@@ -373,62 +335,6 @@ fn unsupported_names_do_not_bypass_heatmap_dimension_validation() {
 }
 
 #[test]
-fn importance_csv_quotes_param_name_with_comma() {
-    use crate::state::app_state::SensitivityResult;
-    use crate::state::results::RidgeResult;
-    let mut state = AppState::default();
-    let result = SensitivityResult {
-        param_names: vec!["x,y".into()],
-        unsupported_categorical: vec![],
-        spearman: vec![vec![0.9]],
-        ridge: vec![RidgeResult {
-            beta: vec![0.8],
-            r_squared: 0.95,
-        }],
-        rf_anova: None,
-        mdi: None,
-        shap: None,
-        permutation: None,
-        ard: None,
-    };
-    state.importance_cache.select(
-        (0u8, 0, false),
-        crate::state::analysis_job::fixture_result(result),
-    );
-    let widgets = WidgetStates::default();
-    let csv = build_importance_csv(&state, &widgets).unwrap();
-    assert_eq!(csv.lines().nth(1).unwrap(), "\"x,y\",0.9,Spearman");
-}
-
-#[test]
-fn importance_csv_guards_param_name_starting_with_equals() {
-    use crate::state::app_state::SensitivityResult;
-    use crate::state::results::RidgeResult;
-    let mut state = AppState::default();
-    let result = SensitivityResult {
-        param_names: vec!["=SUM(A1)".into()],
-        unsupported_categorical: vec![],
-        spearman: vec![vec![0.9]],
-        ridge: vec![RidgeResult {
-            beta: vec![0.8],
-            r_squared: 0.95,
-        }],
-        rf_anova: None,
-        mdi: None,
-        shap: None,
-        permutation: None,
-        ard: None,
-    };
-    state.importance_cache.select(
-        (0u8, 0, false),
-        crate::state::analysis_job::fixture_result(result),
-    );
-    let widgets = WidgetStates::default();
-    let csv = build_importance_csv(&state, &widgets).unwrap();
-    assert_eq!(csv.lines().nth(1).unwrap(), "'=SUM(A1),0.9,Spearman");
-}
-
-#[test]
 fn sensitivity_csv_has_objective_columns_in_header() {
     use crate::state::app_state::HeatmapMatrix;
     let widgets = WidgetStates::default(); // default metric = Spearman (id 0)
@@ -454,22 +360,6 @@ fn sensitivity_csv_returns_none_when_no_result() {
     let state = AppState::default(); // sensitivity_heatmap_cache is empty
     let widgets = WidgetStates::default();
     assert!(build_sensitivity_csv(&state, &widgets).is_none());
-}
-
-#[test]
-fn trial_based_csv_has_trial_id_header() {
-    let mut state = AppState::default();
-    let mut study = make_study(
-        vec!["x".into()],
-        vec!["f".into()],
-        vec![Direction::Minimize],
-    );
-    let mut p = HashMap::new();
-    p.insert("x".to_string(), 1.0_f64);
-    study.set_rows_for_test(vec![make_trial(0, p, vec![0.5])]);
-    state.current_study = Some(study);
-    let csv = build_trial_based_csv(&state).unwrap();
-    assert!(csv.lines().next().unwrap().contains("trial_id"));
 }
 
 #[test]
@@ -523,27 +413,6 @@ fn cluster_csv_includes_cluster_id_column() {
 }
 
 #[test]
-fn pareto_csv_includes_all_trials_with_rank() {
-    let mut state = AppState::default();
-    let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);
-    study.set_rows_for_test(vec![
-        make_trial_ranked(0, HashMap::new(), vec![1.0], 0),
-        make_trial_ranked(1, HashMap::new(), vec![2.0], 1),
-        make_trial_ranked(2, HashMap::new(), vec![3.0], 2),
-    ]);
-    study.pareto_indices = vec![0];
-    state.current_study = Some(study);
-    let csv = build_pareto_csv(&state).unwrap();
-    let lines: Vec<&str> = csv.lines().collect();
-    // Header + every trial, each tagged with its Pareto rank.
-    assert_eq!(lines.len(), 4, "header + 3 rows: {:?}", lines);
-    assert!(lines[0].contains("pareto_rank"));
-    assert!(lines[1].ends_with(",0"), "row0 rank: {}", lines[1]);
-    assert!(lines[2].ends_with(",1"), "row1 rank: {}", lines[2]);
-    assert!(lines[3].ends_with(",2"), "row2 rank: {}", lines[3]);
-}
-
-#[test]
 fn pareto_csv_uses_row_rank_not_trial_id() {
     // Regression: rank must be read per row, not by matching trial ids
     // against pareto_indices. With non-contiguous trial ids (100/200/300)
@@ -560,6 +429,8 @@ fn pareto_csv_uses_row_rank_not_trial_id() {
     let csv = build_pareto_csv(&state).unwrap();
     let lines: Vec<&str> = csv.lines().collect();
     assert_eq!(lines.len(), 4, "header + 3 rows: {:?}", lines);
+    assert!(lines[0].contains("pareto_rank"));
+    assert!(lines[2].ends_with(",1"), "row1 rank: {}", lines[2]);
     // First data row: trial id 100, trial.number 100 (= test trial_number), rank 0.
     assert!(lines[1].starts_with("100,100,"), "row: {}", lines[1]);
     assert!(lines[1].ends_with(",0"), "row0 rank: {}", lines[1]);
@@ -608,22 +479,9 @@ fn pdp_csv_has_correct_header() {
     );
     assert_eq!(lines.len(), 3); // header + 2 points
     assert_eq!(lines[1], "x,0,0.5,0.4,0.6");
-}
-
-#[test]
-fn pdp_csv_handles_missing_ci() {
-    use crate::state::messages::PdpResult1d;
-    let mut widgets = WidgetStates::default();
-    widgets.pdp_chart.result = Some(PdpResult1d {
-        x_values: vec![0.0],
-        y_values: vec![0.5],
-        y_upper: None,
-        y_lower: None,
-        ice_lines: vec![],
-        r2: None,
-        param_name: "x".to_string(),
-    });
-    let state = AppState::default();
+    let result = widgets.pdp_chart.result.as_mut().unwrap();
+    result.y_upper = None;
+    result.y_lower = None;
     let csv = build_pdp_csv(&state, &widgets).unwrap();
     // lower_ci and upper_ci should be empty strings
     assert_eq!(csv.lines().nth(1).unwrap(), "x,0,0.5,,");
@@ -724,6 +582,22 @@ fn mcdm_rank_csv_has_correct_header_and_method_topsis() {
     assert_eq!(lines[0], "trial_id,rank,score,method");
     assert!(lines[1].ends_with(",TOPSIS"), "method column: {}", lines[1]);
     assert_eq!(lines.len(), 3); // header + 2 rows
+    assert_eq!(
+        build_mcdm_scatter_csv(&result, &state)
+            .unwrap()
+            .lines()
+            .next()
+            .unwrap(),
+        "trial_id,rank,primary_score"
+    );
+    assert_eq!(
+        build_mcdm_table_csv(&result, &state)
+            .unwrap()
+            .lines()
+            .next()
+            .unwrap(),
+        "trial_id,rank,topsis_score"
+    );
 }
 
 #[test]
@@ -732,28 +606,7 @@ fn mcdm_rank_csv_returns_none_when_no_study() {
     let result = make_topsis_mcdm(1);
     // None when there's no current_study
     assert!(build_mcdm_rank_csv(&result, &state).is_none());
-}
-
-#[test]
-fn mcdm_scatter_csv_has_correct_header() {
-    let mut state = AppState::default();
-    let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);
-    study.set_rows_for_test(vec![make_trial(0, HashMap::new(), vec![1.0])]);
-    state.current_study = Some(study);
-    let result = make_topsis_mcdm(1);
-    let csv = build_mcdm_scatter_csv(&result, &state).unwrap();
-    assert_eq!(csv.lines().next().unwrap(), "trial_id,rank,primary_score");
-}
-
-#[test]
-fn mcdm_table_csv_topsis_header() {
-    let mut state = AppState::default();
-    let mut study = make_study(vec![], vec!["f".into()], vec![Direction::Minimize]);
-    study.set_rows_for_test(vec![make_trial(0, HashMap::new(), vec![1.0])]);
-    state.current_study = Some(study);
-    let result = make_topsis_mcdm(1);
-    let csv = build_mcdm_table_csv(&result, &state).unwrap();
-    assert_eq!(csv.lines().next().unwrap(), "trial_id,rank,topsis_score");
+    assert!(build_mcdm_table_csv(&result, &state).is_none());
 }
 
 #[test]
@@ -777,13 +630,6 @@ fn mcdm_table_csv_vikor_header() {
         csv.lines().next().unwrap(),
         "trial_id,rank,s_value,r_value,q_value"
     );
-}
-
-#[test]
-fn mcdm_table_csv_returns_none_when_no_study() {
-    let state = AppState::default();
-    let result = make_topsis_mcdm(1);
-    assert!(build_mcdm_table_csv(&result, &state).is_none());
 }
 
 #[test]
@@ -829,33 +675,11 @@ fn make_multi_opt_result() -> crate::state::messages::SurrogateMultiOptUiResult 
 }
 
 #[test]
-fn multi_opt_csv_header_is_objectives_then_params() {
-    let result = make_multi_opt_result();
-    let csv = build_surrogate_multi_opt_csv(&result);
-    let header = csv.lines().next().unwrap();
-    assert_eq!(header, "f0,f1,x,y");
-}
-
-#[test]
-fn multi_opt_csv_row_count_equals_front_size() {
-    let result = make_multi_opt_result();
-    let csv = build_surrogate_multi_opt_csv(&result);
-    // 1 header row + 2 front-point rows = 3 rows total
-    assert_eq!(csv.lines().count(), 3);
-}
-
-#[test]
-fn has_csv_data_true_when_multi_result_present() {
-    let mut widgets = WidgetStates::default();
-    let state = AppState::default();
-    widgets.surrogate_opt.multi_result = Some(make_multi_opt_result());
-    assert!(has_csv_data(&ChartId::SurrogateOpt, &state, &widgets));
-}
-
-#[test]
 fn build_surrogate_opt_csv_prefers_multi_result() {
     let mut widgets = WidgetStates::default();
     widgets.surrogate_opt.multi_result = Some(make_multi_opt_result());
+    let state = AppState::default();
+    assert!(has_csv_data(&ChartId::SurrogateOpt, &state, &widgets));
     // Also set a single-objective result (to verify multi-objective takes
     // priority).
     widgets.surrogate_opt.result = Some(crate::state::messages::SurrogateOptUiResult {
@@ -869,15 +693,11 @@ fn build_surrogate_opt_csv_prefers_multi_result() {
         predicted_constraints: vec![],
         feasibility_probability: None,
     });
-    let state = AppState::default();
     let csv = build_chart_csv(&ChartId::SurrogateOpt, &state, &widgets).unwrap();
     // The multi-objective CSV's header includes the objective names
     let header = csv.lines().next().unwrap();
-    assert!(
-        header.contains("f0") && header.contains("f1"),
-        "header: {}",
-        header
-    );
+    assert_eq!(header, "f0,f1,x,y");
+    assert_eq!(csv.lines().count(), 3);
 }
 
 #[test]

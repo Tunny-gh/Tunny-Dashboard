@@ -284,12 +284,6 @@ mod tests {
         assert_eq!(ref_point_to_normalized(&v, &is_min), v);
     }
 
-    // McdmMethod tests
-    #[test]
-    fn mcdm_method_label() {
-        assert_eq!(McdmMethod::Topsis.label(), "TOPSIS");
-    }
-
     #[test]
     fn mcdm_method_all() {
         assert_eq!(
@@ -303,49 +297,6 @@ mod tests {
         );
     }
 
-    // McdmResult tests
-    #[test]
-    fn mcdm_result_topsis_primary_scores() {
-        let result = McdmResult::Topsis(TopsisResult {
-            scores: vec![0.8, 0.6, 0.9],
-            ranked_indices: vec![2, 0, 1],
-            duration_ms: 12.5,
-        });
-        assert_eq!(result.primary_scores(), &[0.8, 0.6, 0.9]);
-    }
-
-    #[test]
-    fn mcdm_result_topsis_ranked_indices() {
-        let result = McdmResult::Topsis(TopsisResult {
-            scores: vec![0.8, 0.6, 0.9],
-            ranked_indices: vec![2, 0, 1],
-            duration_ms: 12.5,
-        });
-        assert_eq!(result.ranked_indices(), &[2, 0, 1]);
-    }
-
-    #[test]
-    fn mcdm_result_topsis_method_label() {
-        let result = McdmResult::Topsis(TopsisResult {
-            scores: vec![0.5],
-            ranked_indices: vec![0],
-            duration_ms: 1.0,
-        });
-        assert_eq!(result.method_label(), "TOPSIS");
-    }
-
-    #[test]
-    fn topsis_result_all_fields() {
-        let r = TopsisResult {
-            scores: vec![0.9, 0.1],
-            ranked_indices: vec![0, 1],
-            duration_ms: 42.0,
-        };
-        assert_eq!(r.scores.len(), 2);
-        assert_eq!(r.ranked_indices.len(), 2);
-        assert!((r.duration_ms - 42.0).abs() < f64::EPSILON);
-    }
-
     #[test]
     fn mcdm_result_wrap_topsis_integration() {
         let topsis = TopsisResult {
@@ -357,19 +308,8 @@ mod tests {
         assert_eq!(mcdm.primary_scores(), &[0.8, 0.6, 0.9]);
         assert_eq!(mcdm.ranked_indices(), &[2, 0, 1]);
         assert!((mcdm.duration_ms() - 12.5).abs() < f64::EPSILON);
+        assert_eq!(mcdm.method(), McdmMethod::Topsis);
         assert_eq!(mcdm.method_label(), "TOPSIS");
-    }
-
-    // VikorResult tests
-    #[test]
-    fn mcdm_method_vikor_label() {
-        assert_eq!(McdmMethod::Vikor.label(), "VIKOR");
-    }
-
-    #[test]
-    fn mcdm_method_all_includes_vikor() {
-        assert!(McdmMethod::all().contains(&McdmMethod::Vikor));
-        assert_eq!(McdmMethod::all().len(), 4);
     }
 
     fn make_vikor_mcdm_result() -> McdmResult {
@@ -388,29 +328,9 @@ mod tests {
     fn mcdm_result_vikor_primary_scores() {
         let r = make_vikor_mcdm_result();
         assert_eq!(r.primary_scores(), &[0.9, 0.5, 0.1]);
-    }
-
-    #[test]
-    fn mcdm_result_vikor_ranked_indices() {
-        let r = make_vikor_mcdm_result();
         assert_eq!(r.ranked_indices(), &[0, 1, 2]);
-    }
-
-    #[test]
-    fn mcdm_result_vikor_duration_ms() {
-        let r = make_vikor_mcdm_result();
         assert!((r.duration_ms() - 5.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn mcdm_result_vikor_method_label() {
-        let r = make_vikor_mcdm_result();
         assert_eq!(r.method_label(), "VIKOR");
-    }
-
-    #[test]
-    fn mcdm_result_vikor_method() {
-        let r = make_vikor_mcdm_result();
         assert_eq!(r.method(), McdmMethod::Vikor);
     }
 
@@ -429,44 +349,13 @@ mod tests {
         );
     }
 
-    // EntropyResult tests
-    #[test]
-    fn entropy_result_fields() {
-        let r = EntropyResult {
-            weights: vec![0.4, 0.6],
-            entropies: vec![0.8, 0.5],
-            diversities: vec![0.2, 0.5],
-            duration_ms: 1.23,
-        };
-        assert_eq!(r.weights.len(), 2);
-        assert!((r.weights[0] - 0.4).abs() < f64::EPSILON);
-        assert!((r.duration_ms - 1.23).abs() < 1e-9);
-    }
-
-    #[test]
-    fn tc_pr_011_01_promethee_i_label() {
-        assert_eq!(McdmMethod::PrometheeI.label(), "PROMETHEE I");
-    }
-
-    #[test]
-    fn tc_pr_011_02_promethee_ii_label() {
-        assert_eq!(McdmMethod::PrometheeII.label(), "PROMETHEE II");
-    }
-
-    #[test]
-    fn tc_pr_011_03_all_has_four_elements() {
-        assert_eq!(McdmMethod::all().len(), 4);
-        assert!(McdmMethod::all().contains(&McdmMethod::PrometheeI));
-        assert!(McdmMethod::all().contains(&McdmMethod::PrometheeII));
-    }
-
     fn make_promethee_result() -> PrometheeResult {
         PrometheeResult {
             phi_plus: vec![0.8, 0.5, 0.2],
             phi_minus: vec![0.2, 0.5, 0.8],
             phi_net: vec![0.6, 0.0, -0.6],
             ranked_indices_i: vec![0, 1, 2],
-            ranked_indices_ii: vec![0, 1, 2],
+            ranked_indices_ii: vec![2, 0, 1],
             incomparable_counts: vec![0, 0, 0],
             duration_ms: 3.0,
         }
@@ -476,53 +365,19 @@ mod tests {
     fn mcdm_result_promethee_i_primary_scores() {
         let r = McdmResult::PrometheeI(make_promethee_result());
         assert_eq!(r.primary_scores(), &[0.8, 0.5, 0.2]);
+        assert_eq!(r.ranked_indices(), &[0, 1, 2]);
+        assert!((r.duration_ms() - 3.0).abs() < f64::EPSILON);
+        assert_eq!(r.method_label(), "PROMETHEE I");
+        assert_eq!(r.method(), McdmMethod::PrometheeI);
     }
 
     #[test]
     fn mcdm_result_promethee_ii_primary_scores() {
         let r = McdmResult::PrometheeII(make_promethee_result());
         assert_eq!(r.primary_scores(), &[0.6, 0.0, -0.6]);
-    }
-
-    #[test]
-    fn mcdm_result_promethee_i_ranked_indices() {
-        let r = McdmResult::PrometheeI(make_promethee_result());
-        assert_eq!(r.ranked_indices(), &[0, 1, 2]);
-    }
-
-    #[test]
-    fn mcdm_result_promethee_ii_ranked_indices() {
-        let r = McdmResult::PrometheeII(make_promethee_result());
-        assert_eq!(r.ranked_indices(), &[0, 1, 2]);
-    }
-
-    #[test]
-    fn mcdm_result_promethee_duration_ms() {
-        let r = McdmResult::PrometheeI(make_promethee_result());
+        assert_eq!(r.ranked_indices(), &[2, 0, 1]);
         assert!((r.duration_ms() - 3.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn mcdm_result_promethee_i_method_label() {
-        let r = McdmResult::PrometheeI(make_promethee_result());
-        assert_eq!(r.method_label(), "PROMETHEE I");
-    }
-
-    #[test]
-    fn mcdm_result_promethee_ii_method_label() {
-        let r = McdmResult::PrometheeII(make_promethee_result());
         assert_eq!(r.method_label(), "PROMETHEE II");
-    }
-
-    #[test]
-    fn mcdm_result_promethee_i_method() {
-        let r = McdmResult::PrometheeI(make_promethee_result());
-        assert_eq!(r.method(), McdmMethod::PrometheeI);
-    }
-
-    #[test]
-    fn mcdm_result_promethee_ii_method() {
-        let r = McdmResult::PrometheeII(make_promethee_result());
         assert_eq!(r.method(), McdmMethod::PrometheeII);
     }
 }

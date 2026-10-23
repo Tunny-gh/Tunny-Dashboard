@@ -81,24 +81,14 @@ mod tests {
 
     // ── items_bbox ────────────────────────────────────────────────────────────
 
-    /// Returns None when the items are empty.
-    #[test]
-    fn items_bbox_empty_returns_none() {
-        assert!(items_bbox(&[]).is_none());
-    }
-
-    /// The bounding box of a single item is the item itself.
-    #[test]
-    fn items_bbox_single_item() {
-        let items = [make_item(0, 10.0, 20.0, 100.0, 80.0)];
-        let bbox = items_bbox(&items).unwrap();
-        assert_eq!(bbox.min, egui::pos2(10.0, 20.0));
-        assert_eq!(bbox.max, egui::pos2(110.0, 100.0));
-    }
-
     /// The enclosing rectangle of multiple items is computed correctly.
     #[test]
     fn items_bbox_multiple_items() {
+        assert!(items_bbox(&[]).is_none());
+        let single = [make_item(0, 10.0, 20.0, 100.0, 80.0)];
+        let bbox = items_bbox(&single).unwrap();
+        assert_eq!(bbox.min, egui::pos2(10.0, 20.0));
+        assert_eq!(bbox.max, egui::pos2(110.0, 100.0));
         let items = [
             make_item(0, 0.0, 0.0, 100.0, 100.0),
             make_item(1, 200.0, 150.0, 50.0, 50.0),
@@ -144,21 +134,9 @@ mod tests {
             (screen_center.y - expected.y).abs() < 0.01,
             "cy mismatch: {screen_center:?} vs {expected:?}"
         );
-    }
-
-    /// A small bbox has its zoom clamped to 1.0 (never zooms in).
-    #[test]
-    fn fit_view_small_bbox_caps_zoom_at_1() {
-        let area = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 600.0));
         let bbox = egui::Rect::from_min_size(egui::pos2(100.0, 100.0), egui::vec2(50.0, 50.0));
         let (zoom, _pan) = fit_view(area, bbox);
         assert_eq!(zoom, 1.0, "small bbox must not zoom in beyond 100%");
-    }
-
-    /// A degenerate bbox (width 0) does not produce NaN or inf.
-    #[test]
-    fn fit_view_degenerate_bbox_no_nan() {
-        let area = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 600.0));
         let bbox = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(0.0, 0.0));
         let (zoom, pan) = fit_view(area, bbox);
         assert!(zoom.is_finite(), "zoom must be finite");

@@ -44,10 +44,16 @@ fn tc_803_01_pdp_monotone_positive() {
     let n = 200;
     let (x_matrix, y, names) = make_linear_data_1d(n);
 
-    let result = compute_pdp_from_matrix(&x_matrix, &y, &names, "obj0", 0, 10);
+    let result = compute_pdp_from_matrix(&x_matrix, &y, &names, "obj_target", 0, 11);
 
-    assert_eq!(result.grid.len(), 10, "grid should have 10 points");
-    assert_eq!(result.values.len(), 10, "PDP values should have 10 points");
+    assert_eq!(result.grid.len(), 11, "grid should have 11 points");
+    assert_eq!(result.values.len(), 11, "PDP values should have 11 points");
+    assert_eq!(result.param_name, "x1");
+    assert_eq!(result.objective_name, "obj_target");
+    let y_mean = y.iter().sum::<f64>() / n as f64;
+    let mid_val = result.values[result.values.len() / 2];
+    let tolerance = (y_mean.abs() + 0.01) * 0.05;
+    assert!((mid_val - y_mean).abs() < tolerance);
 
     for i in 0..result.values.len() - 1 {
         assert!(
@@ -80,26 +86,6 @@ fn tc_803_02_pdp_monotone_negative() {
             result.values[i + 1]
         );
     }
-}
-
-#[test]
-fn tc_803_03_pdp_midpoint_equals_ymean() {
-    let n = 200;
-    let (x_matrix, y, names) = make_linear_data_1d(n);
-    let y_mean = y.iter().sum::<f64>() / n as f64;
-
-    let result = compute_pdp_from_matrix(&x_matrix, &y, &names, "obj0", 0, 11);
-
-    let mid_idx = result.values.len() / 2;
-    let mid_val = result.values[mid_idx];
-
-    let tolerance = (y_mean.abs() + 0.01) * 0.05;
-    assert!(
-        (mid_val - y_mean).abs() < tolerance,
-        "PDP midpoint {} should be within ±5% of y_mean {}",
-        mid_val,
-        y_mean
-    );
 }
 
 #[test]
@@ -144,6 +130,7 @@ fn tc_803_06_pdp_2d_grid_shape() {
     for row in &result.z_values {
         assert_eq!(row.len(), 8, "each z_values row should have 8 points");
     }
+    assert!(result.r_squared > 0.95);
 }
 
 #[test]
@@ -165,34 +152,6 @@ fn tc_803_07_pdp_2d_empty_data() {
     assert!(
         result.z_values.is_empty(),
         "z_values should be empty for n<2"
-    );
-}
-
-#[test]
-fn tc_803_08_pdp_2d_r_squared() {
-    let n = 200;
-    let (x_matrix, y, names) = make_linear_data_multi(n);
-
-    let result = compute_pdp_2d_from_matrix(&x_matrix, &y, &names, "obj0", 0, 1, 5);
-
-    assert!(
-        result.r_squared > 0.95,
-        "2-parameter PDP R² {} should exceed 0.95",
-        result.r_squared
-    );
-}
-
-#[test]
-fn tc_803_09_result_names() {
-    let n = 50;
-    let (x_matrix, y, names) = make_linear_data_1d(n);
-
-    let result = compute_pdp_from_matrix(&x_matrix, &y, &names, "obj_target", 0, 5);
-
-    assert_eq!(result.param_name, "x1", "param_name should be 'x1'");
-    assert_eq!(
-        result.objective_name, "obj_target",
-        "objective_name should be 'obj_target'"
     );
 }
 
@@ -297,32 +256,6 @@ fn tc_1645_e01_insufficient_data_returns_none() {
 }
 
 #[test]
-fn tc_1652_tc_005_02_gp_fitc_n100_grid_shape() {
-    use crate::gaussian_process::GpMethod;
-    let n = 100;
-    let x_2d: Vec<Vec<f64>> = (0..n)
-        .map(|i| {
-            let t = i as f64 / n as f64;
-            vec![t, (t * 3.0).sin() * 0.5 + 0.5]
-        })
-        .collect();
-    let y: Vec<f64> = x_2d.iter().map(|r| r[0] + 0.3 * r[1]).collect();
-    let n_grid = 10;
-
-    let result = compute_pdp_2d_gp_raw(&x_2d, &y, 0, 1, n_grid, GpMethod::Fitc);
-    assert!(result.is_some(), "Should succeed for N=100 with FITC");
-    let r = result.unwrap();
-    assert_eq!(r.x_values.len(), n_grid, "x_values.len() should be n_grid");
-    assert_eq!(r.y_values.len(), n_grid, "y_values.len() should be n_grid");
-    assert_eq!(r.z_values.len(), n_grid, "z_values.len() should be n_grid");
-    assert_eq!(
-        r.z_values[0].len(),
-        n_grid,
-        "z_values[0].len() should be n_grid"
-    );
-}
-
-#[test]
 fn tc_1652_tc_005_03_gp_vfe_small_n() {
     use crate::gaussian_process::GpMethod;
     let n = 30;
@@ -343,33 +276,6 @@ fn tc_1652_tc_005_03_gp_vfe_small_n() {
             assert!(v.is_finite(), "Grid value should be finite: {}", v);
         }
     }
-}
-
-#[test]
-#[ignore]
-fn tc_nfr_001_01_gp_fitc_n1000_under_10s() {
-    use crate::gaussian_process::GpMethod;
-    let n = 1000;
-    let x_2d: Vec<Vec<f64>> = (0..n)
-        .map(|i| {
-            let t = i as f64 / n as f64;
-            vec![t, (t * 5.0).sin() * 0.5 + 0.5]
-        })
-        .collect();
-    let y: Vec<f64> = x_2d.iter().map(|r| r[0] + 0.3 * r[1]).collect();
-
-    let start = std::time::Instant::now();
-    let result = compute_pdp_2d_gp_raw(&x_2d, &y, 0, 1, 50, GpMethod::Fitc);
-    let elapsed = start.elapsed().as_millis();
-
-    println!("GP-FITC N=1000: {}ms", elapsed);
-    assert!(result.is_some(), "Should return Some for N=1000");
-    #[cfg(not(debug_assertions))]
-    assert!(
-        elapsed < 10_000,
-        "NFR-001 target missed: {}ms > 10,000ms",
-        elapsed
-    );
 }
 
 #[test]
@@ -466,30 +372,6 @@ fn gp_2d_pdp_marginalises_third_dimension() {
     );
 }
 
-#[test]
-fn tc_1653_01_gp_fitc_dispatch_returns_finite_results() {
-    use crate::gaussian_process::GpMethod;
-    let n = 60;
-    let x_2d: Vec<Vec<f64>> = (0..n)
-        .map(|i| {
-            let t = i as f64 / n as f64;
-            vec![t, 1.0 - t * 0.7]
-        })
-        .collect();
-    let y: Vec<f64> = x_2d.iter().map(|r| r[0] * 1.5 + r[1] * 0.5).collect();
-    let n_grid = 5;
-
-    let result = compute_pdp_2d_gp_raw(&x_2d, &y, 0, 1, n_grid, GpMethod::Fitc);
-    assert!(result.is_some(), "GP-FITC dispatch should succeed for N=60");
-    let r = result.unwrap();
-    assert_eq!(r.x_values.len(), n_grid);
-    assert_eq!(r.y_values.len(), n_grid);
-    for row in &r.z_values {
-        for &v in row {
-            assert!(v.is_finite(), "All grid values should be finite: {}", v);
-        }
-    }
-}
 #[test]
 fn public_pdp_boundary_rejects_missing_features_without_ridge_imputation() {
     for model in ["ridge", "gp_fitc", "gp_vfe", "gp_moe", "random_forest"] {

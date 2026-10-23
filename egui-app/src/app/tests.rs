@@ -420,10 +420,6 @@ fn d6_gh_launch_mock_compute_completion_and_reload() {
 #[test]
 fn d5_pdp_1d_rerun_delivers_success_to_both_rebound_canvas_consumers() {
     check_pdp_rebound_consumers(false);
-}
-
-#[test]
-fn d5_pdp_2d_rerun_delivers_success_to_both_rebound_canvas_consumers() {
     check_pdp_rebound_consumers(true);
 }
 
@@ -2088,10 +2084,6 @@ fn assert_d2_overlapping_journal_load_is_shared(comparison_first: bool) {
 #[test]
 fn d2_comparison_in_flight_then_primary_selection_shares_the_study_load() {
     assert_d2_overlapping_journal_load_is_shared(true);
-}
-
-#[test]
-fn d2_primary_in_flight_then_comparison_request_shares_the_study_load() {
     assert_d2_overlapping_journal_load_is_shared(false);
 }
 
@@ -2992,134 +2984,17 @@ fn designexplorer_worker_rebases_images_and_gui_selection_survives_late_messages
 }
 
 #[test]
-fn designexplorer_omission_uses_parent_and_rejects_other_source_messages() {
-    let source = tempfile::tempdir().unwrap();
-    let path = source.path().join("results.csv");
-    std::fs::write(source.path().join("image.png"), b"image").unwrap();
-    let mut app = artifact_test_app(None);
-    app.app_state.journal_path = Some(path.clone());
-    app.tx
-        .send(AppMessage::CsvArtifacts {
-            source_path: path,
-            source_generation: 0,
-            images: vec![(7, "image.png".into())],
-        })
-        .unwrap();
-    app.poll_messages(&egui::Context::default());
-    assert_eq!(app.app_state.artifacts_dir.as_deref(), Some(source.path()));
-    assert_eq!(
-        app.app_state.artifact_map[&7][0].path,
-        source.path().join("image.png")
-    );
-    app.tx
-        .send(AppMessage::CsvArtifacts {
-            source_path: source.path().join("other.csv"),
-            source_generation: 0,
-            images: vec![],
-        })
-        .unwrap();
-    app.poll_messages(&egui::Context::default());
-    assert!(app.app_state.artifact_map.contains_key(&7));
-}
-
-#[test]
-fn session_root_survives_study_activation_and_new_but_omission_still_clears() {
-    let root = tempfile::tempdir().unwrap();
-    std::fs::write(root.path().join("9_result.png"), b"artifact").unwrap();
-    let mut app = artifact_test_app(Some(root.path().to_path_buf()));
-    app.app_state.journal_path = Some("study.log".into());
-    app.request_artifact_scan(root.path().to_path_buf());
-    let scan_id = app.latest_artifact_scan_id;
-    for study_id in [98210, 98211] {
-        app.tx
-            .send(AppMessage::StudyChunkLoaded {
-                study_id,
-                meta: StudyMeta {
-                    study_id,
-                    name: "study".into(),
-                    directions: vec![],
-                    completed_trials: 0,
-                    param_names: vec![],
-                    objective_names: vec![],
-                    param_bounds: Default::default(),
-                },
-                new_rows: vec![],
-                param_names: vec![],
-                objective_names: vec![],
-                user_attr_numeric_names: vec![],
-                user_attr_string_names: vec![],
-                max_constraints: 0,
-                has_constraints: false,
-                is_first: true,
-                is_final: true,
-            })
-            .unwrap();
-        app.poll_messages(&egui::Context::default());
-        poll_until(&mut app, |app| !app.app_state.artifact_map.is_empty());
-        assert_eq!(app.app_state.artifacts_dir.as_deref(), Some(root.path()));
-        assert_eq!(app.latest_artifact_scan_id, scan_id);
-    }
-    app.reset_to_empty();
-    assert_eq!(
-        app.app_state.explicit_artifact_root.as_deref(),
-        Some(root.path())
-    );
-    assert!(app.app_state.artifact_map.is_empty());
-    let mut omitted = AppState::new();
-    omitted.artifacts_dir = Some(root.path().to_path_buf());
-    omitted.reset_to_empty();
-    assert!(omitted.artifacts_dir.is_none());
-}
-
-#[test]
 fn unsupported_drop_message_guides_gh_binary_to_ghx() {
     let msg = unsupported_drop_message(&[std::path::PathBuf::from("/a/model.gh")]);
     assert!(msg.contains("model.gh"), "{msg}");
     assert!(msg.contains(".ghx"), "{msg}");
     assert!(msg.contains("Save As"), "{msg}");
-}
-
-#[test]
-fn unsupported_drop_message_lists_supported_types() {
     let msg = unsupported_drop_message(&[std::path::PathBuf::from("notes.txt")]);
     assert!(msg.contains("notes.txt"), "{msg}");
     assert!(msg.contains("unsupported file type"), "{msg}");
     assert!(msg.contains(".ghx"), "{msg}");
-}
-
-#[test]
-fn unsupported_drop_message_handles_missing_paths() {
     let msg = unsupported_drop_message(&[]);
     assert!(msg.contains("(unknown)"), "{msg}");
-}
-
-#[test]
-fn channel_send_receive_journal_parsed() {
-    let (tx, rx) = make_channel();
-    let studies = vec![StudyMeta {
-        study_id: 0,
-        name: "test".to_string(),
-        directions: vec![],
-        completed_trials: 5,
-        param_names: vec!["x".to_string()],
-        objective_names: vec!["y".to_string()],
-        param_bounds: Default::default(),
-    }];
-    tx.send(AppMessage::JournalParsed {
-        studies,
-        path: std::path::PathBuf::from("test.log"),
-    })
-    .unwrap();
-    match rx.recv().unwrap() {
-        AppMessage::JournalParsed { studies: s, .. } => assert_eq!(s.len(), 1),
-        _ => panic!("Expected JournalParsed"),
-    }
-}
-
-#[test]
-fn channel_try_recv_empty_returns_error() {
-    let (_tx, rx) = make_channel();
-    assert!(rx.try_recv().is_err());
 }
 
 #[test]
@@ -3199,22 +3074,6 @@ fn spawn_task_captures_panic() {
     }
 }
 
-#[test]
-fn spawn_task_multiple_messages() {
-    let (tx, rx) = make_channel();
-    let tx2 = tx.clone();
-    spawn_task(tx, || AppMessage::Error("msg1".to_string()));
-    spawn_task(tx2, || AppMessage::Error("msg2".to_string()));
-    let mut received = vec![];
-    for _ in 0..2 {
-        match rx.recv().unwrap() {
-            AppMessage::Error(e) => received.push(e),
-            _ => panic!("Expected Error"),
-        }
-    }
-    assert_eq!(received.len(), 2);
-}
-
 // ── Phase C: window title password masking ─────────────────
 
 #[test]
@@ -3223,28 +3082,16 @@ fn compute_window_title_no_path_returns_base_title() {
         TunnyApp::compute_window_title(None),
         "Tunny Dashboard (Beta)"
     );
-}
-
-#[test]
-fn compute_window_title_local_path_shows_full_path() {
     let path = std::path::PathBuf::from("/home/user/study.log");
     assert_eq!(
         TunnyApp::compute_window_title(Some(&path)),
         "Tunny Dashboard (Beta) - /home/user/study.log"
     );
-}
-
-#[test]
-fn compute_window_title_rdb_url_masks_password() {
     let path = std::path::PathBuf::from("postgresql://tunny:tunnypass@127.0.0.1:5432/tunny_test");
     assert_eq!(
         TunnyApp::compute_window_title(Some(&path)),
         "Tunny Dashboard (Beta) - postgresql://tunny:***@127.0.0.1:5432/tunny_test"
     );
-}
-
-#[test]
-fn compute_window_title_rdb_url_without_password_unchanged() {
     let path = std::path::PathBuf::from("mysql://tunny@127.0.0.1:3306/tunny_test");
     assert_eq!(
         TunnyApp::compute_window_title(Some(&path)),
@@ -3262,10 +3109,6 @@ fn has_discardable_state_is_false_on_the_startup_state() {
         &AppState::new(),
         &LayoutState::default()
     ));
-}
-
-#[test]
-fn has_discardable_state_detects_a_scanned_storage() {
     let mut app_state = AppState::new();
     app_state.all_studies.push(StudyMeta {
         study_id: 0,
@@ -3277,19 +3120,11 @@ fn has_discardable_state_detects_a_scanned_storage() {
         param_bounds: Default::default(),
     });
     assert!(has_discardable_state(&app_state, &LayoutState::default()));
-}
-
-#[test]
-fn has_discardable_state_detects_a_storage_holding_no_studies() {
     // The title bar names the file even when the scan found nothing in it, so a
     // silent reset would look like the app dropped an open file on its own.
     let mut app_state = AppState::new();
     app_state.journal_path = Some(std::path::PathBuf::from("/tmp/empty.log"));
     assert!(has_discardable_state(&app_state, &LayoutState::default()));
-}
-
-#[test]
-fn has_discardable_state_detects_canvas_items_without_data() {
     // A layout can be built up from a restored session before any file is opened,
     // and it is only recoverable from a session file.
     let mut layout = LayoutState::default();

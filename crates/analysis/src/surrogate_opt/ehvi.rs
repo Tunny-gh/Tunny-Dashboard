@@ -498,15 +498,9 @@ mod tests {
         // Since the surface is known, predicted values should match f(params) exactly.
         assert!((c.predicted_values[0] - ehvi_f1(&c.params)).abs() < 1e-9);
         assert!((c.predicted_values[1] - ehvi_f2(&c.params)).abs() < 1e-9);
-    }
-
-    #[test]
-    fn deterministic_across_two_runs() {
-        let trained = analytic_two_objectives(true);
-        let c1 = suggest_candidates_multi(&trained, &[true, true], 1).expect("run 1");
         let c2 = suggest_candidates_multi(&trained, &[true, true], 1).expect("run 2");
-        assert_eq!(c1.len(), c2.len());
-        for (a, b) in c1.iter().zip(c2.iter()) {
+        assert_eq!(candidates.len(), c2.len());
+        for (a, b) in candidates.iter().zip(c2.iter()) {
             for (pa, pb) in a.params.iter().zip(b.params.iter()) {
                 assert!(
                     (pa - pb).abs() < 1e-9,

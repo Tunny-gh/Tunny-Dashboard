@@ -1,11 +1,7 @@
-#[cfg(test)]
-use crate::state::app_state::Direction;
 use crate::state::app_state::{AppState, StudyContext, StudyView};
 use crate::state::messages::AppMessage;
 use crate::state::results::ConvergenceHistory;
 use crate::ui::widget_states::WidgetStates;
-#[cfg(test)]
-use tdashboard_analysis::dataframe::{DataFrame, TrialRow as CoreTrialRow};
 
 /// Handler that processes messages from background tasks.
 pub struct MessageHandler;
@@ -119,75 +115,6 @@ impl MessageHandler {
                 app_state.all_studies = studies;
                 app_state.journal_path = Some(path);
                 *is_loading = false;
-            }
-            #[cfg(test)]
-            AppMessage::StudySelected {
-                meta,
-                dataframe,
-                pareto_rank,
-                pareto_indices,
-            } => {
-                app_state.clear();
-                match dataframe {
-                    Some(df) => {
-                        let view = StudyView::new(df, pareto_rank);
-                        // Sync the all_studies entry with Phase 2's complete meta
-                        // (in Phase 1, completed_trials etc. are 0)
-                        if let Some(existing) = app_state
-                            .all_studies
-                            .iter_mut()
-                            .find(|s| s.study_id == meta.study_id)
-                        {
-                            *existing = meta.clone();
-                        }
-                        app_state.current_study = Some(StudyContext {
-                            meta,
-                            view,
-                            pareto_indices,
-                        });
-                        Self::refresh_best_trial_history(app_state);
-                    }
-                    None => {
-                        *load_error = Some("No fixture DataFrame supplied".to_string());
-                        *is_loading = false;
-                        return;
-                    }
-                }
-                widget_states.convergence.computing = false;
-                widget_states.cluster_scatter = Default::default();
-                widget_states.reset_infeasible_flags();
-                *is_loading = false;
-            }
-            #[cfg(test)]
-            AppMessage::StudyChunkLoaded {
-                study_id,
-                meta,
-                new_rows,
-                param_names,
-                objective_names,
-                user_attr_numeric_names,
-                user_attr_string_names,
-                max_constraints,
-                has_constraints,
-                is_first,
-                is_final,
-            } => {
-                Self::handle_study_chunk(
-                    study_id,
-                    meta,
-                    new_rows,
-                    param_names,
-                    objective_names,
-                    user_attr_numeric_names,
-                    user_attr_string_names,
-                    max_constraints,
-                    has_constraints,
-                    is_first,
-                    is_final,
-                    app_state,
-                    widget_states,
-                    is_loading,
-                );
             }
             AppMessage::SharedAnalysis { slot, result } => {
                 use crate::state::analysis_job::DeliverySlot;
@@ -407,28 +334,6 @@ impl MessageHandler {
                 widget_states.pdp_chart.computing = false;
             }
 
-            #[cfg(test)]
-            AppMessage::ComparisonStudyLoaded { context } => {
-                // Keep the 3 parallel Vecs (studies / colors / hv_histories) aligned in the same order.
-                let idx = app_state.comparison_studies.len();
-                app_state.comparison_studies.push(*context);
-                app_state
-                    .comparison_colors
-                    .push(crate::theme::color_compute::comparison_color_at(idx));
-                // Add a placeholder to keep the parallel Vec indices aligned.
-                // The actual metric values are overwritten the next time
-                // poll_chart batch-recomputes base + all comparisons.
-                app_state
-                    .comparison_convergence_histories
-                    .push(ConvergenceHistory {
-                        trial_ids: Vec::new(),
-                        values: Vec::new(),
-                        sample_step: 1,
-                        ref_point: Vec::new(),
-                    });
-                // Set the baseline Study's metric to None to trigger a unified recomputation.
-                app_state.convergence_history = None;
-            }
             AppMessage::ArtifactsDirScanned {
                 trial_artifacts,
                 artifacts_dir,
@@ -459,10 +364,6 @@ impl MessageHandler {
                 app_state.artifact_revision = app_state.artifact_revision.wrapping_add(1);
                 app_state.artifacts_dir = Some(root);
                 app_state.csv_images = Some(images);
-            }
-            #[cfg(test)]
-            AppMessage::ComparisonStudyLoadFailed(err) => {
-                *load_error = Some(err);
             }
             AppMessage::ObservedContourDone(result) => {
                 widget_states.observed_contour.result = Some(result);

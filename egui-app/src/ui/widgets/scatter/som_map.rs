@@ -608,14 +608,11 @@ mod tests {
         let objs = vec!["obj".to_string()];
         let names = feature_names(&params, &objs, SomSpace::Params);
         assert_eq!(names, params);
-    }
-
-    #[test]
-    fn feature_names_params_and_objectives() {
-        let params = vec!["x".to_string()];
-        let objs = vec!["obj".to_string()];
         let names = feature_names(&params, &objs, SomSpace::ParamsAndObjectives);
-        assert_eq!(names, vec!["x".to_string(), "obj".to_string()]);
+        assert_eq!(
+            names,
+            vec!["x".to_string(), "y".to_string(), "obj".to_string()]
+        );
     }
 
     /// Builds a `StudyView` whose single parameter column contains `values`.
@@ -676,6 +673,7 @@ mod tests {
     #[test]
     fn selected_trials_maps_nodes_to_trial_ids_without_duplicates() {
         let (view, _) = view_with_param(&[1.0, 2.0, 3.0]);
+        assert!(SomMapChart::default().selected_trials(&view).is_empty());
         let chart = SomMapChart {
             cache: Some(SomCache {
                 key: (None, 8, 20, 0),
@@ -699,13 +697,6 @@ mod tests {
     }
 
     #[test]
-    fn selected_trials_is_empty_without_a_trained_map() {
-        let (view, _) = view_with_param(&[1.0, 2.0, 3.0]);
-        let chart = SomMapChart::default();
-        assert!(chart.selected_trials(&view).is_empty());
-    }
-
-    #[test]
     fn node_at_maps_corners_to_the_first_and_last_node() {
         let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(80.0, 80.0));
         assert_eq!(node_at(rect, 4, 4, egui::pos2(1.0, 1.0)), Some(0));
@@ -720,17 +711,9 @@ mod tests {
     fn format_node_value_keeps_hit_counts_whole() {
         assert_eq!(format_node_value(139.0, true), "139");
         assert_eq!(format_node_value(0.0, true), "0");
-    }
-
-    #[test]
-    fn format_node_value_trims_decimals_as_the_magnitude_grows() {
         assert_eq!(format_node_value(0.4234, false), "0.42");
         assert_eq!(format_node_value(12.345, false), "12.3");
         assert_eq!(format_node_value(432.1, false), "432");
-    }
-
-    #[test]
-    fn format_node_value_falls_back_to_exponent_for_extreme_magnitudes() {
         assert_eq!(format_node_value(0.0, false), "0.00");
         assert!(format_node_value(1.2e-7, false).contains('e'));
         assert!(format_node_value(9.9e12, false).contains('e'));

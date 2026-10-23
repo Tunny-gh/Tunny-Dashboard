@@ -72,23 +72,15 @@ mod tests {
     }
 
     #[test]
-    fn extracts_leading_field() {
+    fn extracts_fields_with_varied_positions_and_spacing() {
         assert_eq!(
             line_u32_field(r#"{"op_code":4,"study_id":2}"#, "op_code"),
             Some(4)
         );
-    }
-
-    #[test]
-    fn extracts_middle_field() {
         assert_eq!(
             line_u32_field(r#"{"op_code":4,"study_id":2}"#, "study_id"),
             Some(2)
         );
-    }
-
-    #[test]
-    fn allows_whitespace_around_colon() {
         assert_eq!(line_u32_field(r#"{"op_code" : 7}"#, "op_code"), Some(7));
     }
 

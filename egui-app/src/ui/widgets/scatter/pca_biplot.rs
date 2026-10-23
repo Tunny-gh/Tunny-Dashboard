@@ -415,14 +415,15 @@ mod tests {
     }
 
     #[test]
-    fn space_disc_is_stable_and_distinct() {
-        assert_eq!(PcaSpaceOption::Param.disc(), 0);
-        assert_eq!(PcaSpaceOption::Objective.disc(), 1);
-        assert_eq!(PcaSpaceOption::All.disc(), 2);
-    }
-
-    #[test]
     fn to_core_maps_each_variant() {
+        let discs = [
+            PcaSpaceOption::Param.disc(),
+            PcaSpaceOption::Objective.disc(),
+            PcaSpaceOption::All.disc(),
+        ];
+        assert_ne!(discs[0], discs[1]);
+        assert_ne!(discs[1], discs[2]);
+        assert_ne!(discs[0], discs[2]);
         assert_eq!(
             PcaSpaceOption::Param.to_core(),
             tdashboard_analysis::clustering::PcaSpace::Param
@@ -441,15 +442,7 @@ mod tests {
     fn color_range_ignores_non_finite() {
         let col = [1.0, f64::NAN, 5.0, f64::INFINITY, -2.0];
         assert_eq!(color_range(Some(&col)), (-2.0, 5.0));
-    }
-
-    #[test]
-    fn color_range_none_column_is_zero_zero() {
         assert_eq!(color_range(None), (0.0, 0.0));
-    }
-
-    #[test]
-    fn color_range_all_non_finite_is_zero_zero() {
         let col = [f64::NAN, f64::INFINITY];
         assert_eq!(color_range(Some(&col)), (0.0, 0.0));
     }

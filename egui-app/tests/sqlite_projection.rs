@@ -413,6 +413,11 @@ fn parse_single_study_reads_params_and_excludes_non_complete_trials() {
 
     let score_vals = df.get_numeric_column("score").unwrap();
     assert_eq!(score_vals[0], 12.5);
+    assert!(extras
+        .trials
+        .iter()
+        .all(|t| t.intermediate_values.is_empty()));
+    assert!(!extras.has_intermediate());
 }
 
 #[test]
@@ -496,17 +501,6 @@ fn parse_single_study_converts_infinite_objective_values() {
     assert_eq!(quality[0], 2.0);
     assert_eq!(cost[1], f64::INFINITY);
     assert_eq!(quality[1], f64::NEG_INFINITY);
-}
-
-#[test]
-fn parse_single_study_extracts_constraints() {
-    let file = tempfile::NamedTempFile::new().unwrap();
-    let conn = Connection::open(file.path()).unwrap();
-    create_schema(&conn);
-    seed_basic(&conn);
-    drop(conn);
-
-    let (meta, df, _extras) = parse_single_study(file.path(), 2).unwrap();
     assert!(meta.has_constraints);
     let c1 = df.get_numeric_column("c1").unwrap();
     let c2 = df.get_numeric_column("c2").unwrap();
@@ -595,25 +589,6 @@ fn constraint_json_positions_and_attribute_only_study_are_preserved() {
         df.feasibility().partition_indices(2),
         (vec![], vec![], vec![0, 1])
     );
-}
-
-#[test]
-fn parse_single_study_extras_without_intermediate_table_are_empty() {
-    // Doesn't error even on an older DB lacking the trial_intermediate_values table;
-    // intermediate values come back empty (fallback).
-    let file = tempfile::NamedTempFile::new().unwrap();
-    let conn = Connection::open(file.path()).unwrap();
-    create_schema(&conn);
-    seed_basic(&conn);
-    drop(conn);
-
-    let (_meta, _df, extras) = parse_single_study(file.path(), 1).unwrap();
-    assert_eq!(extras.trials.len(), 4);
-    assert!(extras
-        .trials
-        .iter()
-        .all(|t| t.intermediate_values.is_empty()));
-    assert!(!extras.has_intermediate());
 }
 
 #[test]
@@ -801,19 +776,6 @@ fn study_fingerprint_detects_noncomplete_constraint_schema_mutations() {
 }
 
 #[test]
-fn study_fingerprint_equal_on_unchanged_db() {
-    let file = tempfile::NamedTempFile::new().unwrap();
-    let conn = Connection::open(file.path()).unwrap();
-    create_schema(&conn);
-    seed_basic(&conn);
-    drop(conn);
-
-    let fp1 = study_fingerprint(file.path(), 1).unwrap();
-    let fp2 = study_fingerprint(file.path(), 1).unwrap();
-    assert_eq!(fp1, fp2);
-}
-
-#[test]
 fn study_fingerprint_changes_when_trial_added() {
     let file = tempfile::NamedTempFile::new().unwrap();
     let conn = Connection::open(file.path()).unwrap();
@@ -821,6 +783,8 @@ fn study_fingerprint_changes_when_trial_added() {
     seed_basic(&conn);
 
     let fp1 = study_fingerprint(file.path(), 1).unwrap();
+    assert_eq!(fp1, study_fingerprint(file.path(), 1).unwrap());
+    assert_eq!(fp1.intermediate_count, 0);
 
     conn.execute(
         "INSERT INTO trials (trial_id, number, study_id, state) VALUES (100, 4, 1, 'RUNNING')",
@@ -886,18 +850,4 @@ fn study_fingerprint_changes_when_intermediate_value_added() {
     assert_eq!(fp2.total_trials, fp1.total_trials);
     assert_eq!(fp2.completed_trials, fp1.completed_trials);
     assert_eq!(fp2.state_digest, fp1.state_digest);
-}
-
-#[test]
-fn study_fingerprint_works_when_intermediate_table_absent() {
-    // Doesn't error even on an older DB lacking the trial_intermediate_values table;
-    // intermediate_count becomes 0 (fallback).
-    let file = tempfile::NamedTempFile::new().unwrap();
-    let conn = Connection::open(file.path()).unwrap();
-    create_schema(&conn);
-    seed_basic(&conn);
-    drop(conn);
-
-    let fp = study_fingerprint(file.path(), 1).unwrap();
-    assert_eq!(fp.intermediate_count, 0);
 }

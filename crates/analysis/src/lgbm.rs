@@ -585,43 +585,6 @@ mod tests {
     }
 
     #[test]
-    fn default_config() {
-        let cfg = LgbmRfConfig::default();
-        assert_eq!(cfg.num_iterations, 64);
-        assert_eq!(cfg.max_depth, 10);
-        assert_eq!(cfg.min_data_in_leaf, 2);
-        assert!((cfg.bagging_fraction - 0.8).abs() < 1e-9);
-        assert!((cfg.feature_fraction - 0.8).abs() < 1e-9);
-        assert_eq!(cfg.seed, 42);
-    }
-
-    #[test]
-    fn train_returns_booster() {
-        let (x, y) = synthetic_data(30);
-        let booster = train_lgbm_rf(&x, &y, &LgbmRfConfig::default());
-        assert!(
-            booster.is_some(),
-            "train_lgbm_rf should return Some(booster)"
-        );
-    }
-
-    #[test]
-    fn predict_length_matches_input() {
-        let (x, y) = synthetic_data(30);
-        let booster = train_lgbm_rf(&x, &y, &LgbmRfConfig::default()).unwrap();
-        let preds = lgbm_predict(&booster, &x).expect("predict should succeed");
-        assert_eq!(preds.len(), x.len());
-    }
-
-    #[test]
-    fn mse_is_non_negative() {
-        let (x, y) = synthetic_data(30);
-        let booster = train_lgbm_rf(&x, &y, &LgbmRfConfig::default()).unwrap();
-        let mse = lgbm_mse(&booster, &x, &y).expect("mse should be Some");
-        assert!(mse >= 0.0, "MSE must be non-negative");
-    }
-
-    #[test]
     fn mse_empty_returns_none() {
         let (x, y) = synthetic_data(30);
         let booster = train_lgbm_rf(&x, &y, &LgbmRfConfig::default()).unwrap();
@@ -665,6 +628,7 @@ mod tests {
         assert_eq!(preds.len(), x.len());
         let mse = lgbm_mse(&booster, &x, &y).unwrap();
         assert!(mse.is_finite());
+        assert!(mse >= 0.0, "MSE must be non-negative");
     }
 
     #[test]

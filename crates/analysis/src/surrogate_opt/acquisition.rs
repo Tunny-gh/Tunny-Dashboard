@@ -463,21 +463,14 @@ mod tests {
     // ── Unit tests for normal_cdf ─────────────────────────────────
 
     #[test]
-    fn normal_cdf_at_zero() {
-        let v = normal_cdf(0.0);
-        assert!((v - 0.5).abs() < 1e-4, "Φ(0) = 0.5, got {v}");
-    }
-
-    #[test]
-    fn normal_cdf_at_1_96() {
-        let v = normal_cdf(1.96);
-        assert!((v - 0.975).abs() < 1e-4, "Φ(1.96) ≈ 0.975, got {v}");
-    }
-
-    #[test]
-    fn normal_cdf_negative_1() {
-        let v = normal_cdf(-1.0);
-        assert!((v - 0.1587).abs() < 1e-4, "Φ(-1) ≈ 0.1587, got {v}");
+    fn normal_cdf_matches_known_probabilities() {
+        for (z, expected) in [(0.0, 0.5), (1.96, 0.975), (-1.0, 0.1587)] {
+            let actual = normal_cdf(z);
+            assert!(
+                (actual - expected).abs() < 1e-4,
+                "Φ({z}) = {actual}, expected {expected}"
+            );
+        }
     }
 
     // ── Property tests for EI ────────────────────────────────────────
@@ -617,17 +610,10 @@ mod tests {
                 );
             }
         }
-    }
-
-    #[test]
-    fn batch_3_deterministic_across_two_runs() {
-        let trained = quadratic_trained_fitc(40);
-        let c1 = suggest_candidates(&trained, 3, AcquisitionKind::ExpectedImprovement, true)
-            .expect("first run");
         let c2 = suggest_candidates(&trained, 3, AcquisitionKind::ExpectedImprovement, true)
             .expect("second run");
-        assert_eq!(c1.len(), c2.len());
-        for (a, b) in c1.iter().zip(c2.iter()) {
+        assert_eq!(candidates.len(), c2.len());
+        for (a, b) in candidates.iter().zip(c2.iter()) {
             for (pa, pb) in a.params.iter().zip(b.params.iter()) {
                 assert!(
                     (pa - pb).abs() < 1e-9,

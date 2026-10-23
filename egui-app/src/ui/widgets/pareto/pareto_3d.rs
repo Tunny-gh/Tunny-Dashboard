@@ -257,11 +257,6 @@ mod tests {
         assert_eq!(chart.y_objective, 1);
         assert_eq!(chart.z_objective, 2);
         assert_ne!(chart.camera.rotation, [0.0, 0.0, 0.0, 1.0]);
-    }
-
-    #[test]
-    fn tc_cav_pareto3d_show_infeasible_default_true() {
-        let chart = Pareto3dChart::default();
         assert!(
             chart.show_infeasible,
             "show_infeasible must default to true"
@@ -273,16 +268,8 @@ mod tests {
         let (color, radius) = determine_point_color_3d(0, 255);
         assert_eq!(color, COLOR_PARETO());
         assert!((radius - 5.0).abs() < f32::EPSILON);
-    }
-
-    #[test]
-    fn tc_cav_non_pareto_returns_non_pareto_color() {
         let (color, _radius) = determine_point_color_3d(1, 255);
         assert_eq!(color, COLOR_NON_PARETO());
-    }
-
-    #[test]
-    fn tc_cav_dimmed_point_uses_alpha_60() {
         let (color, _) = determine_point_color_3d(0, 60);
         assert_eq!(color.a(), 60);
     }

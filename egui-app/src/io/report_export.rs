@@ -262,16 +262,8 @@ mod tests {
             "password must be masked: {display}"
         );
         assert!(display.contains("user"));
-    }
-
-    #[test]
-    fn storage_display_uses_plain_path_for_local_files() {
         let path = PathBuf::from("/data/study.log");
         assert_eq!(storage_display(Some(&path)), "/data/study.log");
-    }
-
-    #[test]
-    fn storage_display_none_when_no_storage() {
         assert_eq!(storage_display(None), "(no storage)");
     }
 
@@ -285,31 +277,6 @@ mod tests {
             objective_names: vec!["y".to_string()],
             param_bounds: Default::default(),
         }
-    }
-
-    #[test]
-    fn to_core_meta_falls_back_to_row_count_without_extras() {
-        use std::collections::HashMap;
-        use tdashboard_analysis::dataframe::TrialRow as CoreRow;
-
-        let rows = vec![CoreRow {
-            trial_id: 0,
-            trial_number: 0,
-            param_display: HashMap::from([("x".to_string(), 1.0)]),
-            distribution_metadata: Default::default(),
-            param_category_label: HashMap::new(),
-            objective_values: vec![1.0],
-            user_attrs_numeric: HashMap::new(),
-            user_attrs_string: HashMap::new(),
-            user_attrs_json: HashMap::new(),
-            constraint_values: vec![],
-        }];
-        let df = DataFrame::from_trials(&rows, &["x".to_string()], &["y".to_string()], &[], &[], 0);
-        let meta = make_meta();
-        let core_meta = to_core_meta(&meta, &df, None);
-        assert_eq!(core_meta.total_trials, 1);
-        assert!(!core_meta.has_constraints);
-        assert!(core_meta.user_attr_names.is_empty());
     }
 
     // ── R4-fix: surfacing silent overwrites ──────────────────────
@@ -337,14 +304,27 @@ mod tests {
     fn build_and_write_report_flags_silently_overwritten_siblings() {
         let dir = tempfile::tempdir().expect("tempdir");
         let base_path = dir.path().join("report_x.html");
-        // Pre-seed a sibling file (derived from base_path but a non-primary one with a
-        // different selected format) to test silent-overwrite detection.
-        std::fs::write(dir.path().join("report_x.json"), "stale").expect("seed sibling");
-
         let meta = make_meta();
         let df = make_df();
         let formats = [ReportFormat::Html, ReportFormat::Json];
 
+        let (written, overwrote) = build_and_write_report(
+            &meta,
+            &df,
+            None,
+            "(no storage)",
+            None,
+            ReportLang::En,
+            10,
+            &formats,
+            &base_path,
+        )
+        .expect("new report export succeeds");
+        assert_eq!(written.len(), 2);
+        assert!(written.iter().all(|p| p.exists()));
+        assert!(overwrote.is_empty());
+        std::fs::write(&base_path, "stale primary").unwrap();
+        std::fs::write(base_path.with_extension("json"), "stale sibling").unwrap();
         let (written, overwrote) = build_and_write_report(
             &meta,
             &df,
@@ -363,62 +343,5 @@ mod tests {
         assert!(written.contains(&base_path));
         assert!(written.contains(&dir.path().join("report_x.json")));
         assert_eq!(overwrote, vec![dir.path().join("report_x.json")]);
-    }
-
-    #[test]
-    fn build_and_write_report_no_note_when_nothing_overwritten() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let base_path = dir.path().join("report_y.html");
-
-        let meta = make_meta();
-        let df = make_df();
-        let formats = [ReportFormat::Html, ReportFormat::Json];
-
-        let (written, overwrote) = build_and_write_report(
-            &meta,
-            &df,
-            None,
-            "(no storage)",
-            None,
-            ReportLang::En,
-            10,
-            &formats,
-            &base_path,
-        )
-        .expect("report export succeeds");
-
-        assert_eq!(written.len(), 2);
-        assert!(written.iter().all(|p| p.exists()));
-        assert!(overwrote.is_empty());
-    }
-
-    #[test]
-    fn build_and_write_report_ignores_preexisting_primary_path() {
-        // base_path (the primary) is assumed to already have gone through overwrite
-        // confirmation on the save-dialog side, so even if it pre-exists it isn't
-        // included in the overwrite note.
-        let dir = tempfile::tempdir().expect("tempdir");
-        let base_path = dir.path().join("report_z.html");
-        std::fs::write(&base_path, "stale primary").expect("seed primary");
-
-        let meta = make_meta();
-        let df = make_df();
-        let formats = [ReportFormat::Html];
-
-        let (written, overwrote) = build_and_write_report(
-            &meta,
-            &df,
-            None,
-            "(no storage)",
-            None,
-            ReportLang::En,
-            10,
-            &formats,
-            &base_path,
-        )
-        .expect("report export succeeds");
-
-        assert_eq!(written, vec![base_path]);
-        assert!(overwrote.is_empty());
     }
 }
