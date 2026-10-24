@@ -538,7 +538,7 @@ fn ordered_brush_range_forward_drag() {
 #[test]
 fn multi_axis_brush_applies_and_filter() {
     use std::collections::HashMap;
-    let trial_ids = vec![0u32, 1, 2];
+    let trial_ids = vec![10u32, 20, 30];
     // col_data: axis 0 = x, axis 1 = obj
     let col_data = [
         vec![2.0, 8.0, 2.0], // x values
@@ -556,8 +556,44 @@ fn multi_axis_brush_applies_and_filter() {
     brush_ranges.insert("obj".to_string(), Some((0.0, 0.6)));
 
     let sel = filter_trials_by_brushes(&trial_ids, &brush_ranges, &cols, &col_ranges, &all_names);
-    assert_eq!(sel.len(), 1);
-    assert_eq!(sel[0], 0);
+    assert_eq!(sel, vec![10]);
+}
+
+#[test]
+fn brush_filter_excludes_nan_issue_287() {
+    let names = vec!["x".to_string()];
+    let brushes = std::collections::HashMap::from([("x".to_string(), Some((0.2, 0.8)))]);
+    let values = [0.0, f64::NAN, 10.0];
+    assert_eq!(
+        filter_trials_by_brushes(
+            &[10, 20, 30],
+            &brushes,
+            &[Some(&values)],
+            &[(0.0, 10.0)],
+            &names,
+        ),
+        Vec::<u32>::new()
+    );
+}
+
+#[test]
+fn active_brush_requires_finite_source_even_with_degenerate_range() {
+    let names = vec!["x".to_string()];
+    let values = [0.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 10.0];
+    for (range, brush) in [((0.0, 10.0), (0.0, 1.0)), ((0.0, 0.0), (0.4, 0.6))] {
+        let brushes = std::collections::HashMap::from([("x".to_string(), Some(brush))]);
+        assert_eq!(
+            filter_trials_by_brushes(
+                &[10, 20, 30, 40, 50],
+                &brushes,
+                &[Some(&values)],
+                &[range],
+                &names,
+            ),
+            vec![10, 50],
+            "range {range:?} must retain finite controls, including zero and bounds"
+        );
+    }
 }
 
 #[test]
@@ -581,21 +617,30 @@ fn shifted_brush_range_moves_within_bounds() {
 #[test]
 fn trial_passes_brushes_no_active_brush_passes() {
     use std::collections::HashMap;
-    let col_data = [vec![2.0, 8.0], vec![5.0, 9.0]];
-    let cols: Vec<Option<&[f64]>> =
-        vec![Some(col_data[0].as_slice()), Some(col_data[1].as_slice())];
-    let col_ranges = vec![(0.0_f64, 10.0_f64), (0.0_f64, 10.0_f64)];
-    let all_names = vec!["x".to_string(), "obj".to_string()];
-    // No brush set (None only) -> everything passes.
-    let mut brush_ranges: HashMap<String, Option<(f32, f32)>> = HashMap::new();
-    brush_ranges.insert("x".to_string(), None);
-    assert!(trial_passes_brushes(
-        0,
-        &brush_ranges,
-        &cols,
-        &col_ranges,
-        &all_names
-    ));
+    let observed = [0.0];
+    let invalid = [f64::NAN, f64::INFINITY, f64::NEG_INFINITY];
+    let names = vec!["obj".to_string(), "x".to_string()];
+    let ranges = [(0.0, 10.0), (0.0, 10.0)];
+    for cols in [
+        vec![Some(observed.as_slice())],
+        vec![Some(observed.as_slice()), None],
+        vec![Some(observed.as_slice()), Some(&[][..])],
+        vec![Some(observed.as_slice()), Some(&invalid[..1])],
+        vec![Some(observed.as_slice()), Some(&invalid[1..2])],
+        vec![Some(observed.as_slice()), Some(&invalid[2..])],
+    ] {
+        for explicitly_inactive in [false, true] {
+            let mut brushes = HashMap::from([("obj".to_string(), Some((0.0, 1.0)))]);
+            if explicitly_inactive {
+                brushes.insert("x".to_string(), None);
+            }
+            assert!(trial_passes_brushes(0, &brushes, &cols, &ranges, &names));
+            assert_eq!(
+                filter_trials_by_brushes(&[42], &brushes, &cols, &ranges, &names),
+                vec![42]
+            );
+        }
+    }
 }
 
 #[test]
@@ -618,6 +663,24 @@ fn trial_passes_brushes_missing_value_with_active_brush_excluded() {
         &col_ranges,
         &all_names
     ));
+    for (cols, expected) in [
+        (vec![Some(col_data_x.as_slice())], vec![]),
+        (vec![Some(col_data_x.as_slice()), None], vec![]),
+        (vec![Some(col_data_x.as_slice()), Some(&[][..])], vec![]),
+        (cols, vec![10]),
+    ] {
+        assert!(!trial_passes_brushes(
+            1,
+            &brush_ranges,
+            &cols,
+            &col_ranges,
+            &all_names
+        ));
+        assert_eq!(
+            filter_trials_by_brushes(&[10, 20], &brush_ranges, &cols, &col_ranges, &all_names),
+            expected
+        );
+    }
 }
 
 #[test]
