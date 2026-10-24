@@ -39,12 +39,16 @@ tdashboard-study    -> no other workspace crate
 ```
 
 The GUI and MCP compose I/O, Study management, and analysis; I/O and analysis do
-not call each other. Keep `egui-app/` and `mcp-server/` directory names and explicit
-binary names `TunnyDashboard` and `tunny-mcp`. Change package names, not user-facing
+not call each other. The original decision kept `egui-app/` and `mcp-server/`
+directory names; only that entry-placement decision is superseded by
+[ADR-0025](0025-consolidate-workspace-crate-placement.md). Keep explicit binary
+names `TunnyDashboard` and `tunny-mcp`. Change package names, not user-facing
 executable names. New libraries use `crates/study/`, `crates/io/`,
 `crates/analysis/`, and `crates/optimization-runner/`. Keep `rust_core/` as the
 temporary legacy package during extraction, then retire it; do not rename all
-existing directories in anticipation of a different product layout.
+existing directories in anticipation of a different product layout. ADR-0025
+now records the agreed entry moves and GUI library name; the dependency and
+responsibility contracts here remain in force.
 
 - **Study** owns neutral IDs, trial/metadata records, shared feasibility and
   distribution semantics, validated updates, immutable snapshots, and per-Study

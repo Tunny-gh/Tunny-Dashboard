@@ -8,10 +8,13 @@ name: Release
 # dependency license in its license modal.
 #
 # The app embeds third-party licenses, icon and fonts into the binary at build
-# time (see egui-app/build.rs) and links to the online documentation site for
+# time (see crates/desktop/build.rs) and links to the online documentation site for
 # help, so the only external runtime dependency that must travel with the
 # executable is the pre-built LightGBM native library.
 on:
+  pull_request:
+    branches:
+      - main
   push:
     tags:
       - "v*"
@@ -27,7 +30,7 @@ env:
   LIGHTGBM_VERSION: v4.6.0
 
 permissions:
-  contents: write # required to create/update the GitHub Release
+  contents: read
 
 jobs:
   package:
@@ -47,17 +50,17 @@ jobs:
         uses: actions/checkout@v7
 
       # The startup beta notice is suppressed per version, keyed on
-      # CARGO_PKG_VERSION. Shipping a new tag without bumping egui-app/Cargo.toml
+      # CARGO_PKG_VERSION. Shipping a new tag without bumping crates/desktop/Cargo.toml
       # would leave the notice permanently hidden for anyone who dismissed the
       # previous release, so a mismatch fails the release instead.
       - name: Verify tag matches the crate version
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
-          crate_version=$(grep -m1 '^version = ' egui-app/Cargo.toml | cut -d'"' -f2)
+          crate_version=$(grep -m1 '^version = ' crates/desktop/Cargo.toml | cut -d'"' -f2)
           tag="${GITHUB_REF#refs/tags/}"
           if [ "v${crate_version}" != "${tag}" ]; then
-            echo "::error::tag ${tag} does not match egui-app/Cargo.toml version ${crate_version}. Bump the crate version and re-tag."
+            echo "::error::tag ${tag} does not match crates/desktop/Cargo.toml version ${crate_version}. Bump the crate version and re-tag."
             exit 1
           fi
           echo "tag ${tag} matches crate version ${crate_version}"
@@ -158,7 +161,7 @@ jobs:
                       512:icon_256x256@2x 512:icon_512x512; do
             size="${spec%%:*}"
             name="${spec#*:}"
-            sips -z "$size" "$size" egui-app/assets/TunnyIcon.png \
+            sips -z "$size" "$size" crates/desktop/assets/TunnyIcon.png \
               --out "AppIcon.iconset/${name}.png" >/dev/null
           done
           iconutil -c icns AppIcon.iconset -o AppIcon.icns
@@ -175,7 +178,7 @@ jobs:
           # reads the crate version rather than steps.ver.outputs.version, which
           # is a short commit SHA on workflow_dispatch runs. The tag and the
           # crate version are verified to agree earlier in this job.
-          crate_version=$(grep -m1 '^version = ' egui-app/Cargo.toml | cut -d'"' -f2)
+          crate_version=$(grep -m1 '^version = ' crates/desktop/Cargo.toml | cut -d'"' -f2)
 
           rm -rf "$APP"
           mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks" "$APP/Contents/Resources"
@@ -189,7 +192,7 @@ jobs:
           # build.rs bakes in an absolute -rpath to the build-time libs/ dir,
           # which cannot exist on a user's machine. dyld would just skip it, but
           # drop it so `otool -l` output describes the shipped layout. Analysis
-          # and egui-app each emit one, and -delete_rpath removes a single entry
+          # and desktop each emit one, and -delete_rpath removes a single entry
           # per call, so try a bounded number of times and stop once it reports
           # that no such rpath is left.
           for _ in 1 2 3; do
@@ -258,7 +261,7 @@ jobs:
         run: |
           set -euo pipefail
           APP="TunnyDashboard.app"
-          crate_version=$(grep -m1 '^version = ' egui-app/Cargo.toml | cut -d'"' -f2)
+          crate_version=$(grep -m1 '^version = ' crates/desktop/Cargo.toml | cut -d'"' -f2)
 
           codesign --verify --strict --verbose=2 "$APP"
           otool -L "$APP/Contents/MacOS/TunnyDashboard"
@@ -297,6 +300,8 @@ jobs:
 
   release:
     name: Publish GitHub Release
+    permissions:
+      contents: write # required to create/update the GitHub Release
     needs: package
     # Only attach assets to a Release when triggered by a version tag.
     if: startsWith(github.ref, 'refs/tags/')

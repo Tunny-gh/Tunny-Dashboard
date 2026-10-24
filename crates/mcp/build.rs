@@ -4,6 +4,8 @@ fn main() {
         let libs = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap()
+            .parent()
+            .unwrap()
             .join("libs");
         println!("cargo:rustc-link-arg=-Wl,-rpath,{}", libs.display());
         if cfg!(target_os = "macos") {

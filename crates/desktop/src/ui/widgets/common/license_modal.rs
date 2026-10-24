@@ -17,7 +17,7 @@ static APP_ENTRY: LicenseEntry = LicenseEntry {
     version: APP_VERSION,
     license: "MIT",
     repository: APP_REPOSITORY,
-    text: include_str!("../../../../../LICENSE"),
+    text: include_str!("../../../../../../LICENSE"),
 };
 
 /// UI state for the license modal.

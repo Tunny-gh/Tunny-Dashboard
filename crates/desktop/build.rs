@@ -8,7 +8,12 @@ fn main() {
     // Analysis emits these for the rlib, but the linker flags
     // must also be visible when linking the top-level binary.
     let manifest_dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    let libs_dir = manifest_dir.parent().unwrap().join("libs");
+    let libs_dir = manifest_dir
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("libs");
     if cfg!(target_os = "macos") {
         // On macOS, rustc-link-lib flags are placed before rustc-link-search by
         // the linker driver, so ld never sees the search path in time. Instead,
@@ -57,7 +62,9 @@ fn generate_license_data() {
     println!("cargo:rerun-if-changed=Cargo.toml");
     let lock = manifest_dir
         .parent()
-        .unwrap_or(&manifest_dir)
+        .unwrap()
+        .parent()
+        .unwrap()
         .join("Cargo.lock");
     println!("cargo:rerun-if-changed={}", lock.display());
 

@@ -69,24 +69,24 @@ tunny-dashboard/
 │   ├── study/          # All-state Study model and caller-owned management
 │   ├── io/             # Formats, owned load/update batches, writers, artifact resolution
 │   ├── analysis/       # Explicit-input analysis, derived tables, sessions and provenance
-│       └── src/        # Clustering/PCA/SOM, Pareto/indicators, MCDM, sensitivity,
+│   │   └── src/        # Clustering/PCA/SOM, Pareto/indicators, MCDM, sensitivity,
 │                       # PDP, statistics, GP/LightGBM, surrogate optimization,
 │                       # report computation and pure HTML/Markdown/JSON/SVG output
-│   └── optimization-runner/ # Distinct real-evaluation paths (no Python/Optuna)
-│       └── src/
-│           ├── gh/     # GHX parsing, Rhino.Compute lifecycle and GH optimization
-│           ├── process/ # Generic external-tool objective (command integration)
-│           └── runner/ # Generic real-evaluation loop and recording
-├── egui-app/           # tunny-dashboard package (TunnyDashboard executable)
-│   ├── src/
-│   │   ├── io/         # File dialogs, I/O dispatch, export composition
-│   │   ├── state/      # Application state & message handling
-│   │   ├── theme/      # Light/dark color palette & colormaps
-│   │   ├── ui/         # Panels, canvas, widgets, help system
-│   │   ├── app.rs      # Main app logic
-│   │   └── main.rs     # Entry point
-│   └── Cargo.toml
-├── mcp-server/         # tdashboard-mcp package (tunny-mcp executable)
+│   ├── optimization-runner/ # Distinct real-evaluation paths (no Python/Optuna)
+│   │   └── src/
+│   │       ├── gh/     # GHX parsing, Rhino.Compute lifecycle and GH optimization
+│   │       ├── process/ # Generic external-tool objective (command integration)
+│   │       └── runner/ # Generic real-evaluation loop and recording
+│   ├── desktop/        # tunny-dashboard package (tunny_dashboard library, TunnyDashboard executable)
+│   │   ├── src/
+│   │   │   ├── io/     # File dialogs, I/O dispatch, export composition
+│   │   │   ├── state/  # Application state & message handling
+│   │   │   ├── theme/  # Light/dark color palette & colormaps
+│   │   │   ├── ui/     # Panels, canvas, widgets, help system
+│   │   │   ├── app.rs  # Main app logic
+│   │   │   └── main.rs # Entry point
+│   │   └── Cargo.toml
+│   └── mcp/            # tdashboard-mcp package (tunny-mcp executable)
 ├── docs/               # adr/, guides/ (execution / integration), planning/, reports/
 └── Cargo.toml          # Workspace configuration
 ```

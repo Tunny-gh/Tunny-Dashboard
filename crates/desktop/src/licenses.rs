@@ -9,7 +9,7 @@
 //! that names the app: `--version`, the About modal, the license list's own entry, and
 //! the version the beta notice is suppressed for.
 
-/// The version this build reports. Bumped in `egui-app/Cargo.toml` for every release —
+/// The version this build reports. Bumped in `crates/desktop/Cargo.toml` for every release —
 /// the release workflow fails if the tag disagrees, because the beta notice is
 /// suppressed per version.
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");

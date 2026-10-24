@@ -1,5 +1,5 @@
 [workspace]
-members = ["egui-app", "mcp-server", "crates/study", "crates/io", "crates/analysis", "crates/optimization-runner"]
+members = ["crates/desktop", "crates/mcp", "crates/study", "crates/io", "crates/analysis", "crates/optimization-runner"]
 resolver = "2"
 
 [profile.release]

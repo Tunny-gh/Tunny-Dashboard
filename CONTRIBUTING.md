@@ -134,8 +134,12 @@ The exact workspace checks below include the analysis crate and its native tests
 The entry packages are `tunny-dashboard` and `tdashboard-mcp`; their executable
 names remain `TunnyDashboard` and `tunny-mcp`. The workspace contains these two
 entries and the four responsibility libraries listed above. Cross-boundary
-ingestion/projection fixtures live in `egui-app/tests/`, above I/O and analysis;
+ingestion/projection fixtures live in `crates/desktop/tests/`, above I/O and analysis;
 neither library depends on the other, including for tests.
+
+All six manifests live directly under `crates/`: `desktop/`, `mcp/`, `study/`,
+`io/`, `analysis/`, and `optimization-runner/`. The desktop package exposes the
+Rust library `tunny_dashboard`; package selectors and executable names are unchanged.
 
 ## Development Commands
 
@@ -286,11 +290,13 @@ sections, and status vocabulary.
 ## Releasing
 
 Releases are built by [`.github/workflows/release.yml`](.github/workflows/release.yml),
-which is triggered by pushing a `v*` tag.
+which publishes when a `v*` tag is pushed. Pull requests also build and upload
+Windows/macOS packages for verification without publishing a GitHub Release;
+`workflow_dispatch` supports the same package-only check on demand.
 
 1. Move the [`CHANGELOG.md`](CHANGELOG.md) `[Unreleased]` entries under a new
    `[<version>]` heading and add a fresh empty `[Unreleased]` section above it.
-2. Bump `version` in `egui-app/Cargo.toml` and commit the updated `Cargo.lock`
+2. Bump `version` in `crates/desktop/Cargo.toml` and commit the updated `Cargo.lock`
    together with the changelog update.
 3. Tag the commit as `v<version>` — the tag must match the crate version exactly.
 4. Push the tag.
@@ -299,4 +305,4 @@ Step 2's version bump is not optional. The startup beta notice records the
 version the user dismissed it for (`CARGO_PKG_VERSION`), so a release that
 reuses the previous version number would never show the notice again to
 existing users. The release workflow verifies the tag against
-`egui-app/Cargo.toml` and fails on a mismatch.
+`crates/desktop/Cargo.toml` and fails on a mismatch.

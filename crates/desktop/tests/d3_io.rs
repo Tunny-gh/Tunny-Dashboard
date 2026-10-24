@@ -118,7 +118,7 @@ fn repeated_objective_labels_keep_indexed_values_separate_from_parameters() {
 
 #[test]
 fn actual_optuna5_journal_retains_nonfinite_observations_without_conflating_null() {
-    let bytes = include_bytes!("../../crates/io/fixtures/optuna5-nonfinite.jsonl");
+    let bytes = include_bytes!("../../io/fixtures/optuna5-nonfinite.jsonl");
     let key = key();
     let source = ReadSource::Journal(Arc::new(bytes.to_vec()));
     let full = acquire(key, &source, false);

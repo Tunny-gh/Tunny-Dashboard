@@ -38,7 +38,7 @@ fn main() {
     let is_minimize = [true, false, true, false];
     // Unnormalized weights (sum=10) to also verify internal normalize_weights.
     let weights = [4.0_f64, 1.0, 3.0, 2.0];
-    let v = 0.5_f64; // matches the app's default (egui-app mcdm_chart.rs)
+    let v = 0.5_f64; // matches the desktop app's default (mcdm_chart.rs)
 
     let result = compute_vikor(&values, n_trials, n_objectives, &weights, &is_minimize, v)
         .expect("VIKOR must succeed");
