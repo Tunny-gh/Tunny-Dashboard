@@ -33,6 +33,21 @@ pub(super) struct DisplayBatches {
 /// List of points in a display batch. Each point is `(trial_id, [x, y])`.
 type BatchPoints = Vec<(u32, [f64; 2])>;
 
+#[cfg(test)]
+impl DisplayBatches {
+    pub(super) fn points(&self) -> Vec<(u32, [f64; 2], Color32)> {
+        self.color_batches
+            .iter()
+            .flat_map(|(color, points)| points.iter().map(|&(id, xy)| (id, xy, *color)))
+            .chain(
+                self.none_pts
+                    .iter()
+                    .map(|&(id, xy)| (id, xy, COLOR_MCDM_NONE())),
+            )
+            .collect()
+    }
+}
+
 /// Builds the precomputed display batches (`DisplayBatches`).
 ///
 /// The `HashMap` classification by color and luminance sorting are done once here, and

@@ -4,18 +4,19 @@ mod hit_test;
 mod points;
 mod render;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use std::collections::HashMap;
 
 use crate::io::artifacts::ArtifactEntry;
-use crate::state::results::{McdmMethod, McdmResult};
+use crate::state::results::McdmResult;
 use crate::state::types::{ColormapName, StudyView};
 use crate::theme::chart_colors::COLOR_EMPTY_STATE;
 use crate::theme::colormap::ColorMap;
 use crate::theme::ERROR_COLOR;
 use crate::ui::widgets::mcdm_chart::McdmControls;
 use crate::ui::widgets::trial_detail_modal::{TrialDetailModal, TrialDetailTarget};
+use tdashboard_analysis::{session::ResultKey, shared::SharedResult};
 
 use hit_test::compute_hit_candidates;
 use points::compute_scatter_points;
@@ -25,21 +26,6 @@ pub(crate) use points::{
 };
 use render::{build_display_batches, render_scatter_plot, DisplayBatches};
 
-/// FNV-like hash of `ranked_indices()`, shared by the 2D/3D scatter plots (H-3).
-///
-/// The previous 2D implementation keyed the cache only on the bit pattern of
-/// `primary_scores()[0]` plus the point count. If row 0 was outside the Pareto front
-/// (`expand_scores` always maps it to 0.0), changing the weights and re-running could
-/// keep the same key, silently leaving the old rank colors displayed. Using a hash of the
-/// entire `ranked_indices()`, as the 3D version does, guarantees detection whenever the
-/// ranking changes.
-pub(crate) fn ranked_hash(result: &McdmResult) -> u64 {
-    result.ranked_indices().iter().fold(0u64, |acc, &x| {
-        acc.wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(x as u64 + 1)
-    })
-}
-
 /// Cache key
 #[derive(Clone, PartialEq, Eq)]
 struct CacheKey {
@@ -48,10 +34,7 @@ struct CacheKey {
     y_axis: String,
     colormap_name: ColormapName,
     top_n: usize,
-    /// MCDM method (detects method switches)
-    result_method: McdmMethod,
-    /// Hash of ranked_indices (detects weight changes / ranking changes)
-    ranked_indices_hash: u64,
+    result_key: ResultKey,
 }
 
 /// MCDM scatter plot widget
@@ -113,7 +96,7 @@ impl McdmScatterChart {
     fn make_cache_key(
         &self,
         trial_count: usize,
-        result: &McdmResult,
+        result: &SharedResult<McdmResult>,
         colormap_name: &ColormapName,
         top_n: usize,
     ) -> CacheKey {
@@ -123,8 +106,7 @@ impl McdmScatterChart {
             y_axis: self.y_axis.clone(),
             colormap_name: colormap_name.clone(),
             top_n,
-            result_method: result.method(),
-            ranked_indices_hash: ranked_hash(result),
+            result_key: result.key().clone(),
         }
     }
 
@@ -132,7 +114,7 @@ impl McdmScatterChart {
     fn is_cache_stale(
         &self,
         trial_count: usize,
-        result: &McdmResult,
+        result: &SharedResult<McdmResult>,
         colormap_name: &ColormapName,
         top_n: usize,
     ) -> bool {
@@ -144,8 +126,7 @@ impl McdmScatterChart {
                     || key.y_axis != self.y_axis
                     || key.colormap_name != *colormap_name
                     || key.top_n != top_n
-                    || key.result_method != result.method()
-                    || key.ranked_indices_hash != ranked_hash(result)
+                    || key.result_key != *result.key()
             }
         }
     }
@@ -155,7 +136,7 @@ impl McdmScatterChart {
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
-        mcdm_result: Option<&McdmResult>,
+        mcdm_result: Option<&SharedResult<McdmResult>>,
         view: &StudyView,
         param_names: &[String],
         obj_names: &[String],
@@ -301,7 +282,7 @@ impl McdmScatterChart {
             ));
             // VIKOR: also flag points belonging to the compromise solution set (C1/C2) in
             // the modal.
-            if let McdmResult::Vikor(vr) = result {
+            if let McdmResult::Vikor(vr) = &**result {
                 if vr.compromise_indices.contains(&row) {
                     context.push(("VIKOR Compromise".to_string(), "★ Yes (C1/C2)".to_string()));
                 }
@@ -330,7 +311,7 @@ impl McdmScatterChart {
         // VIKOR: highlight the compromise solution set (solutions satisfying Opricovic &
         // Tzeng's acceptance conditions C1/C2). If C1 doesn't hold there may be multiple
         // solutions, so display them as a list of trial numbers.
-        if let McdmResult::Vikor(vr) = result {
+        if let McdmResult::Vikor(vr) = &**result {
             if !vr.compromise_indices.is_empty() {
                 let labels: Vec<String> = vr
                     .compromise_indices

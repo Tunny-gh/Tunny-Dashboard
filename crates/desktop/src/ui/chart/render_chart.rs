@@ -335,7 +335,7 @@ pub(crate) fn render_chart(
             let key = widgets.scatter_chart.controls.cache_key();
             widgets.scatter_chart.show(
                 ui,
-                key.ok().and_then(|key| app_state.mcdm_cache.get(&key)),
+                key.ok().and_then(|key| app_state.mcdm_cache.selected(&key)),
                 &ctx.view,
                 param_names,
                 obj_names,
@@ -349,7 +349,7 @@ pub(crate) fn render_chart(
             let key = widgets.mcdm_scatter_3d.controls.cache_key();
             widgets.mcdm_scatter_3d.show(
                 ui,
-                key.ok().and_then(|key| app_state.mcdm_cache.get(&key)),
+                key.ok().and_then(|key| app_state.mcdm_cache.selected(&key)),
                 &ctx.view,
                 param_names,
                 obj_names,
