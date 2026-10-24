@@ -486,7 +486,7 @@ pub(crate) fn render_chart(
         ChartId::CorrelationMatrix => {
             widgets
                 .correlation_matrix
-                .show(ui, &ctx.view, param_names, obj_names, &ctx.meta.name);
+                .show(ui, &ctx.view, param_names, obj_names);
         }
         ChartId::RadarComparison => {
             widgets.radar_comparison.show(
