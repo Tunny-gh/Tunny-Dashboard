@@ -44,12 +44,8 @@ fn main() {
         .expect("VIKOR must succeed");
 
     // Second scenario: same matrix, but every objective treated as minimize.
-    // compute_vikor's best/worst-value accumulators are initialized to
-    // (+INFINITY, -INFINITY) regardless of direction, which is only correct
-    // for the minimize branch (see minimal_maximize_bug_repro below for the
-    // maximize-direction defect this causes). This all-minimize scenario
-    // avoids that defect entirely, giving a clean basis for cross-checking
-    // the core S/R/Q formula against pymcdm.
+    // This provides an additional control for cross-checking the core S/R/Q
+    // formula against pymcdm alongside the mixed-direction scenario above.
     let is_minimize_all = [true, true, true, true];
     let result_all_min = compute_vikor(
         &values,
@@ -61,15 +57,14 @@ fn main() {
     )
     .expect("VIKOR (all-minimize) must succeed");
 
-    // Minimal, hand-checkable reproduction of the maximize-direction defect:
-    // 2 alternatives x 1 objective, maximize. best/worst accumulators start
-    // at (+INFINITY, -INFINITY) unconditionally regardless of direction, so
-    // for a maximize objective `f64::max(best, val)` can never move `best`
-    // away from +INFINITY, and `f64::min(worst, val)` can never move `worst`
-    // away from -INFINITY.
-    let bug_values = [1.0_f64, 5.0];
-    let bug_result = compute_vikor(&bug_values, 2, 1, &[1.0], &[false], 0.5)
-        .expect("VIKOR minimal repro must succeed");
+    // Minimal, hand-checkable regression control for the historical maximize
+    // initialization defect: 2 alternatives x 1 objective, maximize. The
+    // direction-aware accumulators now yield best=5, worst=1 and S=R=Q=[1,0].
+    // The JSON key minimal_maximize_bug_repro below is a historical regression
+    // label, not a claim that the defect is still present.
+    let maximize_values = [1.0_f64, 5.0];
+    let maximize_result = compute_vikor(&maximize_values, 2, 1, &[1.0], &[false], 0.5)
+        .expect("VIKOR minimal maximize regression must succeed");
 
     let out = serde_json::json!({
         "n_trials": n_trials,
@@ -95,15 +90,15 @@ fn main() {
             "worst_values": result_all_min.worst_values,
         },
         "minimal_maximize_bug_repro": {
-            "values": bug_values,
+            "values": maximize_values,
             "is_minimize": [false],
             "weights": [1.0],
             "v": 0.5,
-            "s_values": bug_result.s_values,
-            "r_values": bug_result.r_values,
-            "q_values": bug_result.q_values,
-            "best_values": bug_result.best_values,
-            "worst_values": bug_result.worst_values,
+            "s_values": maximize_result.s_values,
+            "r_values": maximize_result.r_values,
+            "q_values": maximize_result.q_values,
+            "best_values": maximize_result.best_values,
+            "worst_values": maximize_result.worst_values,
         },
     });
     println!("{}", serde_json::to_string_pretty(&out).unwrap());
