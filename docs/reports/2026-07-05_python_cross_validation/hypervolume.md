@@ -190,3 +190,29 @@ hv(front only)          = 0.27999999999999997
 hv(front + dominated pt) = 0.31999999999999995
 expected: equal (dominated point contributes 0 additional HV)
 ```
+
+**Correction (2026-10-24):** The output above is preserved as historical evidence,
+but its `dominated pt` label and printed equal-HV expectation are invalid. For
+minimization at reference `(1,1)`, `(0.6,0.6)` is nondominated with respect to
+`{(0.2,0.8),(0.8,0.2)}`: it trades off against both original points. The original
+rectangle union is `0.8*0.2 + 0.2*0.8 - 0.2*0.2 = 0.28`; the added point covers
+the previously uncovered square `[0.6,0.8) × [0.6,0.8)`, adding `0.2*0.2 = 0.04`.
+Thus the increase to `0.32` is correct, not evidence of a defect.
+
+This does not invalidate the separate genuine dominated/duplicate-input defect:
+the `(0.7,0.9)` example above is dominated by `(0.2,0.8)`, and the archived
+`hand_2d_with_dominated_and_duplicate` mismatch (`0.21` versus `0.28`) remains
+distinct evidence. Neither that mismatch nor the historical FAIL output has been
+rewritten as a successful run.
+
+For current verification, use the retained
+[`verify_hypervolume` example](../../../crates/analysis/examples/verify_hypervolume.rs)
+(including `hand_2d_with_dominated_and_duplicate`) and the retained tests
+[`tc_201_06b_hypervolume_2d_ignores_dominated_and_duplicate_points` and
+`tc_201_06c_hypervolume_nd_m2_ignores_dominated_points`](../../../crates/analysis/src/multi_objective/pareto/tests.rs).
+The latter also checks the valid nondominated-point increase to `0.32`.
+The current command from the repository root is
+`cargo run -p tdashboard-analysis --example verify_hypervolume`, not the removed
+`verify_hv_2d_bug_repro` example. The earlier `tunny-core` command is historical.
+This correction is based on manual calculation and source inspection; no example,
+numerical test, or external oracle was rerun.
