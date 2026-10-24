@@ -12,11 +12,11 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use tdashboard_io::rdb::RdbUrl;
-use tunny_desktop::state::messages::AppMessage;
-use tunny_desktop::state::{
+use tunny_dashboard::state::messages::AppMessage;
+use tunny_dashboard::state::{
     app_state::AppState, journal_studies::JournalStudies, message_handler::MessageHandler,
 };
-use tunny_desktop::ui::widget_states::WidgetStates;
+use tunny_dashboard::ui::widget_states::WidgetStates;
 
 const TEST_DB_URL: &str = "postgresql://tunny:tunnypass@127.0.0.1:5432/tunny_test";
 

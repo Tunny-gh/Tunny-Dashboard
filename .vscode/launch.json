@@ -8,7 +8,7 @@
             "cargo": {
                 "args": [
                     "build",
-                    "--manifest-path=${workspaceFolder}/egui-app/Cargo.toml",
+                    "--manifest-path=${workspaceFolder}/crates/desktop/Cargo.toml",
                     "--bin=TunnyDashboard"
                 ],
                 "filter": {

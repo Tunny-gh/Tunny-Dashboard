@@ -48,7 +48,7 @@ libs/*
 
 
 # Checked-in Journal regression fixtures
-!egui-app/tests/fixtures/*.log
+!crates/desktop/tests/fixtures/*.log
 node_modules/
 .claude/settings.local.json
 .rulesync/*

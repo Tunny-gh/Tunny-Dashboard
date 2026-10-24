@@ -1,6 +1,7 @@
-//! Final ADR-0021 package, dependency and executable boundaries.
+//! ADR-0021 dependency/executable boundaries and ADR-0025 workspace placement.
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 use std::process::Command;
 
 #[test]
@@ -16,6 +17,8 @@ fn product_entries_use_the_approved_production_graph_and_binary_names() {
         String::from_utf8_lossy(&output.stderr)
     );
     let metadata: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let workspace_root = Path::new(metadata["workspace_root"].as_str().unwrap());
+    let crates_dir = workspace_root.join("crates");
     let packages: BTreeMap<_, _> = metadata["packages"]
         .as_array()
         .unwrap()
@@ -111,6 +114,30 @@ fn product_entries_use_the_approved_production_graph_and_binary_names() {
     }
     for (name, dependencies) in expected {
         let (&id, package) = packages.iter().find(|(_, p)| p["name"] == name).unwrap();
+        let directory = match name {
+            "tunny-dashboard" => "desktop",
+            "tdashboard-mcp" => "mcp",
+            "tdashboard-study" => "study",
+            "tdashboard-io" => "io",
+            "tdashboard-analysis" => "analysis",
+            "tdashboard-optimization-runner" => "optimization-runner",
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            Path::new(package["manifest_path"].as_str().unwrap()),
+            crates_dir.join(directory).join("Cargo.toml"),
+            "manifest placement for {name}"
+        );
+        if name == "tunny-dashboard" {
+            let libraries: Vec<_> = package["targets"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|t| t["kind"].as_array().unwrap().iter().any(|k| k == "lib"))
+                .map(|t| t["name"].as_str().unwrap())
+                .collect();
+            assert_eq!(libraries, ["tunny_dashboard"]);
+        }
         let actual: BTreeSet<_> = production_edges(id)
             .into_iter()
             .filter(|id| workspace.contains(id))

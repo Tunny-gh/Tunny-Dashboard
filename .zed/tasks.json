@@ -20,7 +20,7 @@
       "tunny-dashboard",
       "--",
       "-i",
-      "$ZED_WORKTREE_ROOT/egui-app/tests/fixtures/test.log"
+      "$ZED_WORKTREE_ROOT/crates/desktop/tests/fixtures/test.log"
     ],
     "env": { "RUST_LOG": "debug", "RUST_BACKTRACE": "1" },
     "use_new_terminal": false,
@@ -49,12 +49,12 @@
     "reveal": "always"
   },
   {
-    "label": "Format check (egui-app)",
+    "label": "Format check (desktop)",
     "command": "cargo",
     "args": [
       "fmt",
       "--manifest-path",
-      "egui-app/Cargo.toml",
+      "crates/desktop/Cargo.toml",
       "--all",
       "--",
       "--check"

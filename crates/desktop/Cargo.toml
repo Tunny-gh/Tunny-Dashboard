@@ -4,7 +4,6 @@ version = "0.1.2"
 edition = "2021"
 
 [lib]
-name = "tunny_desktop"
 path = "src/lib.rs"
 
 [[bin]]
@@ -12,10 +11,10 @@ name = "TunnyDashboard"
 path = "src/main.rs"
 
 [dependencies]
-tdashboard-optimization-runner = { path = "../crates/optimization-runner" }
-tdashboard-analysis = { path = "../crates/analysis" }
-tdashboard-io = { path = "../crates/io" }
-tdashboard-study = { path = "../crates/study" }
+tdashboard-optimization-runner = { path = "../optimization-runner" }
+tdashboard-analysis = { path = "../analysis" }
+tdashboard-io = { path = "../io" }
+tdashboard-study = { path = "../study" }
 eframe = { version = "0.35", features = ["wgpu", "persistence"] }
 egui = "0.35"
 egui_extras = { version = "0.35", features = ["image", "file", "svg"] }

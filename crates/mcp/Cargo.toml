@@ -9,8 +9,8 @@ name = "tunny-mcp"
 path = "src/main.rs"
 
 [dependencies]
-tdashboard-analysis = { path = "../crates/analysis" }
-tdashboard-io = { path = "../crates/io" }
-tdashboard-study = { path = "../crates/study" }
+tdashboard-analysis = { path = "../analysis" }
+tdashboard-io = { path = "../io" }
+tdashboard-study = { path = "../study" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

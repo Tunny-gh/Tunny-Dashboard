@@ -26,7 +26,7 @@
 //! dhat also outputs `dhat-heap.json` (viewable in detail with `dhat-view`).
 
 use tdashboard_study::*;
-use tunny_desktop::state::types::StudyView;
+use tunny_dashboard::state::types::StudyView;
 
 /// A local reproduction of the old implementation's (`main` branch) trial state enum.
 /// It's been removed from the app itself, so it's defined here to keep the memory

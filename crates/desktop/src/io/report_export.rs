@@ -132,11 +132,11 @@ fn write_report(
     Ok((written, overwritten))
 }
 
-/// Converts egui-app's `StudyMeta` (plus auxiliary info derived from DataFrame /
+/// Converts the desktop app's `StudyMeta` (plus auxiliary info derived from DataFrame /
 /// StudyExtras) into the core-side `StudyMeta` required by
 /// `tdashboard_analysis::report::build_study_report`.
 ///
-/// - `user_attr_names`: egui-app's `StudyMeta` doesn't have this, so it's filled in by
+/// - `user_attr_names`: the desktop app's `StudyMeta` doesn't have this, so it's filled in by
 ///   merging the DataFrame's numeric/string user_attr column names.
 /// - `has_constraints`: true if the DataFrame has even one constraint column.
 /// - `total_trials`: uses the count from `StudyExtras` (extra info for all states) if
