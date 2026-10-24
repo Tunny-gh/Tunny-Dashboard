@@ -54,6 +54,9 @@ pub fn trial_passes_brushes(
         else {
             return false; // missing value but brush is active → excluded
         };
+        if !val.is_finite() {
+            return false;
+        }
         let Some((mn, mx)) = col_ranges.get(axis_idx).copied() else {
             return false;
         };

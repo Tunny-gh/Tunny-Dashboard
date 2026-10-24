@@ -25,6 +25,10 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- Parallel Coordinates brushes exclude missing and nonfinite numeric observations
+  on actively brushed axes, including axes with constant ranges. Inactive axes do
+  not filter trials.
+
 - MCDM 2D and 3D scatter plots refresh score coordinates, picking positions, and
   axis ranges after a new accepted result even when the ranking is unchanged,
   while preserving rank colors and widget controls/camera.
