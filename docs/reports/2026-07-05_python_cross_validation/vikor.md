@@ -1,5 +1,23 @@
 # VIKOR — pymcdm クロスチェック
 
+> **Current verification note (2026-10-24):** The Python script and execution
+> output below are archived pre-fix evidence, not instructions or expected
+> results for the current implementation. The maximize initialization defect
+> was fixed on 2026-07-05 (see the correction record at the end). The current
+> example retains mixed-direction, all-minimize, and minimal maximize scenarios;
+> `minimal_maximize_bug_repro` is a historical regression label, not an active
+> bug claim. For values `[1, 5]` with maximize direction, current expected results
+> are best `[5]`, worst `[1]`, and S/R/Q each `[1, 0]`. The archived Python script
+> asserts the old defect and must not be used as a current correctness check.
+> Run the current example and focused Rust regression from the repository root:
+>
+> ```sh
+> cargo run -p tdashboard-analysis --example verify_vikor --locked --profile ci-test
+> cargo test -p tdashboard-analysis --locked --profile ci-test --lib tc_vikor_013_single_maximize_objective_discriminates
+> ```
+>
+> These commands do not rerun external pymcdm cross-validation.
+
 - **実施日**: 2026-07-05
 - **対象実装**: `rust_core/src/mcdm/vikor.rs`(`compute_vikor`)
 - **リファレンス**: pymcdm(`pymcdm.methods.VIKOR`, `v=0.5`)
