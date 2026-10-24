@@ -290,9 +290,9 @@ sections, and status vocabulary.
 ## Releasing
 
 Releases are built by [`.github/workflows/release.yml`](.github/workflows/release.yml),
-which publishes when a `v*` tag is pushed. Pull requests also build and upload
-Windows/macOS packages for verification without publishing a GitHub Release;
-`workflow_dispatch` supports the same package-only check on demand.
+which publishes when a `v*` tag is pushed. Pull requests do not run this workflow.
+`workflow_dispatch` supports building and uploading Windows/macOS packages on
+demand; runs on non-tag refs do not publish a GitHub Release.
 
 1. Move the [`CHANGELOG.md`](CHANGELOG.md) `[Unreleased]` entries under a new
    `[<version>]` heading and add a fresh empty `[Unreleased]` section above it.

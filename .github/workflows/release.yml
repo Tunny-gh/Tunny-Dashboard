@@ -12,9 +12,6 @@ name: Release
 # help, so the only external runtime dependency that must travel with the
 # executable is the pre-built LightGBM native library.
 on:
-  pull_request:
-    branches:
-      - main
   push:
     tags:
       - "v*"
