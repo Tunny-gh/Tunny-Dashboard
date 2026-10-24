@@ -25,6 +25,10 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- Correlation Matrix refreshes coefficients and column labels when the displayed
+  input or selected columns change, including same-size replacements and same-name
+  Studies from different sources, while preserving method and column-group controls.
+
 - Parallel Coordinates brushes exclude missing and nonfinite numeric observations
   on actively brushed axes, including axes with constant ranges. Inactive axes do
   not filter trials.
