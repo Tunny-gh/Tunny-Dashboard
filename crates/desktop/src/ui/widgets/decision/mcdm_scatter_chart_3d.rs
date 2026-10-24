@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::io::artifacts::ArtifactEntry;
-use crate::state::results::{McdmMethod, McdmResult};
+use crate::state::results::McdmResult;
 use crate::state::types::{ColormapName, StudyView};
 use crate::theme::chart_colors::{COLOR_EMPTY_STATE, COLOR_INFEASIBLE, COLOR_MCDM_NONE};
 use crate::theme::colormap::ColorMap;
@@ -10,7 +10,6 @@ use crate::ui::widgets::common::heatmap::draw_gradient_bar;
 use crate::ui::widgets::mcdm_chart::McdmControls;
 use crate::ui::widgets::mcdm_scatter_chart::{
     build_rank_map, extract_axis_values, fallback_axis_id, get_axis_options, mcdm_rank_color,
-    ranked_hash,
 };
 use crate::ui::widgets::scatter_3d::{
     draw_3d_axes, draw_3d_grid, draw_depth_sorted_points, normalize_to_clip, setup_3d_canvas,
@@ -18,6 +17,7 @@ use crate::ui::widgets::scatter_3d::{
 };
 use crate::ui::widgets::trial_detail_modal::{fmt_opt, TrialDetailModal};
 use egui::Color32;
+use tdashboard_analysis::{session::ResultKey, shared::SharedResult};
 
 // ── Cache ─────────────────────────────────────────────────────────
 
@@ -29,12 +29,7 @@ struct CacheKey {
     z_axis: String,
     colormap_name: ColormapName,
     top_n: usize,
-    result_method: McdmMethod,
-    /// FNV-like hash of ranked_indices.
-    /// The old implementation used scores[0], but for trials outside the
-    /// Pareto front, `expand_scores` always sets it to 0.0, so weight changes
-    /// could not be detected.
-    ranked_indices_hash: u64,
+    result_key: ResultKey,
 }
 
 /// Cache of points already converted to clip-space coordinates [-1,1], color,
@@ -93,15 +88,10 @@ impl McdmScatterChart3D {
         self.controls.adopt_compute_state(&src.controls);
     }
 
-    /// `ranked_indices()` hash shared with the 2D version (unified 2D/3D in H-3).
-    fn ranked_hash(result: &McdmResult) -> u64 {
-        ranked_hash(result)
-    }
-
     fn is_cache_stale(
         &self,
         trial_count: usize,
-        result: &McdmResult,
+        result: &SharedResult<McdmResult>,
         colormap_name: &ColormapName,
         top_n: usize,
     ) -> bool {
@@ -114,15 +104,14 @@ impl McdmScatterChart3D {
                     || k.z_axis != self.z_axis
                     || k.colormap_name != *colormap_name
                     || k.top_n != top_n
-                    || k.result_method != result.method()
-                    || k.ranked_indices_hash != Self::ranked_hash(result)
+                    || k.result_key != *result.key()
             }
         }
     }
 
     fn rebuild_cache(
         &mut self,
-        result: &McdmResult,
+        result: &SharedResult<McdmResult>,
         view: &StudyView,
         obj_names: &[String],
         colormap: &ColorMap,
@@ -195,8 +184,7 @@ impl McdmScatterChart3D {
             z_axis: self.z_axis.clone(),
             colormap_name: colormap_name.clone(),
             top_n,
-            result_method: result.method(),
-            ranked_indices_hash: Self::ranked_hash(result),
+            result_key: result.key().clone(),
         });
         Ok(())
     }
@@ -205,7 +193,7 @@ impl McdmScatterChart3D {
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
-        mcdm_result: Option<&McdmResult>,
+        mcdm_result: Option<&SharedResult<McdmResult>>,
         view: &StudyView,
         param_names: &[String],
         obj_names: &[String],
@@ -484,49 +472,130 @@ fn draw_colorbar_legend(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
-    use crate::state::results::{McdmResult, TopsisResult};
-
-    fn make_topsis(ranked: Vec<u32>) -> McdmResult {
-        McdmResult::Topsis(TopsisResult {
-            scores: vec![0.0; ranked.len().max(1)],
-            ranked_indices: ranked,
-            duration_ms: 0.0,
-        })
+    pub(crate) fn assert_accepted_score_refresh(
+        results: [&SharedResult<McdmResult>; 2],
+        view: &StudyView,
+        names: &[String],
+        axis: &str,
+        scores: [&[f64]; 2],
+    ) {
+        let mut chart = McdmScatterChart3D {
+            x_axis: axis.into(),
+            y_axis: "Objective0".into(),
+            z_axis: "Objective1".into(),
+            show_infeasible: false,
+            ..Default::default()
+        };
+        chart.camera.zoom = 1.7;
+        chart.controls.method = results[0].method();
+        chart.controls.weights = vec![0.6, 0.4];
+        chart.controls.v_param = 0.63;
+        chart.controls.top_n = serde_json::from_value(serde_json::json!("Top5")).unwrap();
+        let controls = serde_json::to_value(&chart.controls).unwrap();
+        let camera = serde_json::to_value(&chart.camera).unwrap();
+        let ctx = egui::Context::default();
+        let cmap = ColorMap::viridis();
+        let mut colors = Vec::new();
+        let mut previous_clip = Vec::new();
+        for (step, result) in results.into_iter().enumerate() {
+            let _ = ctx.run_ui(Default::default(), |ui| {
+                chart.show(
+                    ui,
+                    Some(result),
+                    view,
+                    &[],
+                    names,
+                    &cmap,
+                    &ColormapName::Viridis,
+                    &HashMap::new(),
+                );
+            });
+            let cache = chart.cache.as_ref().unwrap();
+            assert_eq!(cache.clip_pts.len(), scores[step].len());
+            let min = scores[step].iter().copied().fold(f64::INFINITY, f64::min);
+            let max = scores[step]
+                .iter()
+                .copied()
+                .fold(f64::NEG_INFINITY, f64::max);
+            assert_eq!(cache.x_range, (min, max));
+            for (axis_name, range) in [(&names[0], cache.y_range), (&names[1], cache.z_range)] {
+                let values = view.numeric_column(axis_name).unwrap();
+                assert_eq!(
+                    range,
+                    (
+                        values.iter().copied().fold(f64::INFINITY, f64::min),
+                        values.iter().copied().fold(f64::NEG_INFINITY, f64::max)
+                    )
+                );
+            }
+            for &(clip, _, row) in &cache.clip_pts {
+                let expected = (2.0 * (scores[step][row] - min) / (max - min) - 1.0) as f32;
+                assert!((clip[0] - expected).abs() < 1e-6);
+            }
+            let current_colors: Vec<_> = cache.clip_pts.iter().map(|p| (p.2, p.1)).collect();
+            let clip: Vec<_> = cache.clip_pts.iter().map(|p| p.0).collect();
+            if step == 0 {
+                colors = current_colors;
+                previous_clip = clip;
+            } else {
+                assert_eq!(colors, current_colors);
+                assert_ne!(
+                    previous_clip, clip,
+                    "The fixture must change normalized geometry"
+                );
+            }
+            let pointer = cache.clip_pts.as_ptr();
+            let _ = ctx.run_ui(Default::default(), |ui| {
+                chart.show(
+                    ui,
+                    Some(result),
+                    view,
+                    &[],
+                    names,
+                    &cmap,
+                    &ColormapName::Viridis,
+                    &HashMap::new(),
+                );
+            });
+            assert_eq!(chart.cache.as_ref().unwrap().clip_pts.as_ptr(), pointer);
+            assert_eq!(serde_json::to_value(&chart.camera).unwrap(), camera);
+            assert_eq!(
+                (&*chart.x_axis, &*chart.y_axis, &*chart.z_axis),
+                (axis, "Objective0", "Objective1")
+            );
+            assert!(!chart.show_infeasible);
+            assert_eq!(serde_json::to_value(&chart.controls).unwrap(), controls);
+        }
     }
 
     #[test]
     fn cache_stale_after_ranking_change() {
-        let mut w = McdmScatterChart3D::default();
-        // Artificially set cache_key to simulate the "old ranking" state
-        w.cache_key = Some(CacheKey {
-            trial_count: 10,
-            x_axis: w.x_axis.clone(),
-            y_axis: w.y_axis.clone(),
-            z_axis: w.z_axis.clone(),
-            colormap_name: crate::state::types::ColormapName::Viridis,
+        use crate::state::analysis_job::fixture_result;
+        use crate::state::results::TopsisResult;
+        let old = fixture_result(McdmResult::Topsis(TopsisResult {
+            scores: vec![0.2, 0.8],
+            ranked_indices: vec![1, 0],
+            duration_ms: 0.0,
+        }));
+        let new = fixture_result(McdmResult::Topsis(TopsisResult {
+            scores: vec![0.8, 0.2],
+            ranked_indices: vec![0, 1],
+            duration_ms: 0.0,
+        }));
+        let mut chart = McdmScatterChart3D::default();
+        chart.cache_key = Some(CacheKey {
+            trial_count: 2,
+            x_axis: chart.x_axis.clone(),
+            y_axis: chart.y_axis.clone(),
+            z_axis: chart.z_axis.clone(),
+            colormap_name: ColormapName::Viridis,
             top_n: 10,
-            result_method: crate::state::results::McdmMethod::Topsis,
-            ranked_indices_hash: McdmScatterChart3D::ranked_hash(&make_topsis(vec![5, 2, 8])),
+            result_key: old.key().clone(),
         });
-        assert!(!w.is_cache_stale(
-            10,
-            &make_topsis(vec![5, 2, 8]),
-            &crate::state::types::ColormapName::Viridis,
-            10
-        ));
-        // New result with a changed ranking
-        let new_result = make_topsis(vec![2, 5, 8]);
-        assert!(
-            w.is_cache_stale(
-                10,
-                &new_result,
-                &crate::state::types::ColormapName::Viridis,
-                10
-            ),
-            "cache is invalidated when the ranking changes"
-        );
+        assert!(!chart.is_cache_stale(2, &old, &ColormapName::Viridis, 10));
+        assert!(chart.is_cache_stale(2, &new, &ColormapName::Viridis, 10));
     }
 
     #[test]

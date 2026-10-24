@@ -93,11 +93,150 @@ fn test_cache_not_stale_same_key() {
     use crate::state::types::ColormapName;
     let cmap_name = ColormapName::Viridis;
     let mut chart = McdmScatterChart::default();
-    let result = McdmResult::Topsis(make_topsis(100));
+    let result = crate::state::analysis_job::fixture_result(McdmResult::Topsis(make_topsis(100)));
     assert!(chart.is_cache_stale(100, &result, &cmap_name, 10));
     chart.cache_key = Some(chart.make_cache_key(100, &result, &cmap_name, 10));
     assert!(!chart.is_cache_stale(100, &result, &cmap_name, 10));
     assert!(chart.is_cache_stale(150, &result, &cmap_name, 10));
+}
+
+pub(crate) fn assert_accepted_score_refresh(
+    results: [&SharedResult<McdmResult>; 2],
+    view: &StudyView,
+    names: &[String],
+    axis: &str,
+    scores: [&[f64]; 2],
+) {
+    use crate::ui::widgets::trial_detail_modal::hit_test_nearest;
+    let mut chart = McdmScatterChart {
+        x_axis: axis.into(),
+        y_axis: "Objective0".into(),
+        ..Default::default()
+    };
+    chart.controls.method = results[0].method();
+    chart.controls.weights = vec![0.7, 0.3];
+    chart.controls.v_param = 0.37;
+    chart.controls.top_n = serde_json::from_value(serde_json::json!("Top5")).unwrap();
+    let controls = serde_json::to_value(&chart.controls).unwrap();
+    let ctx = egui::Context::default();
+    let cmap = ColorMap::viridis();
+    let mut colors = Vec::new();
+    for (step, result) in results.into_iter().enumerate() {
+        let _ = ctx.run_ui(Default::default(), |ui| {
+            chart.show(
+                ui,
+                Some(result),
+                view,
+                &[],
+                names,
+                &cmap,
+                &crate::state::types::ColormapName::Viridis,
+                &HashMap::new(),
+                &[],
+            );
+        });
+        let mut points = chart.display_batches.as_ref().unwrap().points();
+        assert_eq!(points.len(), scores[step].len());
+        points.sort_by_key(|p| p.0);
+        for &(id, xy, _) in &points {
+            let row = view.trial_ids.iter().position(|&v| v == id).unwrap();
+            assert_eq!(
+                xy,
+                [
+                    scores[step][row],
+                    view.numeric_column(&names[0]).unwrap()[row]
+                ]
+            );
+        }
+        let current_colors: Vec<_> = points.iter().map(|p| (p.0, p.2)).collect();
+        if step == 0 {
+            colors = current_colors;
+        } else {
+            assert_eq!(colors, current_colors);
+        }
+        let candidates = chart.hit_candidates.as_ref().unwrap();
+        assert_eq!(candidates.len(), scores[step].len());
+        for &(id, row, xy) in candidates {
+            assert_eq!(xy[0], scores[step][row]);
+            assert_eq!(id, view.trial_ids[row]);
+        }
+        let _ = ctx.run_ui(Default::default(), |ui| {
+            egui_plot::Plot::new("picking regression").show(ui, |plot_ui| {
+                for &(id, row, xy) in candidates {
+                    let pos = plot_ui
+                        .transform()
+                        .position_from_point(&egui_plot::PlotPoint::new(xy[0], xy[1]));
+                    assert_eq!(
+                        hit_test_nearest(plot_ui, candidates, pos, 1.0),
+                        Some((id, row))
+                    );
+                }
+            });
+        });
+        let pointer = chart.hit_candidates.as_ref().unwrap().as_ptr();
+        let elapsed = chart.metadata.as_ref().unwrap().compute_time_ms;
+        let _ = ctx.run_ui(Default::default(), |ui| {
+            chart.show(
+                ui,
+                Some(result),
+                view,
+                &[],
+                names,
+                &cmap,
+                &crate::state::types::ColormapName::Viridis,
+                &HashMap::new(),
+                &[],
+            );
+        });
+        assert_eq!(chart.hit_candidates.as_ref().unwrap().as_ptr(), pointer);
+        assert_eq!(chart.metadata.as_ref().unwrap().compute_time_ms, elapsed);
+        assert_eq!(chart.x_axis, axis);
+        assert_eq!(chart.y_axis, "Objective0");
+        assert_eq!(serde_json::to_value(&chart.controls).unwrap(), controls);
+    }
+}
+
+#[test]
+fn accepted_non_primary_scores_refresh_both_scatter_caches() {
+    let (view, names) = make_view_with_objectives(&[
+        vec![1.0, 8.0],
+        vec![2.0, 6.0],
+        vec![4.0, 3.0],
+        vec![8.0, 1.0],
+    ]);
+    for axis in ["VIKOR_R", "Phi-"] {
+        let scores = [vec![0.1, 0.3, 0.5, 0.9], vec![0.2, 0.4, 0.8, 1.2]];
+        let results: Vec<_> = scores
+            .iter()
+            .map(|values| {
+                let result = if axis == "VIKOR_R" {
+                    let mut r = make_vikor(4);
+                    r.r_values = values.clone();
+                    McdmResult::Vikor(r)
+                } else {
+                    let mut r = make_promethee(4);
+                    r.phi_minus = values.clone();
+                    McdmResult::PrometheeII(r)
+                };
+                crate::state::analysis_job::fixture_result(result)
+            })
+            .collect();
+        assert_eq!(results[0].primary_scores(), results[1].primary_scores());
+        assert_accepted_score_refresh(
+            [&results[0], &results[1]],
+            &view,
+            &names,
+            axis,
+            [&scores[0], &scores[1]],
+        );
+        crate::ui::widgets::mcdm_scatter_chart_3d::tests::assert_accepted_score_refresh(
+            [&results[0], &results[1]],
+            &view,
+            &names,
+            axis,
+            [&scores[0], &scores[1]],
+        );
+    }
 }
 
 // ── get_axis_options tests ──────────────────────────────────

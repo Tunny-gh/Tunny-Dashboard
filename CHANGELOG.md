@@ -25,6 +25,10 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- MCDM 2D and 3D scatter plots refresh score coordinates, picking positions, and
+  axis ranges after a new accepted result even when the ranking is unchanged,
+  while preserving rank colors and widget controls/camera.
+
 - Journal recording rejects duplicate Study names by default instead of returning
   an ID that cannot be read back. Explicit reuse requires matching objective
   counts and ordered directions, preserves existing objective names and trials,

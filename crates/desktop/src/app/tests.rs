@@ -793,6 +793,103 @@ fn d5_mcdm_rank_table_and_gallery_share_the_retained_result() {
 }
 
 #[test]
+fn mcdm_changed_weights_refresh_accepted_scatter_coordinates_without_reordering() {
+    use crate::state::layout_state::ChartId;
+    use crate::state::results::{McdmMethod, WeightMode};
+    use crate::ui::widgets::mcdm_chart::{McdmCacheKey, McdmComputeRequest};
+    use std::{collections::BTreeMap, sync::Arc};
+    use tdashboard_study::{LoadKind, Number, ObjectiveDescriptor, ObjectiveIndex, StudyBatch};
+
+    let mut app = artifact_test_app(None);
+    app.app_state = crate::state::analysis_job::tests::state(true).0;
+    let journal = app.app_state.journal_studies.as_mut().unwrap();
+    let manager = journal.managers.get_mut(&0).unwrap();
+    let input = manager.acquire().unwrap();
+    let mut metadata = (**input.data().metadata()).clone();
+    metadata.objectives.push(ObjectiveDescriptor {
+        index: ObjectiveIndex(1),
+        name: Some("z".into()),
+        direction: tdashboard_study::Direction::Minimize,
+    });
+    let objectives = [[1.0, 9.0], [2.0, 6.0], [5.0, 3.0], [9.0, 1.0]];
+    let trials = input
+        .data()
+        .trials()
+        .iter()
+        .zip(objectives)
+        .map(|(trial, values)| {
+            let mut trial = (**trial).clone();
+            trial.objectives = Arc::new(BTreeMap::from([
+                (ObjectiveIndex(0), Number(values[0])),
+                (ObjectiveIndex(1), Number(values[1])),
+            ]));
+            Arc::new(trial)
+        })
+        .collect();
+    let ticket = manager.begin(LoadKind::Refresh).unwrap();
+    let receipt = manager
+        .apply(
+            manager.header(ticket).unwrap(),
+            StudyBatch::Replace { trials, metadata },
+        )
+        .unwrap();
+    manager.finish(ticket, receipt.next_sequence).unwrap();
+    let input = manager.acquire().unwrap();
+    let projection = journal.analysis.borrow_mut().project(input.clone());
+    app.app_state.journal_display = Some(input.stamp());
+    app.app_state.current_study = Some(crate::state::app_state::StudyContext {
+        meta: crate::io::journal::convert_projection_meta(projection.meta.clone()),
+        view: crate::state::types::StudyView::from_projection(projection, input, None),
+        pareto_indices: vec![],
+    });
+
+    let mut results = Vec::new();
+    for weights in [vec![0.9, 0.1], vec![0.85, 0.15]] {
+        let key =
+            McdmCacheKey::from_settings(McdmMethod::Topsis, WeightMode::Manual, &weights, 0.5)
+                .unwrap();
+        let controls = &mut app.widget_states.scatter_chart.controls;
+        controls.weights = weights.clone();
+        controls.pending_compute = Some(McdmComputeRequest {
+            method: McdmMethod::Topsis,
+            weights,
+            v: 0.5,
+        });
+        let tx = app.sender();
+        crate::ui::poll_chart::poll_chart_work(
+            &mut app.app_state,
+            &mut app.widget_states,
+            &ChartId::McdmScatterChart,
+            &tx,
+        );
+        poll_until(&mut app, |app| app.app_state.mcdm_cache.contains_key(&key));
+        assert!(!app.widget_states.scatter_chart.controls.computing);
+        results.push(app.app_state.mcdm_cache.selected(&key).unwrap().clone());
+    }
+    assert_ne!(results[0].key(), results[1].key());
+    assert_eq!(results[0].ranked_indices(), results[1].ranked_indices());
+    assert_eq!(results[0].ranked_indices().len(), 4);
+    assert_ne!(results[0].primary_scores(), results[1].primary_scores());
+    let view = &app.app_state.current_study.as_ref().unwrap().view;
+    let names = vec!["y".into(), "z".into()];
+    let scores = [results[0].primary_scores(), results[1].primary_scores()];
+    crate::ui::widgets::mcdm_scatter_chart::tests::assert_accepted_score_refresh(
+        [&results[0], &results[1]],
+        view,
+        &names,
+        "TOPSIS_Score",
+        scores,
+    );
+    crate::ui::widgets::mcdm_scatter_chart_3d::tests::assert_accepted_score_refresh(
+        [&results[0], &results[1]],
+        view,
+        &names,
+        "TOPSIS_Score",
+        scores,
+    );
+}
+
+#[test]
 fn d5_canvas_consumers_share_equal_conditions_and_keep_unequal_jobs_independent() {
     use crate::state::analysis_job::DeliverySlot;
     use crate::state::layout_state::ChartId;
