@@ -255,13 +255,6 @@ impl ParallelCoordsChart {
 
         let show_infeasible = self.show_infeasible;
 
-        // The normalization range for coloring is computed from feasible
-        // solutions only (kept separate from the axis coordinate range).
-        let color_range: (f64, f64) = match cols.get(color_axis_idx).and_then(|c| c.as_ref()) {
-            Some(col) => feasible_color_range(col, feas, col_ranges[color_axis_idx]),
-            None => col_ranges[color_axis_idx],
-        };
-
         // Gray out lines outside the selection if any brush is active.
         // Updated in real time since `brush_ranges` changes while dragging.
         let has_active_brush = self.brush_ranges.values().any(|range| range.is_some());
@@ -309,6 +302,20 @@ impl ParallelCoordsChart {
         }
         let draw_targets = self.draw_targets_cache.as_ref().unwrap();
 
+        let full_color_range = match cols.get(color_axis_idx).and_then(|c| c.as_ref()) {
+            Some(col) => feasible_color_range(col, feas, col_ranges[color_axis_idx]),
+            None => col_ranges[color_axis_idx],
+        };
+        // Brush-passing rows are never downsampled, so this includes every
+        // selected feasible value without changing the axis coordinate ranges.
+        let color_range = if has_active_brush {
+            cols.get(color_axis_idx).and_then(|col| {
+                layout::selected_color_range(col.unwrap_or(&[]), feas, draw_targets)
+            })
+        } else {
+            Some(full_color_range)
+        };
+
         // Draw each trial as a (semi-transparent) polyline.
         // Draw the out-of-selection (grayed-out) lines first, then overlay
         // the in-selection lines on top. The scratch buffer is reused for
@@ -336,7 +343,13 @@ impl ParallelCoordsChart {
                     .and_then(|c| c.get(t_idx))
                     .copied()
                     .map(|v| {
-                        let (mn, mx) = color_range;
+                        // Nonfinite observations keep their existing rendering;
+                        // they neither define nor use the selected finite scale.
+                        let (mn, mx) = if !v.is_finite() {
+                            full_color_range
+                        } else {
+                            color_range.unwrap_or((f64::INFINITY, f64::NEG_INFINITY))
+                        };
                         cmap.interpolate(normalize_value(v, mn, mx))
                     })
                     .unwrap_or(COLOR_PARALLEL_LINE_DEFAULT());

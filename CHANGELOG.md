@@ -25,6 +25,10 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- Parallel Coordinates rescales line colors to finite feasible values passing all
+  active brushes, including all selected rows regardless of downsampling. Clearing
+  brushes restores the full feasible color scale without changing axis ranges.
+
 - Cluster Scatter 3D and Pareto Scatter 3D refresh axis ranges and projected points
   when the displayed input changes, including same-size updates and Study/source
   switches, while preserving camera and local view controls.

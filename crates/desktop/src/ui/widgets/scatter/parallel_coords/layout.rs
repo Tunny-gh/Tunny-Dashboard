@@ -123,6 +123,19 @@ pub fn visible_axis_indices(
         .collect()
 }
 
+/// Computes the brush-relative color range, with no full-dataset fallback.
+pub(super) fn selected_color_range(
+    col: &[f64],
+    feas: tdashboard_analysis::dataframe::Feasibility<'_>,
+    draw_targets: &[(usize, bool)],
+) -> Option<(f64, f64)> {
+    range_math::finite_value_range(draw_targets.iter().filter_map(|&(idx, selected)| {
+        (selected && feas.is_feasible(idx))
+            .then(|| col.get(idx).copied())
+            .flatten()
+    }))
+}
+
 /// Computes the normalization range used for coloring from feasible solutions only.
 /// Kept separate from the axis coordinate range so infeasible outliers don't
 /// compress the colormap. Uses all values when there are no constraints
