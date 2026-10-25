@@ -70,8 +70,8 @@ impl HistFit {
     }
 }
 
-/// (study_name, col, rule_disc, manual_bins, row_count)
-type HistCacheKey = (String, String, u8, usize, usize);
+/// (acquired input, col, rule_disc, manual_bins)
+type HistCacheKey = (Option<tdashboard_study::AcquiredStamp>, String, u8, usize);
 
 /// The full set of cached computation results. Since mean/median involve sorting,
 /// they're cached alongside the histogram to avoid recomputing every frame.
@@ -95,6 +95,9 @@ pub struct HistogramChart {
     pub fit: HistFit,
     #[serde(skip)]
     cache: Option<(HistCacheKey, HistComputed)>,
+    #[cfg(test)]
+    #[serde(skip)]
+    computations: usize,
 }
 
 impl Default for HistogramChart {
@@ -105,6 +108,8 @@ impl Default for HistogramChart {
             manual_bins: 20,
             fit: HistFit::default(),
             cache: None,
+            #[cfg(test)]
+            computations: 0,
         }
     }
 }
@@ -117,7 +122,6 @@ impl HistogramChart {
         view: &StudyView,
         param_names: &[String],
         obj_names: &[String],
-        study_name: &str,
     ) {
         let candidates: Vec<&String> = obj_names
             .iter()
@@ -185,13 +189,17 @@ impl HistogramChart {
         };
 
         let key: HistCacheKey = (
-            study_name.to_string(),
+            view.df.provenance(),
             self.selected_col.clone(),
             self.rule.disc(),
             self.manual_bins,
-            view.row_count(),
         );
-        if self.cache.as_ref().map(|(k, _)| k) != Some(&key) {
+        // Unstamped tables have no revision contract, so matching controls cannot prove reuse safe.
+        if key.0.is_none() || self.cache.as_ref().map(|(k, _)| k) != Some(&key) {
+            #[cfg(test)]
+            {
+                self.computations += 1;
+            }
             let core_rule = self.rule.to_core(self.manual_bins);
             self.cache = compute_histogram(values, core_rule).map(|hist| {
                 let mut sorted: Vec<f64> =
@@ -338,6 +346,206 @@ impl HistogramChart {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::widget_states::WidgetStates;
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+    use tdashboard_study::*;
+
+    fn manager() -> StudyManager {
+        StudyManager::new(StudyKey {
+            source: IdentityAllocator::new().unwrap().source().unwrap(),
+            stored_id: 1,
+        })
+    }
+
+    fn replace(manager: &mut StudyManager, ticket: LoadTicket, values: [f64; 3]) -> StudyView {
+        let trials = values
+            .into_iter()
+            .enumerate()
+            .map(|(i, value)| {
+                let mut trial = TrialRecord::new(
+                    ticket.study(),
+                    i as u32,
+                    StudyTrialNumber(i as u32),
+                    TrialState::Complete,
+                );
+                trial.completed_order = Some(i as u64);
+                trial.parameters = Arc::new(BTreeMap::from([(
+                    "x".into(),
+                    ParameterObservation {
+                        value: ParameterValue::Numeric(Number(value)),
+                        distribution: None,
+                        external_encoding: false,
+                        encoded_numeric: None,
+                    },
+                )]));
+                trial.objectives = Arc::new(BTreeMap::from([(
+                    ObjectiveIndex(0),
+                    Number((i * i) as f64),
+                )]));
+                Arc::new(trial)
+            })
+            .collect();
+        manager
+            .apply(
+                manager.header(ticket).unwrap(),
+                StudyBatch::Replace {
+                    trials,
+                    metadata: StudyMetadata {
+                        name: "same-name".into(),
+                        objectives: vec![ObjectiveDescriptor {
+                            index: ObjectiveIndex(0),
+                            name: Some("objective".into()),
+                            direction: Direction::Minimize,
+                        }],
+                        ..Default::default()
+                    },
+                },
+            )
+            .unwrap();
+        let input = manager.acquire().unwrap();
+        let projection = Arc::new(tdashboard_analysis::projection::project(&input));
+        StudyView::from_projection(projection, input, None)
+    }
+
+    fn render(chart: &mut HistogramChart, view: &StudyView) -> Vec<String> {
+        fn collect(shape: &egui::epaint::Shape, text: &mut Vec<String>) {
+            match shape {
+                egui::epaint::Shape::Text(shape) => text.push(shape.galley.text().to_string()),
+                egui::epaint::Shape::Vec(shapes) => {
+                    for shape in shapes {
+                        collect(shape, text);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let ctx = egui::Context::default();
+        let mut text = vec![];
+        for _ in 0..2 {
+            let output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1000.0, 800.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    ui.set_max_height(600.0);
+                    chart.show(ui, view, view.param_names(), view.objective_names());
+                },
+            );
+            text.clear();
+            for shape in output.shapes {
+                collect(&shape.shape, &mut text);
+            }
+        }
+        text
+    }
+
+    fn assert_statistics(chart: &HistogramChart, text: &[String], start: f64) {
+        let computed = &chart.cache.as_ref().unwrap().1;
+        assert_eq!(computed.hist.bin_edges, [start, start + 1.0, start + 2.0]);
+        assert_eq!(computed.hist.counts, [1, 2]);
+        assert_eq!(computed.mean, start + 1.0);
+        assert_eq!(computed.median, start + 1.0);
+        let normal = computed
+            .fits
+            .iter()
+            .find(|fit| fit.dist == FitDistribution::Normal)
+            .unwrap();
+        assert_eq!(normal.params.0, start + 1.0);
+        assert!((normal.params.1 - (2.0_f64 / 3.0).sqrt()).abs() < 1e-10);
+        assert!(text.iter().any(|line| line.contains(&normal.param_text())));
+        assert_eq!(chart.selected_col, "x");
+        assert_eq!(chart.rule, HistBinRule::Manual);
+        assert_eq!(chart.manual_bins, 2);
+        assert_eq!(chart.fit, HistFit::Normal);
+    }
+
+    fn configured_chart() -> HistogramChart {
+        HistogramChart {
+            selected_col: "x".into(),
+            rule: HistBinRule::Manual,
+            manual_bins: 2,
+            fit: HistFit::Normal,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn displayed_revisions_sources_and_reload_refresh_statistics_without_resetting_controls() {
+        let mut manager = manager();
+        let ticket = manager.begin(LoadKind::Initial).unwrap();
+        let first = replace(&mut manager, ticket, [0.0, 1.0, 2.0]);
+        let mut widgets = WidgetStates {
+            histogram: configured_chart(),
+            ..Default::default()
+        };
+        let text = render(&mut widgets.histogram, &first);
+        assert_statistics(&widgets.histogram, &text, 0.0);
+        render(&mut widgets.histogram, &first.clone());
+        assert_eq!(widgets.histogram.computations, 1);
+
+        let revised = replace(&mut manager, ticket, [100.0, 101.0, 102.0]);
+        assert_eq!(first.row_count(), revised.row_count());
+        widgets.invalidate_analysis_input();
+        let text = render(&mut widgets.histogram, &revised);
+        assert_statistics(&widgets.histogram, &text, 100.0);
+        assert_eq!(widgets.histogram.computations, 2);
+
+        let reload = manager.begin(LoadKind::Reload).unwrap();
+        // A requested reload still displays the previous acquired input.
+        render(&mut widgets.histogram, &revised);
+        assert_eq!(widgets.histogram.computations, 2);
+        let reloaded = replace(&mut manager, reload, [200.0, 201.0, 202.0]);
+        let text = render(&mut widgets.histogram, &reloaded);
+        assert_statistics(&widgets.histogram, &text, 200.0);
+        assert_eq!(widgets.histogram.computations, 3);
+
+        let mut other = self::manager();
+        let ticket = other.begin(LoadKind::Initial).unwrap();
+        let replacement = replace(&mut other, ticket, [300.0, 301.0, 302.0]);
+        assert_eq!(first.row_count(), replacement.row_count());
+        // Equal manager-local counters must not alias independently allocated sources.
+        let text = render(&mut widgets.histogram, &first);
+        assert_statistics(&widgets.histogram, &text, 0.0);
+        assert_eq!(widgets.histogram.computations, 4);
+        widgets.invalidate_analysis_input();
+        let text = render(&mut widgets.histogram, &replacement);
+        assert_statistics(&widgets.histogram, &text, 300.0);
+        assert_eq!(widgets.histogram.computations, 5);
+        render(&mut widgets.histogram, &replacement.clone());
+        assert_eq!(widgets.histogram.computations, 5);
+    }
+
+    #[test]
+    fn unstamped_same_count_tables_recompute_statistics() {
+        let mut manager = manager();
+        let ticket = manager.begin(LoadKind::Initial).unwrap();
+        let first = replace(&mut manager, ticket, [0.0, 1.0, 2.0]);
+        let revised = replace(&mut manager, ticket, [100.0, 101.0, 102.0]);
+        let unstamped = |view: &StudyView| {
+            let projection = tdashboard_analysis::projection::project(&view.input().unwrap());
+            let df = tdashboard_analysis::dataframe::DataFrame::from_trials(
+                &projection.trial_rows,
+                view.param_names(),
+                view.objective_names(),
+                &[],
+                &[],
+                0,
+            );
+            assert!(df.provenance().is_none());
+            StudyView::new(Arc::new(df), vec![])
+        };
+        let mut chart = configured_chart();
+        let text = render(&mut chart, &unstamped(&first));
+        assert_statistics(&chart, &text, 0.0);
+        let text = render(&mut chart, &unstamped(&revised));
+        assert_statistics(&chart, &text, 100.0);
+        assert_eq!(chart.computations, 4);
+    }
 
     #[test]
     fn histogram_chart_default_values() {

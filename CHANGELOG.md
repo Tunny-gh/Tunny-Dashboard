@@ -43,6 +43,10 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- Histogram refreshes bins, mean/median, and distribution fits when the displayed
+  input changes, including same-name, same-row-count revisions and source
+  replacements, while preserving column, bin, and fit controls.
+
 - Timeline and its CSV export retain recorded Journal inline completion times
   instead of showing falsely long execution intervals. COMPLETE, PRUNED, and
   FAIL trials without completion timestamps are omitted rather than extended
