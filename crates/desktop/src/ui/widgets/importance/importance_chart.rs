@@ -1,7 +1,6 @@
+use super::comparison::{objective_color, paint_scores, ObjectiveImportance};
 use crate::state::app_state::{SensitivityResult, SobolResult};
-use crate::theme::chart_colors::{
-    COLOR_FIT_HIGH, COLOR_FIT_LOW, COLOR_FIT_MID, COLOR_IMPORTANCE_BAR,
-};
+use crate::theme::chart_colors::{COLOR_FIT_HIGH, COLOR_FIT_LOW, COLOR_FIT_MID};
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
@@ -76,6 +75,9 @@ impl ImportanceMetric {
 /// Sensitivity Heatmap).
 pub const SOBOL_SAMPLE_COUNT: usize = 1024;
 
+pub const ALL_OBJECTIVES: usize = usize::MAX;
+pub type ImportanceKey = (u8, usize, bool);
+
 /// Constructs the corresponding core sensitivity metric from an
 /// `ImportanceMetric`. Returns `None` for Sobol, since it uses the dedicated
 /// `compute_sobol_from_df` path. Lets ImportanceChart and Sensitivity Heatmap
@@ -113,6 +115,12 @@ pub struct ImportanceChart {
     /// Compute request (method, objective idx, feasible_only). Consumed by poll_chart.
     #[serde(skip)]
     pub pending_compute: Option<(ImportanceMetric, usize, bool)>,
+    #[serde(skip)]
+    pub queue: std::collections::VecDeque<(ImportanceMetric, usize, bool)>,
+    #[serde(skip)]
+    pub active: Option<(ImportanceMetric, usize, bool)>,
+    #[serde(skip)]
+    pub errors: std::collections::HashMap<ImportanceKey, String>,
 }
 
 impl Default for ImportanceChart {
@@ -120,14 +128,55 @@ impl Default for ImportanceChart {
         Self {
             metric: ImportanceMetric::Spearman,
             computing: false,
-            objective_index: 0,
+            objective_index: ALL_OBJECTIVES,
             feasible_only: false,
             pending_compute: None,
+            queue: Default::default(),
+            active: None,
+            errors: Default::default(),
         }
     }
 }
 
 impl ImportanceChart {
+    pub fn normalize_objective(&mut self, count: usize) {
+        if count == 1 {
+            self.objective_index = 0;
+        } else if self.objective_index != ALL_OBJECTIVES && self.objective_index >= count {
+            self.objective_index = ALL_OBJECTIVES;
+        }
+    }
+
+    pub fn objective_indices(&self, count: usize) -> Vec<usize> {
+        if self.objective_index == ALL_OBJECTIVES {
+            (0..count).collect()
+        } else if self.objective_index < count {
+            vec![self.objective_index]
+        } else {
+            vec![0; usize::from(count > 0)]
+        }
+    }
+
+    pub fn invalidate_input(&mut self) {
+        self.computing = false;
+        self.pending_compute = None;
+        self.queue.clear();
+        self.active = None;
+        self.errors.clear();
+    }
+
+    pub fn finish_objective(&mut self, error: Option<String>) {
+        if let Some((metric, objective, feasible)) = self.active.take() {
+            let key = (metric.cache_id(), objective, feasible);
+            if let Some(error) = error {
+                self.errors.insert(key, error);
+            } else {
+                self.errors.remove(&key);
+            }
+        }
+        self.computing = !self.queue.is_empty();
+    }
+
     /// Pulls in the global widget's compute execution state (computing/pending).
     /// Results are aggregated into `app_state.importance_cache` /
     /// `sobol_cache`, so each canvas item (an independent WidgetState) only
@@ -137,17 +186,21 @@ impl ImportanceChart {
         self.computing = src.computing;
     }
 
-    pub fn show(
+    pub fn show_results(
         &mut self,
         ui: &mut egui::Ui,
-        sensitivity: Option<&SensitivityResult>,
-        sobol: Option<&SobolResult>,
+        results: &[ObjectiveImportance],
         obj_names: &[String],
         has_constraints: bool,
     ) {
-        // Run button + metric combo box + objective combo box + spinner + R² (right-aligned)
+        self.normalize_objective(obj_names.len());
+        let previous = (self.metric, self.objective_index, self.feasible_only);
+        // Controls stay available while the queued request finishes on its captured settings.
         ui.horizontal(|ui| {
-            if ui.button("Run").clicked() {
+            if ui
+                .add_enabled(!self.computing, egui::Button::new("Run"))
+                .clicked()
+            {
                 self.pending_compute =
                     Some((self.metric, self.objective_index, self.feasible_only));
                 self.computing = true;
@@ -219,9 +272,10 @@ impl ImportanceChart {
                         obj_names
                             .get(self.objective_index)
                             .map(|s| s.as_str())
-                            .unwrap_or(""),
+                            .unwrap_or("ALL"),
                     )
                     .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.objective_index, ALL_OBJECTIVES, "ALL");
                         for (i, name) in obj_names.iter().enumerate() {
                             ui.selectable_value(&mut self.objective_index, i, name);
                         }
@@ -238,130 +292,55 @@ impl ImportanceChart {
                 ui.spinner();
                 ui.label("Computing...");
             }
-
-            // Show R² on the right (all metrics except Spearman)
-            let r2_opt: Option<f64> = match self.metric {
-                ImportanceMetric::Spearman => None,
-                ImportanceMetric::Ridge => sensitivity
-                    .and_then(|r| r.ridge.first())
-                    .map(|ridge| ridge.r_squared),
-                ImportanceMetric::RfAnova
-                | ImportanceMetric::Mdi
-                | ImportanceMetric::Shap
-                | ImportanceMetric::Permutation => {
-                    sensitivity.and_then(|r| extract_tree_r_squared(r, &self.metric))
+        });
+        if previous != (self.metric, self.objective_index, self.feasible_only) {
+            // Results were selected before the controls changed this frame.
+            return;
+        }
+        if self.computing {
+            return;
+        }
+        let all = self.objective_index == ALL_OBJECTIVES && obj_names.len() > 1;
+        for result in results {
+            ui.horizontal_wrapped(|ui| {
+                if all {
+                    ui.colored_label(objective_color(result.index), "■");
+                    ui.label(&result.name);
                 }
-                ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => {
-                    sobol.and_then(|s| s.r_squared.first()).copied()
+                if let Some(error) = &result.error {
+                    ui.label(format!("{}: Failed / unavailable: {error}", result.name));
+                } else if result.scores.is_empty() && result.unsupported.is_empty() {
+                    ui.label(format!(
+                        "{}: Unavailable (run the computation first)",
+                        result.name
+                    ));
+                } else if !result.scores.is_empty()
+                    && result.scores.iter().all(|(_, s)| !s.is_finite())
+                {
+                    ui.label(format!("{}: Unavailable (no finite scores)", result.name));
                 }
-                ImportanceMetric::Ard => sensitivity
-                    .and_then(|r| r.ard.as_ref())
-                    .map(|a| a.r_squared),
-            };
-            if let Some(r2) = r2_opt {
-                let (color, warning) = if r2 < 0.5 {
-                    (COLOR_FIT_LOW(), " (low fit)")
-                } else if r2 < 0.8 {
-                    (COLOR_FIT_MID(), "")
-                } else {
-                    (COLOR_FIT_HIGH(), "")
-                };
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if let Some(r2) = result.r_squared {
+                    let (color, warning) = if r2 < 0.5 {
+                        (COLOR_FIT_LOW(), " (low fit)")
+                    } else if r2 < 0.8 {
+                        (COLOR_FIT_MID(), "")
+                    } else {
+                        (COLOR_FIT_HIGH(), "")
+                    };
                     let scope = if self.metric == ImportanceMetric::Ridge {
                         " (numerical-only)"
                     } else {
                         ""
                     };
-                    ui.label(
-                        egui::RichText::new(format!("R²{scope} = {r2:.3}{warning}")).color(color),
-                    );
-                });
-            }
-        });
-
-        if self.computing {
-            return;
+                    ui.colored_label(color, format!("R²{scope} = {r2:.3}{warning}"));
+                }
+            });
+            show_unsupported(ui, &result.unsupported, result.scores.is_empty());
         }
-
-        if let Some(result) = sensitivity.filter(|_| self.metric.is_signed()) {
-            show_unsupported(
-                ui,
-                &result.unsupported_categorical,
-                result.param_names.is_empty(),
-            );
+        if all && results.iter().any(ObjectiveImportance::is_partial) {
+            ui.label("Partial CSV export: only successful available scores are exported; failed, unavailable and unsupported results are omitted.");
         }
-
-        let scores = match self.metric {
-            ImportanceMetric::Spearman
-            | ImportanceMetric::Ridge
-            | ImportanceMetric::RfAnova
-            | ImportanceMetric::Mdi
-            | ImportanceMetric::Shap
-            | ImportanceMetric::Permutation
-            | ImportanceMetric::Ard => {
-                let Some(result) = sensitivity else {
-                    ui.label("No sensitivity data (start the computation first)");
-                    return;
-                };
-                compute_sorted_importance(result, &self.metric, 0)
-            }
-            ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => {
-                let Some(sobol_result) = sobol else {
-                    ui.label("No Sobol data (start the computation first)");
-                    return;
-                };
-                compute_sorted_sobol(sobol_result, self.objective_index, &self.metric)
-            }
-        };
-
-        if scores.is_empty() {
-            ui.label("No data");
-            return;
-        }
-
-        let max_score = scores.iter().map(|(_, s)| *s).fold(0.0_f64, f64::max);
-        let label_width = 150.0_f32;
-        let bar_height = 20.0_f32;
-        let bar_gap = 4.0_f32;
-        let value_text_width = 50.0_f32;
-
-        let bar_color = COLOR_IMPORTANCE_BAR();
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            let available_width = ui.available_width() - label_width - value_text_width - 8.0;
-            let bar_max_width = available_width.max(50.0);
-
-            for (name, score) in &scores {
-                ui.horizontal(|ui| {
-                    ui.add_sized(
-                        [label_width, bar_height],
-                        egui::Label::new(
-                            egui::RichText::new(name).text_style(egui::TextStyle::Body),
-                        )
-                        .truncate(),
-                    );
-
-                    let bar_width = if max_score > 0.0 {
-                        (score / max_score * bar_max_width as f64) as f32
-                    } else {
-                        0.0
-                    };
-
-                    let (rect, _) = ui.allocate_exact_size(
-                        egui::vec2(bar_max_width, bar_height - bar_gap),
-                        egui::Sense::hover(),
-                    );
-                    if ui.is_rect_visible(rect) {
-                        let bar_rect = egui::Rect::from_min_size(
-                            rect.min,
-                            egui::vec2(bar_width, rect.height()),
-                        );
-                        ui.painter().rect_filled(bar_rect, 2.0, bar_color);
-                    }
-
-                    ui.label(format!("{score:.3}"));
-                });
-            }
-        });
+        paint_scores(ui, results, all);
     }
 }
 
@@ -379,7 +358,10 @@ pub(super) fn show_unsupported(ui: &mut egui::Ui, names: &[String], no_numeric: 
 }
 
 /// Retrieves R² for RfAnova / Mdi / Shap / Permutation (first objective's value, for display)
-fn extract_tree_r_squared(result: &SensitivityResult, metric: &ImportanceMetric) -> Option<f64> {
+pub(super) fn extract_tree_r_squared(
+    result: &SensitivityResult,
+    metric: &ImportanceMetric,
+) -> Option<f64> {
     match metric {
         ImportanceMetric::RfAnova => result.rf_anova.as_ref()?.r_squared.first().copied(),
         ImportanceMetric::Mdi => result.mdi.as_ref()?.r_squared.first().copied(),
@@ -404,7 +386,7 @@ fn extract_tree_importance(
     Some(
         importances
             .iter()
-            .map(|param_imp| param_imp.get(obj_idx).copied().unwrap_or(0.0).abs())
+            .map(|param_imp| param_imp.get(obj_idx).copied().unwrap_or(f64::NAN).abs())
             .collect(),
     )
 }
@@ -442,11 +424,19 @@ pub fn compute_sorted_importance(
         ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => return vec![],
     };
 
+    if raw_scores.is_empty() {
+        return vec![];
+    }
     let mut pairs: Vec<(String, f64)> = result
         .param_names
         .iter()
-        .zip(raw_scores.iter())
-        .map(|(name, &score)| (name.clone(), score.abs()))
+        .enumerate()
+        .map(|(i, name)| {
+            (
+                name.clone(),
+                raw_scores.get(i).copied().unwrap_or(f64::NAN).abs(),
+            )
+        })
         .collect();
 
     pairs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -470,9 +460,13 @@ pub fn compute_sorted_sobol(
     let mut pairs: Vec<(String, f64)> = result
         .param_names
         .iter()
-        .zip(data.iter())
-        .map(|(name, param_scores)| {
-            let score = param_scores.get(obj_idx).copied().unwrap_or(0.0);
+        .enumerate()
+        .map(|(i, name)| {
+            let score = data
+                .get(i)
+                .and_then(|p| p.get(obj_idx))
+                .copied()
+                .unwrap_or(f64::NAN);
             (name.clone(), score.abs())
         })
         .collect();
@@ -506,7 +500,19 @@ mod tests {
                     ..Default::default()
                 };
                 let output = ctx.run_ui(egui::RawInput::default(), |ui| {
-                    chart.show(ui, Some(&result), None, &["obj".into()], false);
+                    chart.show_results(
+                        ui,
+                        &[ObjectiveImportance::new(
+                            0,
+                            "obj".into(),
+                            metric,
+                            Some(&result),
+                            None,
+                            None,
+                        )],
+                        &["obj".into()],
+                        false,
+                    );
                 });
                 let text = output
                     .shapes
@@ -700,7 +706,7 @@ mod tests {
         let chart = ImportanceChart::default();
         assert_eq!(chart.metric, ImportanceMetric::Spearman);
         assert!(!chart.computing);
-        assert_eq!(chart.objective_index, 0);
+        assert_eq!(chart.objective_index, ALL_OBJECTIVES);
         assert!(!chart.feasible_only);
         assert!(chart.pending_compute.is_none());
     }
@@ -763,17 +769,19 @@ mod tests {
         use crate::state::app_state::SobolResult;
         let result = SobolResult {
             param_names: vec!["p0".into(), "p1".into()],
-            first_order: vec![vec![0.6, 0.2]], // [obj][param]
-            total_effect: vec![vec![0.8, 0.3]],
+            first_order: vec![vec![0.6], vec![0.2]], // [param][objective]
+            total_effect: vec![vec![0.8], vec![0.3]],
             r_squared: vec![0.9],
         };
         let first = compute_sorted_sobol(&result, 0, &ImportanceMetric::SobolFirst);
         assert_eq!(first[0].0, "p0");
         assert!((first[0].1 - 0.6).abs() < 1e-9);
+        assert_eq!(first[1], ("p1".into(), 0.2));
 
         let total = compute_sorted_sobol(&result, 0, &ImportanceMetric::SobolTotal);
         assert_eq!(total[0].0, "p0");
         assert!((total[0].1 - 0.8).abs() < 1e-9);
+        assert_eq!(total[1], ("p1".into(), 0.3));
     }
 
     #[test]

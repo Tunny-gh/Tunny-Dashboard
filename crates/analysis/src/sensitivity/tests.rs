@@ -739,3 +739,129 @@ fn numerical_sensitivity_matches_existing_primitives_and_keeps_nan_supported() {
     assert!(r.unsupported_categorical.is_empty());
     assert!(r.spearman[0][0].is_nan());
 }
+
+#[test]
+fn checked_ridge_distinguishes_unavailable_from_zero_without_changing_successful_scores() {
+    for constant in [false, true] {
+        let df = setup_df(
+            (0..30)
+                .map(|i| {
+                    make_row_multi(
+                        i,
+                        &[("x", i as f64)],
+                        vec![if constant { 4.0 } else { i as f64 * 2.0 }],
+                    )
+                })
+                .collect(),
+            &["x"],
+            &["obj"],
+        );
+        let legacy = RidgeMetric.compute(&df, 0).unwrap();
+        let checked = RidgeMetric.compute_checked(&df, 0).unwrap();
+        assert_eq!(checked.ridge[0].beta, legacy.ridge[0].beta);
+        assert_eq!(checked.ridge[0].r_squared, legacy.ridge[0].r_squared);
+        if constant {
+            assert_eq!(checked.ridge[0].beta, [0.0]);
+        }
+    }
+    let df = setup_df(
+        vec![
+            make_row_multi(0, &[("x", f64::NAN)], vec![0.0]),
+            make_row_multi(1, &[("x", f64::NAN)], vec![1.0]),
+        ],
+        &["x"],
+        &["obj"],
+    );
+    assert_eq!(RidgeMetric.compute(&df, 0).unwrap().ridge[0].beta, [0.0]);
+    assert!(RidgeMetric.compute_checked(&df, 0).is_none());
+}
+
+#[test]
+fn checked_tree_preserves_failure_status_but_keeps_heatmap_fallback_and_genuine_zero() {
+    use super::metrics::TreeMetric;
+    use super::tree::common::PreparedData;
+    use super::types::TreeImportanceResult;
+    struct TreeOutcome(bool);
+    impl TreeMetric for TreeOutcome {
+        fn compute_importances(&self, _: &PreparedData) -> Option<(Vec<f64>, f64)> {
+            self.0.then_some((vec![0.0], 0.0))
+        }
+        fn max_rows(&self) -> usize {
+            100
+        }
+        fn data_seed(&self) -> u64 {
+            1
+        }
+        fn split_seed(&self) -> u64 {
+            2
+        }
+        fn metric_name(&self) -> &'static str {
+            "test"
+        }
+        fn wrap_result(
+            &self,
+            params: Vec<String>,
+            objective: String,
+            result: TreeImportanceResult,
+        ) -> SensitivityResult {
+            RfAnovaMetric.wrap_result(params, objective, result)
+        }
+    }
+    let df = setup_df(
+        (0..10)
+            .map(|i| make_row_multi(i, &[("x", i as f64)], vec![i as f64]))
+            .collect(),
+        &["x"],
+        &["obj"],
+    );
+    assert!(TreeOutcome(false).compute_checked(&df, 0).is_none());
+    assert_eq!(
+        TreeOutcome(false)
+            .compute(&df, 0)
+            .unwrap()
+            .rf_anova
+            .unwrap()
+            .0
+            .importances,
+        [vec![0.0]]
+    );
+    assert_eq!(
+        TreeOutcome(true)
+            .compute_checked(&df, 0)
+            .unwrap()
+            .rf_anova
+            .unwrap()
+            .0
+            .importances,
+        [vec![0.0]]
+    );
+}
+
+#[test]
+fn checked_sobol_keeps_successful_scores_and_does_not_turn_failed_objectives_into_zero() {
+    let df = setup_df(
+        (0..20)
+            .map(|i| make_row_multi(i, &[("x", i as f64)], vec![i as f64 * 2.0, 4.0]))
+            .collect(),
+        &["x"],
+        &["a", "b"],
+    );
+    let legacy = compute_sobol_from_df(&df, 128).unwrap();
+    let checked = compute_sobol_checked_from_df(&df, 128).unwrap();
+    assert_eq!(checked.first_order, legacy.first_order);
+    assert_eq!(checked.total_effect, legacy.total_effect);
+    assert_eq!(checked.r_squared, legacy.r_squared);
+    assert_eq!(checked.first_order[0][1], 0.0);
+    let df = setup_df(
+        (0..20)
+            .map(|i| make_row_multi(i, &[("x", i as f64)], vec![i as f64 * 2.0, 1e308]))
+            .collect(),
+        &["x"],
+        &["a", "b"],
+    );
+    let checked = compute_sobol_checked_from_df(&df, 128).unwrap();
+    assert!(checked.first_order[0][0].is_finite());
+    assert!(checked.first_order[0][1].is_nan());
+    assert!(checked.total_effect[0][1].is_nan());
+    assert!(checked.r_squared[1].is_nan());
+}

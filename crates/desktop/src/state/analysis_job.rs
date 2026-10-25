@@ -1257,6 +1257,196 @@ pub(crate) mod tests {
         state
     }
 
+    pub(crate) fn importance_multi_state(unavailable: bool) -> AppState {
+        let (mut state, _, _) = state(true);
+        let manager = state
+            .journal_studies
+            .as_mut()
+            .unwrap()
+            .managers
+            .get_mut(&0)
+            .unwrap();
+        let input = manager.acquire().unwrap();
+        let mut metadata = (**input.data().metadata()).clone();
+        metadata.objectives = (0..3)
+            .map(|i| ObjectiveDescriptor {
+                index: ObjectiveIndex(i),
+                name: Some(format!("y{i}")),
+                direction: Direction::Minimize,
+            })
+            .collect();
+        let trials = input
+            .data()
+            .trials()
+            .iter()
+            .map(|t| {
+                let mut t = (**t).clone();
+                let value = t.objectives[&ObjectiveIndex(0)].0;
+                t.constraints = ConstraintObservation {
+                    present: true,
+                    values: vec![Number(if t.key.stored_id % 2 == 0 { -1.0 } else { 1.0 })].into(),
+                };
+                Arc::make_mut(&mut t.objectives).insert(ObjectiveIndex(1), Number(value * 3.0));
+                Arc::make_mut(&mut t.objectives).insert(
+                    ObjectiveIndex(2),
+                    Number(if unavailable { f64::NAN } else { 0.0 }),
+                );
+                Arc::new(t)
+            })
+            .collect();
+        let ticket = manager.begin(LoadKind::Refresh).unwrap();
+        let receipt = manager
+            .apply(
+                manager.header(ticket).unwrap(),
+                StudyBatch::Replace { trials, metadata },
+            )
+            .unwrap();
+        manager.finish(ticket, receipt.next_sequence).unwrap();
+        install(&mut state);
+        state
+    }
+
+    fn deliver_importance(state: &mut AppState, widgets: &mut WidgetStates, message: AppMessage) {
+        let AppMessage::AnalysisCompleted { slot, completion } = message else {
+            panic!("Expected stamped completion")
+        };
+        for message in adopt_all(slot, completion, state, widgets) {
+            let message = match message {
+                AppMessage::ConsumerDelivery { message, .. } => *message,
+                m => m,
+            };
+            crate::state::message_handler::MessageHandler::handle(
+                message, state, widgets, &mut false, &mut None,
+            );
+        }
+    }
+
+    #[test]
+    fn importance_all_reuses_cache_settles_partial_failures_and_rejects_invalidated_work() {
+        use crate::state::layout_state::ChartId;
+        use crate::ui::poll_chart::poll_chart_work;
+        use crate::ui::widgets::importance_chart::{ImportanceMetric as M, ALL_OBJECTIVES};
+        use tdashboard_analysis::sensitivity::SensitivityMetric;
+        let mut state = importance_multi_state(true);
+        let mut widgets = WidgetStates::default();
+        let (tx, rx) = mpsc::sync_channel(8);
+        widgets.importance.metric = M::Ridge;
+        widgets.importance.pending_compute = Some((M::Ridge, 0, false));
+        poll_chart_work(&mut state, &mut widgets, &ChartId::ImportanceChart, &tx);
+        deliver_importance(
+            &mut state,
+            &mut widgets,
+            rx.recv_timeout(Duration::from_secs(30)).unwrap(),
+        );
+        let cached = state
+            .importance_cache
+            .selected(&(M::Ridge.cache_id(), 0, false))
+            .unwrap()
+            .key()
+            .clone();
+        widgets.importance.pending_compute = Some((M::Ridge, ALL_OBJECTIVES, false));
+        poll_chart_work(&mut state, &mut widgets, &ChartId::ImportanceChart, &tx);
+        assert!(widgets.importance.computing);
+        assert!(
+            rx.try_recv().is_err(),
+            "The cached objective must not start a worker"
+        );
+        assert_eq!(
+            state
+                .importance_cache
+                .selected(&(M::Ridge.cache_id(), 0, false))
+                .unwrap()
+                .key(),
+            &cached
+        );
+        poll_chart_work(&mut state, &mut widgets, &ChartId::ImportanceChart, &tx);
+        deliver_importance(
+            &mut state,
+            &mut widgets,
+            rx.recv_timeout(Duration::from_secs(30)).unwrap(),
+        );
+        assert!(
+            widgets.importance.computing,
+            "The ALL request still has an unsettled objective"
+        );
+        poll_chart_work(&mut state, &mut widgets, &ChartId::ImportanceChart, &tx);
+        deliver_importance(
+            &mut state,
+            &mut widgets,
+            rx.recv_timeout(Duration::from_secs(30)).unwrap(),
+        );
+        assert!(!widgets.importance.computing);
+        assert!(state
+            .importance_cache
+            .contains_key(&(M::Ridge.cache_id(), 1, false)));
+        assert!(!state
+            .importance_cache
+            .contains_key(&(M::Ridge.cache_id(), 2, false)));
+        assert!(widgets
+            .importance
+            .errors
+            .contains_key(&(M::Ridge.cache_id(), 2, false)));
+        let scores = widgets.importance.results(&state);
+        assert_eq!(scores.len(), 3);
+        assert!(scores[0].scores[0].1 > 0.0);
+        assert!(scores[1].scores[0].1 > scores[0].scores[0].1);
+        assert!(scores[2].scores.is_empty());
+
+        // A different feasibility policy has its own cache and queued state.
+        widgets.importance.pending_compute = Some((M::Ridge, ALL_OBJECTIVES, true));
+        poll_chart_work(&mut state, &mut widgets, &ChartId::ImportanceChart, &tx);
+        deliver_importance(
+            &mut state,
+            &mut widgets,
+            rx.recv_timeout(Duration::from_secs(30)).unwrap(),
+        );
+        let expected = tdashboard_analysis::sensitivity::RidgeMetric
+            .compute_checked(
+                &state
+                    .current_study
+                    .as_ref()
+                    .unwrap()
+                    .view
+                    .df
+                    .filter_feasible(),
+                0,
+            )
+            .unwrap();
+        assert_eq!(
+            state
+                .importance_cache
+                .get(&(M::Ridge.cache_id(), 0, true))
+                .unwrap()
+                .ridge[0]
+                .beta,
+            expected.ridge[0].beta
+        );
+        assert_ne!(
+            state
+                .importance_cache
+                .get(&(M::Ridge.cache_id(), 0, true))
+                .unwrap()
+                .ridge[0]
+                .beta,
+            state
+                .importance_cache
+                .get(&(M::Ridge.cache_id(), 0, false))
+                .unwrap()
+                .ridge[0]
+                .beta
+        );
+        poll_chart_work(&mut state, &mut widgets, &ChartId::ImportanceChart, &tx);
+        let old = rx.recv_timeout(Duration::from_secs(30)).unwrap();
+        widgets.invalidate_analysis_input();
+        state = importance_multi_state(true); // Same dimensions, different source identity.
+        deliver_importance(&mut state, &mut widgets, old);
+        assert!(state.importance_cache.is_empty());
+        assert!(widgets.importance.queue.is_empty());
+        assert!(widgets.importance.active.is_none());
+        assert!(widgets.importance.errors.is_empty());
+        assert!(!widgets.importance.computing);
+    }
+
     fn d5_work(state: &AppState, cluster: bool, condition: usize, consumer: u64) -> AnalysisWork {
         use crate::state::messages::{ClusterChartSource as C, McdmChartSource as M};
         let journal = state.journal_studies.as_ref().unwrap();

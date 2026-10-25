@@ -183,21 +183,7 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
                 .is_some_and(|s| s.trial_count() > 0)
         }
         ChartId::ConvergenceIndicators => app_state.convergence_history.is_some(),
-        ChartId::ImportanceChart => {
-            if widgets.importance.computing {
-                return false;
-            }
-            let obj_idx = widgets.importance.objective_index;
-            let feasible_only = widgets.importance.feasible_only;
-            if widgets.importance.metric.is_sobol() {
-                app_state
-                    .sobol_cache
-                    .contains_key(&(obj_idx, feasible_only))
-            } else {
-                let key = (widgets.importance.metric.cache_id(), obj_idx, feasible_only);
-                app_state.importance_cache.contains_key(&key)
-            }
-        }
+        ChartId::ImportanceChart => has_importance_csv(app_state, widgets),
         ChartId::PdpChart => widgets
             .pdp_chart
             .result

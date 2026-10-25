@@ -246,20 +246,11 @@ pub(crate) fn render_chart(
             }
         }
         ChartId::ImportanceChart => {
-            let imp_key = (
-                widgets.importance.metric.cache_id(),
-                widgets.importance.objective_index,
-                widgets.importance.feasible_only,
-            );
-            let current_sensitivity = app_state.importance_cache.get(&imp_key);
-            let current_sobol = app_state.sobol_cache.get(&(
-                widgets.importance.objective_index,
-                widgets.importance.feasible_only,
-            ));
-            widgets.importance.show(
+            widgets.importance.normalize_objective(obj_names.len());
+            let results = widgets.importance.results(app_state);
+            widgets.importance.show_results(
                 ui,
-                current_sensitivity,
-                current_sobol,
+                &results,
                 obj_names,
                 ctx.view.feasibility().has_constraints(),
             );

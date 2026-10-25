@@ -18,6 +18,13 @@ pub trait SensitivityMetric: Send + Sync {
     /// insufficient data), never panics.
     fn compute(&self, df: &DataFrame, obj_idx: usize) -> Option<SensitivityResult>;
 
+    /// Compute without substituting zero scores for fitting failures. Consumers
+    /// that distinguish unavailable results from measured zeros use this path;
+    /// heatmaps retain their established fallback through `compute`.
+    fn compute_checked(&self, df: &DataFrame, obj_idx: usize) -> Option<SensitivityResult> {
+        self.compute(df, obj_idx)
+    }
+
     /// Human-readable identifier for the metric (used in logging / debugging).
     fn name(&self) -> &'static str;
 }

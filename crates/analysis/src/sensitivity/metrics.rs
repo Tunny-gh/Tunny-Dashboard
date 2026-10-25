@@ -232,4 +232,24 @@ impl<M: TreeMetric + Send + Sync> SensitivityMetric for M {
     fn name(&self) -> &'static str {
         self.metric_name()
     }
+
+    fn compute_checked(&self, df: &DataFrame, obj_idx: usize) -> Option<SensitivityResult> {
+        let (param_names, objective_name, x_matrix, y) = tree_extract_data(df, obj_idx)?;
+        let data = prepare_training_data(
+            &x_matrix,
+            &y,
+            self.max_rows(),
+            self.data_seed(),
+            self.split_seed(),
+        )?;
+        let (imp, r2) = self.compute_importances(&data)?;
+        if imp.iter().any(|v| !v.is_finite()) || !r2.is_finite() {
+            return None;
+        }
+        Some(self.wrap_result(
+            param_names,
+            objective_name,
+            to_tree_importance_result(imp, r2),
+        ))
+    }
 }

@@ -13,6 +13,13 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Added
 
+- Importance Charts default to ALL objectives for multi-objective studies, with
+  grouped, color-keyed bars, a shared numeric axis, theme-aware guides and
+  parameter separators. Run reuses cached results and computes missing objectives
+  in the background. Fit scores and failures are identified per objective;
+  partial CSV export includes only available successful scores and is explicitly
+  indicated in the chart.
+
 - Parallel Coordinates has a per-chart, session-persisted Line width slider
   (0.5–3.0 points, default 0.8). It adjusts rows passing all active brushes, or
   all rendered rows when no brushes are active; outside lines stay at 0.8 points.
