@@ -188,9 +188,9 @@ fn format_elapsed(seconds: f64, unit: TimeUnit) -> String {
 /// - Trials without a `datetime_start` are excluded.
 /// - Elapsed seconds are re-based so the earliest `datetime_start` in the
 ///   study is 0.
-/// - Trials with no `datetime_complete` (e.g. RUNNING) have their bar
-///   extended to the maximum known datetime in the study (either start or
-///   complete).
+/// - Only RUNNING trials with no `datetime_complete` have their bar extended
+///   to the maximum known datetime in the study (either start or complete).
+///   Other trials without a completion timestamp are excluded.
 pub fn build_timeline_bars(trials: &[TrialExtra]) -> Vec<TimelineBar> {
     let t0 = value_range(trials.iter().filter_map(|t| t.datetime_start))
         .map(|(mn, _)| mn)
@@ -212,7 +212,12 @@ pub fn build_timeline_bars(trials: &[TrialExtra]) -> Vec<TimelineBar> {
         .iter()
         .filter_map(|t| {
             let start = t.datetime_start?;
-            let end_abs = t.datetime_complete.unwrap_or(max_ts).max(start);
+            let end_abs = match t.datetime_complete {
+                Some(end) => end,
+                None if t.state == TrialState::Running => max_ts,
+                None => return None,
+            }
+            .max(start);
             Some(TimelineBar {
                 trial_id: t.trial_id,
                 trial_number: t.trial_number,

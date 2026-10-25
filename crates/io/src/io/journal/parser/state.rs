@@ -353,7 +353,8 @@ impl ParserState {
                     constraint_values,
                     has_constraints,
                     datetime_start,
-                    datetime_complete: None,
+                    datetime_complete: get_str(json, "datetime_complete")
+                        .and_then(parse_naive_datetime),
                     intermediate_values: Vec::new(),
                 },
             );

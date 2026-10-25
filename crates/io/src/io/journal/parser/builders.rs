@@ -33,7 +33,7 @@ pub struct TrialBuilder {
     pub(super) has_constraints: bool,
     /// Start datetime. Naive unix seconds. Derived from `datetime_start` on op_code=4.
     pub(super) datetime_start: Option<f64>,
-    /// Completion datetime. Naive unix seconds. Derived from `datetime_complete` on op_code=6.
+    /// Completion datetime. Naive unix seconds. Recorded inline on op_code=4 or on op_code=6.
     pub(super) datetime_complete: Option<f64>,
     /// Intermediate values `(step, value)`. Derived from op_code=7. Insertion order (sorted by ascending step later).
     pub(super) intermediate_values: Vec<(u64, f64)>,
