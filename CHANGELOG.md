@@ -13,6 +13,10 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Added
 
+- Parallel Coordinates has a per-chart, session-persisted Line width slider
+  (0.5–3.0 points, default 0.8). It adjusts rows passing all active brushes, or
+  all rendered rows when no brushes are active; outside lines stay at 0.8 points.
+
 - Generic-process and Grasshopper optimization can explicitly add new results to
   an existing Study through `load_if_exists` or the default-OFF GUI option. Each
   invocation starts a fresh optimizer; this is not history-aware resume.
