@@ -26,6 +26,21 @@ pub use layout::{
 /// same cap as `MAX_SCATTER_POINTS` in scatter_matrix (trials currently
 /// selected by a brush are exempt from downsampling and are always drawn).
 const MAX_PCP_POLYLINES: usize = 1500;
+const DEFAULT_LINE_WIDTH: f32 = 0.8;
+
+fn normalize_line_width(value: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(0.5, 3.0)
+    } else {
+        DEFAULT_LINE_WIDTH
+    }
+}
+
+fn deserialize_line_width<'de, D: serde::Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
+    use serde::Deserialize;
+    let value = Option::<f32>::deserialize(d)?;
+    Ok(value.map_or(DEFAULT_LINE_WIDTH, normalize_line_width))
+}
 
 /// Invalidation key for draw_targets_cache: (df_ptr, trial_count, brush range snapshot).
 type DrawTargetsKey = (
@@ -75,6 +90,9 @@ pub struct ParallelCoordsChart {
     /// Axis name used to color the lines (falls back to the last axis = last
     /// objective when None).
     pub color_axis: Option<String>,
+    /// Width in egui points for brush-passing rows, or all rows without brushes.
+    #[serde(deserialize_with = "deserialize_line_width")]
+    pub line_width: f32,
 }
 
 impl Default for ParallelCoordsChart {
@@ -96,11 +114,28 @@ impl Default for ParallelCoordsChart {
             pending_selection: None,
             show_infeasible: true,
             color_axis: None,
+            line_width: DEFAULT_LINE_WIDTH,
         }
     }
 }
 
 impl ParallelCoordsChart {
+    fn line_width_control(&mut self, ui: &mut egui::Ui) -> egui::Response {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().slider_width = ui
+                .spacing()
+                .slider_width
+                .min((ui.available_width() - 130.0).max(20.0));
+            ui.add(
+                egui::Slider::new(&mut self.line_width, 0.5..=3.0)
+                    .step_by(0.1)
+                    .fixed_decimals(1)
+                    .text("Line width"),
+            )
+        })
+        .inner
+    }
+
     /// Draws the parallel coordinates plot.
     pub fn show(
         &mut self,
@@ -145,13 +180,12 @@ impl ParallelCoordsChart {
             self.col_ranges_cache = Some(col_ranges);
             self.cache_key = cache_key;
         }
-        let col_ranges = self.col_ranges_cache.as_ref().unwrap();
 
         let feas = view.feasibility();
         let has_constraints = feas.has_constraints();
 
         // Control row: choose axes to draw + coloring axis + "Show Infeasible".
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             // Dropdown with checkboxes to choose which axes to draw (all shown by default).
             let visible_count = all_names
                 .iter()
@@ -210,6 +244,8 @@ impl ParallelCoordsChart {
                 );
             }
         });
+        self.line_width_control(ui);
+        let col_ranges = self.col_ranges_cache.as_ref().unwrap();
 
         // Original indices of the axes to draw (visible ones); unregistered = visible.
         let visible = visible_axis_indices(&all_names, &self.axis_visibility);
@@ -385,8 +421,13 @@ impl ParallelCoordsChart {
                     // Draw in-selection lines together on top afterward.
                     selected_polylines.push((point_scratch.clone(), color));
                 } else {
+                    let width = if in_selection {
+                        self.line_width
+                    } else {
+                        DEFAULT_LINE_WIDTH
+                    };
                     for pair in point_scratch.windows(2) {
-                        painter.line_segment([pair[0], pair[1]], egui::Stroke::new(0.8, color));
+                        painter.line_segment([pair[0], pair[1]], egui::Stroke::new(width, color));
                     }
                 }
             }
@@ -394,7 +435,10 @@ impl ParallelCoordsChart {
         // Overlay the in-selection lines on top.
         for (points, color) in &selected_polylines {
             for pair in points.windows(2) {
-                painter.line_segment([pair[0], pair[1]], egui::Stroke::new(0.8, *color));
+                painter.line_segment(
+                    [pair[0], pair[1]],
+                    egui::Stroke::new(self.line_width, *color),
+                );
             }
         }
 

@@ -42,6 +42,16 @@ fn render_color_lines(
     chart: &mut ParallelCoordsChart,
     view: &crate::state::app_state::StudyView,
 ) -> Vec<egui::Color32> {
+    render_line_strokes(chart, view)
+        .into_iter()
+        .map(|stroke| stroke.color)
+        .collect()
+}
+
+fn render_line_strokes(
+    chart: &mut ParallelCoordsChart,
+    view: &crate::state::app_state::StudyView,
+) -> Vec<egui::Stroke> {
     let ctx = egui::Context::default();
     let output = ctx.run_ui(Default::default(), |ui| {
         ui.set_min_size(egui::vec2(900.0, 450.0));
@@ -53,14 +63,198 @@ fn render_color_lines(
             &crate::theme::colormap::ColorMap::viridis(),
         );
     });
+    let axis_x: Vec<_> = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::LineSegment { points, stroke }
+                if stroke.color == COLOR_PARALLEL_AXIS() =>
+            {
+                Some(points[0].x)
+            }
+            _ => None,
+        })
+        .collect();
     output
         .shapes
         .iter()
         .filter_map(|shape| match &shape.shape {
-            egui::Shape::LineSegment { stroke, .. } if stroke.width == 0.8 => Some(stroke.color),
+            egui::Shape::LineSegment { points, stroke }
+                if points[0].x != points[1].x
+                    && axis_x.contains(&points[0].x)
+                    && axis_x.contains(&points[1].x) =>
+            {
+                Some(*stroke)
+            }
             _ => None,
         })
         .collect()
+}
+
+#[test]
+fn pcp_line_width_follows_all_brushes_including_empty_selection() {
+    let view = color_test_view(&[
+        [0.0, 0.0, 0.0],
+        [4.0, 8.0, 40.0],
+        [6.0, 2.0, 60.0],
+        [10.0, 10.0, 100.0],
+    ]);
+    for width in [0.5, 1.5, 3.0] {
+        let mut chart = ParallelCoordsChart {
+            line_width: width,
+            ..Default::default()
+        };
+        let widths = |chart: &mut ParallelCoordsChart| {
+            render_line_strokes(chart, &view)
+                .iter()
+                .map(|s| s.width)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(widths(&mut chart), vec![width; 8]);
+        chart.brush_ranges.insert("x".into(), None);
+        assert_eq!(widths(&mut chart), vec![width; 8]);
+        chart.brush_ranges.insert("x".into(), Some((0.3, 0.7)));
+        assert_eq!(widths(&mut chart), [vec![0.8; 4], vec![width; 4]].concat());
+        chart.brush_ranges.insert("y".into(), Some((0.0, 0.5)));
+        assert_eq!(widths(&mut chart), [vec![0.8; 6], vec![width; 2]].concat());
+        chart.brush_ranges.insert("x".into(), Some((0.3, 0.5)));
+        assert_eq!(widths(&mut chart), vec![0.8; 8]);
+        chart.brush_ranges.clear();
+        assert_eq!(widths(&mut chart), vec![width; 8]);
+    }
+}
+
+#[test]
+fn pcp_line_width_preserves_feasibility_and_missing_color_rules() {
+    let view = color_test_view_with_constraints(
+        &[
+            [0.0, 0.0, 0.0],
+            [1.0, 1.0, f64::NAN],
+            [1.0, 1.0, 2.0],
+            [1.0, 1.0, 3.0],
+        ],
+        &[-1.0, -1.0, 1.0, f64::NAN],
+    );
+    let mut chart = ParallelCoordsChart::default();
+    chart.axis_visibility.insert("color".into(), false);
+    let baseline = render_color_lines(&mut chart, &view);
+    chart.line_width = 2.4;
+    assert_eq!(
+        render_line_strokes(&mut chart, &view),
+        baseline
+            .iter()
+            .map(|c| egui::Stroke::new(2.4, *c))
+            .collect::<Vec<_>>()
+    );
+    chart.brush_ranges.insert("x".into(), Some((0.9, 1.0)));
+    let selected = render_line_strokes(&mut chart, &view);
+    assert_eq!(
+        selected[0],
+        egui::Stroke::new(0.8, COLOR_PARALLEL_LINE_UNSELECTED())
+    );
+    assert_eq!(
+        &selected[1..],
+        &baseline[1..]
+            .iter()
+            .map(|c| egui::Stroke::new(2.4, *c))
+            .collect::<Vec<_>>()
+    );
+    chart.show_infeasible = false;
+    assert_eq!(
+        render_line_strokes(&mut chart, &view),
+        vec![selected[0], selected[1], selected[3]]
+    );
+}
+
+#[test]
+fn pcp_line_width_session_round_trip_is_per_chart() {
+    use crate::{io::session, state::layout_state::LayoutState, ui::widget_states::WidgetStates};
+    let mut widgets = std::collections::HashMap::new();
+    for (id, width) in [(1, 0.5), (2, 2.3), (3, 3.0)] {
+        let mut state = WidgetStates::default();
+        state.parallel_coords.line_width = width;
+        widgets.insert(id, state);
+    }
+    let json = session::to_json(
+        &LayoutState::default(),
+        &widgets,
+        &session::ViewSettings::default(),
+    )
+    .unwrap();
+    let restored = session::from_json(&json).unwrap();
+    for (id, state) in widgets {
+        assert_eq!(
+            restored.widgets[&id].parallel_coords.line_width,
+            state.parallel_coords.line_width
+        );
+    }
+}
+
+#[test]
+fn pcp_line_width_defaults_and_validates_persisted_numbers() {
+    assert_eq!(ParallelCoordsChart::default().line_width, 0.8);
+    assert_eq!(
+        serde_json::from_str::<ParallelCoordsChart>("{}")
+            .unwrap()
+            .line_width,
+        0.8
+    );
+    for (value, expected) in [
+        ("null", 0.8),
+        ("-10", 0.5),
+        ("0", 0.5),
+        ("10", 3.0),
+        ("1.7", 1.7),
+    ] {
+        let chart: ParallelCoordsChart =
+            serde_json::from_str(&format!(r#"{{"line_width":{value}}}"#)).unwrap();
+        assert_eq!(chart.line_width, expected);
+    }
+    for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        assert_eq!(normalize_line_width(value), 0.8);
+    }
+}
+
+#[test]
+fn pcp_line_width_control_fits_narrow_widgets_and_accepts_keyboard_input() {
+    for width in [200.0, 250.0, 350.0] {
+        let ctx = egui::Context::default();
+        let mut chart = ParallelCoordsChart::default();
+        for pressed in [false, true] {
+            let output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(width, 450.0),
+                    )),
+                    events: if pressed {
+                        vec![egui::Event::Key {
+                            key: egui::Key::ArrowRight,
+                            physical_key: None,
+                            pressed: true,
+                            repeat: false,
+                            modifiers: egui::Modifiers::NONE,
+                        }]
+                    } else {
+                        vec![]
+                    },
+                    ..Default::default()
+                },
+                |ui| {
+                    let clip = ui.clip_rect();
+                    let response = chart.line_width_control(ui);
+                    assert!(
+                        clip.contains_rect(response.rect),
+                        "{width}: {:?} outside {clip:?}",
+                        response.rect
+                    );
+                    response.request_focus();
+                },
+            );
+            assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == "Line width")));
+        }
+        assert!((chart.line_width - 0.9).abs() < 1e-6);
+    }
 }
 
 fn mapped_color(t: f32) -> egui::Color32 {
