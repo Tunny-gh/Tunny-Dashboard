@@ -11,6 +11,11 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ## [Unreleased]
 
+### Security
+
+- Update the transitive ctutils dependency to 0.4.4 to resolve RUSTSEC-2026-0385
+  (non-constant-time mask generation and u128 comparisons).
+
 ### Added
 
 - Importance Charts default to ALL objectives for multi-objective studies, with
