@@ -25,6 +25,10 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- Cluster Scatter 3D and Pareto Scatter 3D refresh axis ranges and projected points
+  when the displayed input changes, including same-size updates and Study/source
+  switches, while preserving camera and local view controls.
+
 - Correlation Matrix refreshes coefficients and column labels when the displayed
   input or selected columns change, including same-size replacements and same-name
   Studies from different sources, while preserving method and column-group controls.

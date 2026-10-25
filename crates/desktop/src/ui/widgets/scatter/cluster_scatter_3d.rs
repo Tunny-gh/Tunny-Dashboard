@@ -37,7 +37,10 @@ pub struct ClusterScatter3D {
     #[serde(skip)]
     pub last_error: Option<crate::state::messages::ClusterUiError>,
     #[serde(skip)]
-    range_cache: Range3DCache<(usize, usize, usize, usize)>,
+    range_cache: Range3DCache<(Option<tdashboard_study::AcquiredStamp>, [usize; 3], usize)>,
+    #[cfg(test)]
+    #[serde(skip)]
+    range_computations: usize,
     /// Trial detail modal opened by clicking a point
     #[serde(skip)]
     pub detail_modal: TrialDetailModal,
@@ -60,6 +63,8 @@ impl Default for ClusterScatter3D {
             pending_compute: None,
             last_error: None,
             range_cache: Range3DCache::default(),
+            #[cfg(test)]
+            range_computations: 0,
             detail_modal: TrialDetailModal::new(),
         }
     }
@@ -113,14 +118,22 @@ impl ClusterScatter3D {
         }
 
         // Range cache
+        let input = view.df.provenance();
+        // Unstamped tables have no input identity with which to validate reuse.
+        if input.is_none() {
+            self.range_cache = Range3DCache::default();
+        }
         let cache_key = (
-            self.x_objective,
-            self.y_objective,
-            self.z_objective,
+            input,
+            [self.x_objective, self.y_objective, self.z_objective],
             trial_count,
         );
         let col = |idx: usize| obj_names.get(idx).and_then(|n| view.numeric_column(n));
         let ranges = self.range_cache.get_or_compute(cache_key, || {
+            #[cfg(test)]
+            {
+                self.range_computations += 1;
+            }
             [
                 compute_range_from_col(col(self.x_objective)),
                 compute_range_from_col(col(self.y_objective)),
@@ -360,6 +373,14 @@ impl ClusterScatter3D {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn displayed_input_ranges_follow_provenance() {
+        crate::ui::widgets::scatter_3d::range_input_tests::check(|widgets, ui, app| {
+            widgets.cluster_scatter_3d.show(ui, app);
+            widgets.cluster_scatter_3d.range_computations
+        });
+    }
 
     #[test]
     fn cluster_scatter_3d_default_axes() {
