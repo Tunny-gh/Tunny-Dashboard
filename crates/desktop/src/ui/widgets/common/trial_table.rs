@@ -49,12 +49,19 @@ pub struct TrialTable {
     /// Sub-widget handling MCDM mode's settings and rendering.
     pub mcdm: McdmTable,
     /// Cache of the row indices to display (selected ∪ pinned).
-    /// Not recomputed unless the contents or count of `selected_indices` / `pinned`
-    /// change.
+    /// Depends on selection, pins, and the ordered row-to-trial identity mapping.
     #[serde(skip)]
     visible_cache: Option<Vec<usize>>,
     #[serde(skip)]
-    visible_cache_key: Option<(Vec<u32>, Vec<u32>, usize)>, // (selected_indices, pinned, row_count)
+    visible_cache_key: Option<VisibleRowsKey>,
+}
+
+#[derive(PartialEq, Eq)]
+struct VisibleRowsKey {
+    selected: Vec<u32>,
+    pinned: Vec<u32>,
+    row_count: usize,
+    trial_ids: Vec<u32>,
 }
 
 impl Default for TrialTable {
@@ -151,11 +158,15 @@ impl TrialTable {
         let obj_names = study_ctx.meta.objective_names.clone();
 
         // Compute the row indices to display (selected ∪ pinned, in original order)
-        // without materializing rows. Not recomputed unless the contents or count of
-        // selected_indices / pinned change.
+        // without materializing rows. Equal-sized inputs can have different trial mappings.
         let view = &study_ctx.view;
         let n = view.row_count();
-        let cache_key = (app_state.selected_indices.clone(), pinned.clone(), n);
+        let cache_key = VisibleRowsKey {
+            selected: app_state.selected_indices.clone(),
+            pinned: pinned.clone(),
+            row_count: n,
+            trial_ids: view.trial_ids.clone(),
+        };
         if self.visible_cache.is_none() || self.visible_cache_key.as_ref() != Some(&cache_key) {
             let visible: Vec<usize> = if app_state.selected_indices.is_empty() {
                 (0..n).collect()
@@ -304,3 +315,7 @@ mod tests {
         assert!(table.show_user_attrs);
     }
 }
+
+#[cfg(test)]
+#[path = "trial_table_tests.rs"]
+mod rendering_tests;

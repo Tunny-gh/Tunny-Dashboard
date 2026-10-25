@@ -43,6 +43,10 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- Trial Table All Trials refreshes selected and pinned rows after input replacement
+  or reordering, including equal-sized changes. Row clicks and pins continue to
+  target the correct global trial identity while preserving original input order.
+
 - Histogram refreshes bins, mean/median, and distribution fits when the displayed
   input changes, including same-name, same-row-count revisions and source
   replacements, while preserving column, bin, and fit controls.
