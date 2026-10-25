@@ -26,6 +26,21 @@ pub use layout::{
 /// same cap as `MAX_SCATTER_POINTS` in scatter_matrix (trials currently
 /// selected by a brush are exempt from downsampling and are always drawn).
 const MAX_PCP_POLYLINES: usize = 1500;
+const DEFAULT_LINE_WIDTH: f32 = 0.8;
+
+fn normalize_line_width(value: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(0.5, 3.0)
+    } else {
+        DEFAULT_LINE_WIDTH
+    }
+}
+
+fn deserialize_line_width<'de, D: serde::Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
+    use serde::Deserialize;
+    let value = Option::<f32>::deserialize(d)?;
+    Ok(value.map_or(DEFAULT_LINE_WIDTH, normalize_line_width))
+}
 
 /// Invalidation key for draw_targets_cache: (df_ptr, trial_count, brush range snapshot).
 type DrawTargetsKey = (
@@ -75,6 +90,9 @@ pub struct ParallelCoordsChart {
     /// Axis name used to color the lines (falls back to the last axis = last
     /// objective when None).
     pub color_axis: Option<String>,
+    /// Width in egui points for brush-passing rows, or all rows without brushes.
+    #[serde(deserialize_with = "deserialize_line_width")]
+    pub line_width: f32,
 }
 
 impl Default for ParallelCoordsChart {
@@ -96,11 +114,28 @@ impl Default for ParallelCoordsChart {
             pending_selection: None,
             show_infeasible: true,
             color_axis: None,
+            line_width: DEFAULT_LINE_WIDTH,
         }
     }
 }
 
 impl ParallelCoordsChart {
+    fn line_width_control(&mut self, ui: &mut egui::Ui) -> egui::Response {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().slider_width = ui
+                .spacing()
+                .slider_width
+                .min((ui.available_width() - 130.0).max(20.0));
+            ui.add(
+                egui::Slider::new(&mut self.line_width, 0.5..=3.0)
+                    .step_by(0.1)
+                    .fixed_decimals(1)
+                    .text("Line width"),
+            )
+        })
+        .inner
+    }
+
     /// Draws the parallel coordinates plot.
     pub fn show(
         &mut self,
@@ -145,13 +180,12 @@ impl ParallelCoordsChart {
             self.col_ranges_cache = Some(col_ranges);
             self.cache_key = cache_key;
         }
-        let col_ranges = self.col_ranges_cache.as_ref().unwrap();
 
         let feas = view.feasibility();
         let has_constraints = feas.has_constraints();
 
         // Control row: choose axes to draw + coloring axis + "Show Infeasible".
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             // Dropdown with checkboxes to choose which axes to draw (all shown by default).
             let visible_count = all_names
                 .iter()
@@ -210,6 +244,8 @@ impl ParallelCoordsChart {
                 );
             }
         });
+        self.line_width_control(ui);
+        let col_ranges = self.col_ranges_cache.as_ref().unwrap();
 
         // Original indices of the axes to draw (visible ones); unregistered = visible.
         let visible = visible_axis_indices(&all_names, &self.axis_visibility);
@@ -254,13 +290,6 @@ impl ParallelCoordsChart {
         let tick_font = egui::FontId::proportional(9.0);
 
         let show_infeasible = self.show_infeasible;
-
-        // The normalization range for coloring is computed from feasible
-        // solutions only (kept separate from the axis coordinate range).
-        let color_range: (f64, f64) = match cols.get(color_axis_idx).and_then(|c| c.as_ref()) {
-            Some(col) => feasible_color_range(col, feas, col_ranges[color_axis_idx]),
-            None => col_ranges[color_axis_idx],
-        };
 
         // Gray out lines outside the selection if any brush is active.
         // Updated in real time since `brush_ranges` changes while dragging.
@@ -309,6 +338,20 @@ impl ParallelCoordsChart {
         }
         let draw_targets = self.draw_targets_cache.as_ref().unwrap();
 
+        let full_color_range = match cols.get(color_axis_idx).and_then(|c| c.as_ref()) {
+            Some(col) => feasible_color_range(col, feas, col_ranges[color_axis_idx]),
+            None => col_ranges[color_axis_idx],
+        };
+        // Brush-passing rows are never downsampled, so this includes every
+        // selected feasible value without changing the axis coordinate ranges.
+        let color_range = if has_active_brush {
+            cols.get(color_axis_idx).and_then(|col| {
+                layout::selected_color_range(col.unwrap_or(&[]), feas, draw_targets)
+            })
+        } else {
+            Some(full_color_range)
+        };
+
         // Draw each trial as a (semi-transparent) polyline.
         // Draw the out-of-selection (grayed-out) lines first, then overlay
         // the in-selection lines on top. The scratch buffer is reused for
@@ -336,7 +379,13 @@ impl ParallelCoordsChart {
                     .and_then(|c| c.get(t_idx))
                     .copied()
                     .map(|v| {
-                        let (mn, mx) = color_range;
+                        // Nonfinite observations keep their existing rendering;
+                        // they neither define nor use the selected finite scale.
+                        let (mn, mx) = if !v.is_finite() {
+                            full_color_range
+                        } else {
+                            color_range.unwrap_or((f64::INFINITY, f64::NEG_INFINITY))
+                        };
                         cmap.interpolate(normalize_value(v, mn, mx))
                     })
                     .unwrap_or(COLOR_PARALLEL_LINE_DEFAULT());
@@ -372,8 +421,13 @@ impl ParallelCoordsChart {
                     // Draw in-selection lines together on top afterward.
                     selected_polylines.push((point_scratch.clone(), color));
                 } else {
+                    let width = if in_selection {
+                        self.line_width
+                    } else {
+                        DEFAULT_LINE_WIDTH
+                    };
                     for pair in point_scratch.windows(2) {
-                        painter.line_segment([pair[0], pair[1]], egui::Stroke::new(0.8, color));
+                        painter.line_segment([pair[0], pair[1]], egui::Stroke::new(width, color));
                     }
                 }
             }
@@ -381,7 +435,10 @@ impl ParallelCoordsChart {
         // Overlay the in-selection lines on top.
         for (points, color) in &selected_polylines {
             for pair in points.windows(2) {
-                painter.line_segment([pair[0], pair[1]], egui::Stroke::new(0.8, *color));
+                painter.line_segment(
+                    [pair[0], pair[1]],
+                    egui::Stroke::new(self.line_width, *color),
+                );
             }
         }
 

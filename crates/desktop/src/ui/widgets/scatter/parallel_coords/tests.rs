@@ -1,5 +1,417 @@
 use super::*;
 
+fn color_test_view(values: &[[f64; 3]]) -> crate::state::app_state::StudyView {
+    color_test_view_with_constraints(values, &[])
+}
+
+fn color_test_view_with_constraints(
+    values: &[[f64; 3]],
+    constraints: &[f64],
+) -> crate::state::app_state::StudyView {
+    use tdashboard_analysis::dataframe::{DataFrame, TrialRow};
+    let rows: Vec<_> = values
+        .iter()
+        .enumerate()
+        .map(|(i, values)| TrialRow {
+            trial_id: i as u32,
+            trial_number: i as u32,
+            param_display: Default::default(),
+            distribution_metadata: Default::default(),
+            param_category_label: Default::default(),
+            objective_values: values.to_vec(),
+            user_attrs_numeric: Default::default(),
+            user_attrs_string: Default::default(),
+            user_attrs_json: Default::default(),
+            constraint_values: constraints.get(i).copied().into_iter().collect(),
+        })
+        .collect();
+    crate::state::app_state::StudyView::new(
+        std::sync::Arc::new(DataFrame::from_trials(
+            &rows,
+            &[],
+            &["x".into(), "y".into(), "color".into()],
+            &[],
+            &[],
+            usize::from(!constraints.is_empty()),
+        )),
+        vec![0; rows.len()],
+    )
+}
+
+fn render_color_lines(
+    chart: &mut ParallelCoordsChart,
+    view: &crate::state::app_state::StudyView,
+) -> Vec<egui::Color32> {
+    render_line_strokes(chart, view)
+        .into_iter()
+        .map(|stroke| stroke.color)
+        .collect()
+}
+
+fn render_line_strokes(
+    chart: &mut ParallelCoordsChart,
+    view: &crate::state::app_state::StudyView,
+) -> Vec<egui::Stroke> {
+    let ctx = egui::Context::default();
+    let output = ctx.run_ui(Default::default(), |ui| {
+        ui.set_min_size(egui::vec2(900.0, 450.0));
+        chart.show(
+            ui,
+            view,
+            &[],
+            &["x".into(), "y".into(), "color".into()],
+            &crate::theme::colormap::ColorMap::viridis(),
+        );
+    });
+    let axis_x: Vec<_> = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::LineSegment { points, stroke }
+                if stroke.color == COLOR_PARALLEL_AXIS() =>
+            {
+                Some(points[0].x)
+            }
+            _ => None,
+        })
+        .collect();
+    output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::LineSegment { points, stroke }
+                if points[0].x != points[1].x
+                    && axis_x.contains(&points[0].x)
+                    && axis_x.contains(&points[1].x) =>
+            {
+                Some(*stroke)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn pcp_line_width_follows_all_brushes_including_empty_selection() {
+    let view = color_test_view(&[
+        [0.0, 0.0, 0.0],
+        [4.0, 8.0, 40.0],
+        [6.0, 2.0, 60.0],
+        [10.0, 10.0, 100.0],
+    ]);
+    for width in [0.5, 1.5, 3.0] {
+        let mut chart = ParallelCoordsChart {
+            line_width: width,
+            ..Default::default()
+        };
+        let widths = |chart: &mut ParallelCoordsChart| {
+            render_line_strokes(chart, &view)
+                .iter()
+                .map(|s| s.width)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(widths(&mut chart), vec![width; 8]);
+        chart.brush_ranges.insert("x".into(), None);
+        assert_eq!(widths(&mut chart), vec![width; 8]);
+        chart.brush_ranges.insert("x".into(), Some((0.3, 0.7)));
+        assert_eq!(widths(&mut chart), [vec![0.8; 4], vec![width; 4]].concat());
+        chart.brush_ranges.insert("y".into(), Some((0.0, 0.5)));
+        assert_eq!(widths(&mut chart), [vec![0.8; 6], vec![width; 2]].concat());
+        chart.brush_ranges.insert("x".into(), Some((0.3, 0.5)));
+        assert_eq!(widths(&mut chart), vec![0.8; 8]);
+        chart.brush_ranges.clear();
+        assert_eq!(widths(&mut chart), vec![width; 8]);
+    }
+}
+
+#[test]
+fn pcp_line_width_preserves_feasibility_and_missing_color_rules() {
+    let view = color_test_view_with_constraints(
+        &[
+            [0.0, 0.0, 0.0],
+            [1.0, 1.0, f64::NAN],
+            [1.0, 1.0, 2.0],
+            [1.0, 1.0, 3.0],
+        ],
+        &[-1.0, -1.0, 1.0, f64::NAN],
+    );
+    let mut chart = ParallelCoordsChart::default();
+    chart.axis_visibility.insert("color".into(), false);
+    let baseline = render_color_lines(&mut chart, &view);
+    chart.line_width = 2.4;
+    assert_eq!(
+        render_line_strokes(&mut chart, &view),
+        baseline
+            .iter()
+            .map(|c| egui::Stroke::new(2.4, *c))
+            .collect::<Vec<_>>()
+    );
+    chart.brush_ranges.insert("x".into(), Some((0.9, 1.0)));
+    let selected = render_line_strokes(&mut chart, &view);
+    assert_eq!(
+        selected[0],
+        egui::Stroke::new(0.8, COLOR_PARALLEL_LINE_UNSELECTED())
+    );
+    assert_eq!(
+        &selected[1..],
+        &baseline[1..]
+            .iter()
+            .map(|c| egui::Stroke::new(2.4, *c))
+            .collect::<Vec<_>>()
+    );
+    chart.show_infeasible = false;
+    assert_eq!(
+        render_line_strokes(&mut chart, &view),
+        vec![selected[0], selected[1], selected[3]]
+    );
+}
+
+#[test]
+fn pcp_line_width_session_round_trip_is_per_chart() {
+    use crate::{io::session, state::layout_state::LayoutState, ui::widget_states::WidgetStates};
+    let mut widgets = std::collections::HashMap::new();
+    for (id, width) in [(1, 0.5), (2, 2.3), (3, 3.0)] {
+        let mut state = WidgetStates::default();
+        state.parallel_coords.line_width = width;
+        widgets.insert(id, state);
+    }
+    let json = session::to_json(
+        &LayoutState::default(),
+        &widgets,
+        &session::ViewSettings::default(),
+    )
+    .unwrap();
+    let restored = session::from_json(&json).unwrap();
+    for (id, state) in widgets {
+        assert_eq!(
+            restored.widgets[&id].parallel_coords.line_width,
+            state.parallel_coords.line_width
+        );
+    }
+}
+
+#[test]
+fn pcp_line_width_defaults_and_validates_persisted_numbers() {
+    assert_eq!(ParallelCoordsChart::default().line_width, 0.8);
+    assert_eq!(
+        serde_json::from_str::<ParallelCoordsChart>("{}")
+            .unwrap()
+            .line_width,
+        0.8
+    );
+    for (value, expected) in [
+        ("null", 0.8),
+        ("-10", 0.5),
+        ("0", 0.5),
+        ("10", 3.0),
+        ("1.7", 1.7),
+    ] {
+        let chart: ParallelCoordsChart =
+            serde_json::from_str(&format!(r#"{{"line_width":{value}}}"#)).unwrap();
+        assert_eq!(chart.line_width, expected);
+    }
+    for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        assert_eq!(normalize_line_width(value), 0.8);
+    }
+}
+
+#[test]
+fn pcp_line_width_control_fits_narrow_widgets_and_accepts_keyboard_input() {
+    for width in [200.0, 250.0, 350.0] {
+        let ctx = egui::Context::default();
+        let mut chart = ParallelCoordsChart::default();
+        for pressed in [false, true] {
+            let output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(width, 450.0),
+                    )),
+                    events: if pressed {
+                        vec![egui::Event::Key {
+                            key: egui::Key::ArrowRight,
+                            physical_key: None,
+                            pressed: true,
+                            repeat: false,
+                            modifiers: egui::Modifiers::NONE,
+                        }]
+                    } else {
+                        vec![]
+                    },
+                    ..Default::default()
+                },
+                |ui| {
+                    let clip = ui.clip_rect();
+                    let response = chart.line_width_control(ui);
+                    assert!(
+                        clip.contains_rect(response.rect),
+                        "{width}: {:?} outside {clip:?}",
+                        response.rect
+                    );
+                    response.request_focus();
+                },
+            );
+            assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == "Line width")));
+        }
+        assert!((chart.line_width - 0.9).abs() < 1e-6);
+    }
+}
+
+fn mapped_color(t: f32) -> egui::Color32 {
+    let [r, g, b, _] = rgba_key(crate::theme::colormap::ColorMap::viridis().interpolate(t));
+    rgba_to_color32([r, g, b, 120])
+}
+
+#[test]
+fn pcp_colors_follow_brush_and_color_axis_updates_and_reset() {
+    let view = color_test_view(&[
+        [0.0, 0.0, 0.0],
+        [4.0, 8.0, 40.0],
+        [6.0, 2.0, 60.0],
+        [10.0, 10.0, 100.0],
+    ]);
+    let mut chart = ParallelCoordsChart::default();
+    let baseline = render_color_lines(&mut chart, &view);
+    assert_eq!(
+        baseline,
+        [0.0, 0.4, 0.6, 1.0]
+            .map(mapped_color)
+            .into_iter()
+            .flat_map(|c| [c; 2])
+            .collect::<Vec<_>>()
+    );
+    let axis_ranges = chart.col_ranges_cache.clone();
+    chart.brush_ranges.insert("x".into(), Some((0.3, 0.7)));
+    assert_eq!(
+        render_color_lines(&mut chart, &view),
+        [
+            vec![COLOR_PARALLEL_LINE_UNSELECTED(); 4],
+            vec![mapped_color(0.0); 2],
+            vec![mapped_color(1.0); 2]
+        ]
+        .concat()
+    );
+    chart.color_axis = Some("y".into());
+    assert_eq!(
+        render_color_lines(&mut chart, &view),
+        [
+            vec![COLOR_PARALLEL_LINE_UNSELECTED(); 4],
+            vec![mapped_color(1.0); 2],
+            vec![mapped_color(0.0); 2]
+        ]
+        .concat()
+    );
+    chart.brush_ranges.insert("y".into(), Some((0.0, 0.5)));
+    assert_eq!(
+        render_color_lines(&mut chart, &view),
+        [
+            vec![COLOR_PARALLEL_LINE_UNSELECTED(); 6],
+            vec![mapped_color(0.5); 2]
+        ]
+        .concat()
+    );
+    chart.brush_ranges.insert("x".into(), Some((0.3, 0.5)));
+    assert_eq!(
+        render_color_lines(&mut chart, &view),
+        vec![COLOR_PARALLEL_LINE_UNSELECTED(); 8]
+    );
+    chart.brush_ranges.clear();
+    chart.color_axis = None;
+    assert_eq!(render_color_lines(&mut chart, &view), baseline);
+    assert_eq!(chart.col_ranges_cache, axis_ranges);
+}
+
+#[test]
+fn pcp_selected_color_range_requires_finite_feasible_values() {
+    use tdashboard_analysis::dataframe::Feasibility;
+    let col = [
+        0.0,
+        40.0,
+        60.0,
+        100.0,
+        f64::NAN,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        -100.0,
+        200.0,
+    ];
+    let feasibility = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, f64::NAN];
+    let feas = Feasibility::from_column(Some(&feasibility));
+    let targets: Vec<_> = (0..col.len()).map(|i| (i, i != 0 && i != 3)).collect();
+    assert_eq!(
+        layout::selected_color_range(&col, feas, &targets),
+        Some((40.0, 60.0))
+    );
+    assert_eq!(
+        layout::selected_color_range(&col, feas, &targets[4..]),
+        None
+    );
+    assert_eq!(layout::selected_color_range(&col, feas, &[]), None);
+    assert_eq!(layout::selected_color_range(&[], feas, &targets), None);
+    for targets in [vec![(1, true)], vec![(1, true), (2, true)]] {
+        let range = layout::selected_color_range(&[0.0, 40.0, 40.0], feas, &targets).unwrap();
+        assert_eq!(range, (40.0, 40.0));
+        assert_eq!(normalize_value(40.0, range.0, range.1), 0.5);
+    }
+}
+
+#[test]
+fn pcp_selected_colors_include_rows_outside_downsample() {
+    let count = MAX_PCP_POLYLINES * 2;
+    let sampled =
+        downsample_indices_to_cap(&(0..count as u32).collect::<Vec<_>>(), MAX_PCP_POLYLINES);
+    let omitted = (0..count)
+        .find(|i| !sampled.contains(&(*i as u32)))
+        .unwrap();
+    let mut values = vec![[0.0, 0.0, 0.0]; count];
+    values[omitted] = [1.0, 0.0, 40.0];
+    values[count - 1] = [1.0, 0.0, 60.0];
+    let view = color_test_view(&values);
+    let mut chart = ParallelCoordsChart::default();
+    chart.brush_ranges.insert("x".into(), Some((0.9, 1.0)));
+    let colors = render_color_lines(&mut chart, &view);
+    assert_eq!(
+        &colors[colors.len() - 4..],
+        &[
+            mapped_color(0.0),
+            mapped_color(0.0),
+            mapped_color(1.0),
+            mapped_color(1.0)
+        ]
+    );
+    assert!(colors[..colors.len() - 4]
+        .iter()
+        .all(|c| *c == COLOR_PARALLEL_LINE_UNSELECTED()));
+}
+
+#[test]
+fn pcp_selection_preserves_missing_and_feasibility_rendering() {
+    let view = color_test_view_with_constraints(
+        &[
+            [0.0, 0.0, 0.0],
+            [1.0, 1.0, f64::NAN],
+            [1.0, 1.0, -100.0],
+            [1.0, 1.0, 200.0],
+        ],
+        &[-1.0, -1.0, 1.0, f64::NAN],
+    );
+    let mut chart = ParallelCoordsChart::default();
+    // Keep the missing color value off the coordinate axes, as supported by PCP.
+    chart.axis_visibility.insert("color".into(), false);
+    let before = render_color_lines(&mut chart, &view);
+    chart.brush_ranges.insert("x".into(), Some((0.9, 1.0)));
+    let selected = render_color_lines(&mut chart, &view);
+    assert_eq!(selected[0], COLOR_PARALLEL_LINE_UNSELECTED());
+    assert_eq!(&selected[1..], &before[1..]);
+    assert_eq!(selected[2], COLOR_INFEASIBLE());
+    assert_eq!(selected[3], crate::theme::chart_colors::COLOR_UNVERIFIED());
+    chart.show_infeasible = false;
+    assert_eq!(
+        render_color_lines(&mut chart, &view),
+        vec![selected[0], selected[1], selected[3]]
+    );
+}
+
 struct RenderedPcp {
     labels: Vec<(egui::Rect, egui::epaint::TextShape)>,
     axes: Vec<[egui::Pos2; 2]>,

@@ -13,6 +13,10 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Added
 
+- Parallel Coordinates has a per-chart, session-persisted Line width slider
+  (0.5–3.0 points, default 0.8). It adjusts rows passing all active brushes, or
+  all rendered rows when no brushes are active; outside lines stay at 0.8 points.
+
 - Generic-process and Grasshopper optimization can explicitly add new results to
   an existing Study through `load_if_exists` or the default-OFF GUI option. Each
   invocation starts a fresh optimizer; this is not history-aware resume.
@@ -24,6 +28,10 @@ and `Security` as needed — omit headings that have nothing under them.
   and background encoding; controls and surrounding panels are excluded.
 
 ### Fixed
+
+- Parallel Coordinates rescales line colors to finite feasible values passing all
+  active brushes, including all selected rows regardless of downsampling. Clearing
+  brushes restores the full feasible color scale without changing axis ranges.
 
 - Cluster Scatter 3D and Pareto Scatter 3D refresh axis ranges and projected points
   when the displayed input changes, including same-size updates and Study/source
