@@ -23,7 +23,10 @@ pub struct Pareto3dChart {
     pub z_objective: usize,
     pub camera: ArcballCamera,
     #[serde(skip)]
-    range_cache: Range3DCache<(usize, usize, usize, usize)>,
+    range_cache: Range3DCache<(Option<tdashboard_study::AcquiredStamp>, [usize; 3], usize)>,
+    #[cfg(test)]
+    #[serde(skip)]
+    range_computations: usize,
     /// Whether to show infeasible solutions (effective only for constrained Studies)
     pub show_infeasible: bool,
     /// Trial detail modal opened by clicking a point
@@ -39,6 +42,8 @@ impl Default for Pareto3dChart {
             z_objective: 2,
             camera: ArcballCamera::isometric_default(),
             range_cache: Range3DCache::default(),
+            #[cfg(test)]
+            range_computations: 0,
             show_infeasible: true,
             detail_modal: TrialDetailModal::new(),
         }
@@ -83,14 +88,22 @@ impl Pareto3dChart {
         let view = &ctx.view;
         let trial_count = view.row_count();
 
+        let input = view.df.provenance();
+        // Unstamped tables have no input identity with which to validate reuse.
+        if input.is_none() {
+            self.range_cache = Range3DCache::default();
+        }
         let range_cache_key = (
-            self.x_objective,
-            self.y_objective,
-            self.z_objective,
+            input,
+            [self.x_objective, self.y_objective, self.z_objective],
             trial_count,
         );
         let col = |idx: usize| obj_names.get(idx).and_then(|n| view.numeric_column(n));
         let ranges = self.range_cache.get_or_compute(range_cache_key, || {
+            #[cfg(test)]
+            {
+                self.range_computations += 1;
+            }
             [
                 compute_range_from_col(col(self.x_objective)),
                 compute_range_from_col(col(self.y_objective)),
@@ -249,6 +262,14 @@ impl Pareto3dChart {
 mod tests {
     use super::*;
     use crate::theme::chart_colors::{COLOR_NON_PARETO, COLOR_PARETO};
+
+    #[test]
+    fn displayed_input_ranges_follow_provenance() {
+        crate::ui::widgets::scatter_3d::range_input_tests::check(|widgets, ui, app| {
+            widgets.pareto_3d.show(ui, app);
+            widgets.pareto_3d.range_computations
+        });
+    }
 
     #[test]
     fn pareto_3d_chart_default_objectives() {

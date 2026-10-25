@@ -10,6 +10,9 @@ use crate::ui::widgets::trial_detail_modal::{
     nearest_within, show_hover_tooltip, TrialDetailModal, TrialDetailTarget, HIT_THRESHOLD,
 };
 
+#[cfg(test)]
+pub(crate) mod range_input_tests;
+
 // ── Quaternion math ───────────────────────────────────────────────
 
 /// Quaternion product (Hamilton product).
@@ -128,8 +131,8 @@ pub fn val_range(vals: &[f64]) -> (f64, f64) {
 }
 
 /// Cache for the x/y/z axis data ranges.
-/// Skips recomputation via `compute_range_from_col` as long as `key` (typically a
-/// tuple of three axis indices plus the row count) is unchanged from last time.
+/// Skips recomputation via `compute_range_from_col` as long as the caller's
+/// input and axis selection key is unchanged from last time.
 #[derive(Debug, Clone)]
 pub struct Range3DCache<K> {
     key: Option<K>,
