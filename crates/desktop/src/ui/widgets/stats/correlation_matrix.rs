@@ -12,16 +12,14 @@ fn method_label(method: CorrelationMethod) -> &'static str {
     }
 }
 
-/// Discriminant used for the cache key.
-fn method_disc(method: CorrelationMethod) -> u8 {
-    match method {
-        CorrelationMethod::Pearson => 0,
-        CorrelationMethod::Spearman => 1,
-    }
+#[derive(PartialEq, Eq)]
+struct CorrCacheKey {
+    input: Option<tdashboard_study::AcquiredStamp>,
+    columns: Vec<String>,
+    method: CorrelationMethod,
+    include_params: bool,
+    include_objectives: bool,
 }
-
-/// (study_name, method_disc, include_params, include_objectives, row_count)
-type CorrCacheKey = (String, u8, bool, bool, usize);
 
 /// Correlation matrix heatmap widget for parameters and objective functions.
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -32,6 +30,9 @@ pub struct CorrelationMatrixChart {
     pub include_objectives: bool,
     #[serde(skip)]
     cache: Option<(CorrCacheKey, CorrelationMatrix)>,
+    #[cfg(test)]
+    #[serde(skip)]
+    computations: usize,
 }
 
 impl Default for CorrelationMatrixChart {
@@ -41,6 +42,8 @@ impl Default for CorrelationMatrixChart {
             include_params: true,
             include_objectives: true,
             cache: None,
+            #[cfg(test)]
+            computations: 0,
         }
     }
 }
@@ -52,7 +55,6 @@ impl CorrelationMatrixChart {
         view: &StudyView,
         param_names: &[String],
         obj_names: &[String],
-        study_name: &str,
     ) {
         ui.horizontal(|ui| {
             egui::ComboBox::from_id_salt("correlation_matrix_method_combo")
@@ -99,14 +101,15 @@ impl CorrelationMatrixChart {
             return;
         }
 
-        let key: CorrCacheKey = (
-            study_name.to_string(),
-            method_disc(self.method),
-            self.include_params,
-            self.include_objectives,
-            view.row_count(),
-        );
-        if self.cache.as_ref().map(|(k, _)| k) != Some(&key) {
+        let key = CorrCacheKey {
+            input: view.df.provenance(),
+            columns: columns.iter().map(|name| (*name).clone()).collect(),
+            method: self.method,
+            include_params: self.include_params,
+            include_objectives: self.include_objectives,
+        };
+        // Unstamped tables have no revision contract, so matching columns cannot prove reuse safe.
+        if key.input.is_none() || self.cache.as_ref().map(|(k, _)| k) != Some(&key) {
             let cols: Vec<(String, Vec<f64>)> = columns
                 .iter()
                 .map(|name| {
@@ -116,6 +119,10 @@ impl CorrelationMatrixChart {
                     )
                 })
                 .collect();
+            #[cfg(test)]
+            {
+                self.computations += 1;
+            }
             self.cache = compute_correlation_matrix(&cols, self.method).map(|m| (key, m));
         }
 
@@ -258,15 +265,4 @@ fn draw_matrix(ui: &mut egui::Ui, matrix: &CorrelationMatrix) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn correlation_matrix_chart_default_values() {
-        let chart = CorrelationMatrixChart::default();
-        assert_eq!(chart.method, CorrelationMethod::Pearson);
-        assert!(chart.include_params);
-        assert!(chart.include_objectives);
-        assert!(chart.cache.is_none());
-    }
-}
+mod tests;
