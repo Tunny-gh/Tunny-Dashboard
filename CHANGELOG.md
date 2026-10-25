@@ -15,7 +15,9 @@ and `Security` as needed — omit headings that have nothing under them.
 
 - Importance Charts default to ALL objectives for multi-objective studies, with
   grouped, color-keyed bars, a shared numeric axis, theme-aware guides and
-  parameter separators. Run reuses cached results and computes missing objectives
+  parameter separators. ALL uses a horizontally wrapping objective/fit legend
+  and thinner, compactly spaced result bars for larger comparisons.
+  Run reuses cached results and computes missing objectives
   in the background. Fit scores and failures are identified per objective;
   partial CSV export includes only available successful scores and is explicitly
   indicated in the chart.

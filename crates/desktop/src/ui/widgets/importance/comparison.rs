@@ -168,9 +168,14 @@ pub fn paint_scores(ui: &mut egui::Ui, results: &[ObjectiveImportance], all: boo
         }
     };
     let label_width = 150.0;
-    let row_height = 22.0;
+    let row_height = if all {
+        (ui.text_style_height(&egui::TextStyle::Body).ceil() + 1.0).max(18.0)
+    } else {
+        22.0
+    };
+    let bar_height = if all { 10.0 } else { 18.0 };
     let group_height = if all {
-        results.len() as f32 * row_height + 8.0
+        results.len() as f32 * row_height + 4.0
     } else {
         24.0
     };
@@ -234,8 +239,8 @@ pub fn paint_scores(ui: &mut egui::Ui, results: &[ObjectiveImportance], all: boo
                         COLOR_IMPORTANCE_BAR()
                     };
                     let bar = egui::Rect::from_min_size(
-                        egui::pos2(left, y + 2.0),
-                        egui::vec2((score / max * plot_width as f64) as f32, row_height - 4.0),
+                        egui::pos2(left, y + (row_height - bar_height) / 2.0),
+                        egui::vec2((score / max * plot_width as f64) as f32, bar_height),
                     );
                     painter.rect_filled(bar, 2.0, color);
                 }
@@ -297,6 +302,209 @@ mod tests {
             unsupported: vec![],
             r_squared: Some(0.7 + index as f64 * 0.1),
             error: None,
+        }
+    }
+
+    #[test]
+    fn importance_legend_wraps_complete_color_name_and_fit_units_without_clipping() {
+        for dark in [false, true] {
+            for width in [280.0, 1000.0] {
+                let ctx = egui::Context::default();
+                ctx.set_visuals(crate::theme::tunny_visuals(dark));
+                let mut chart = ImportanceChart::default();
+                let results = (0..3)
+                    .map(|i| result(i, &[("parameter", 0.6)]))
+                    .collect::<Vec<_>>();
+                let names = results.iter().map(|r| r.name.clone()).collect::<Vec<_>>();
+                let mut bounds = egui::Rect::NOTHING;
+                let output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(width, 600.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        bounds = ui.max_rect();
+                        chart.show_results(ui, &results, &names, false);
+                    },
+                );
+                let legend = output
+                    .shapes
+                    .iter()
+                    .filter_map(|s| match &s.shape {
+                        egui::Shape::Text(t) if t.galley.text().starts_with("■ ") => Some(t),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(legend.len(), 3);
+                let rects = legend
+                    .iter()
+                    .enumerate()
+                    .map(|(i, t)| {
+                        assert!(t.galley.text().starts_with(&format!("■ objective {i}")));
+                        assert!(t
+                            .galley
+                            .text()
+                            .contains(&format!("R² = {:.3}", results[i].r_squared.unwrap())));
+                        assert_eq!(t.galley.job.sections[0].format.color, objective_color(i));
+                        let rect = egui::Rect::from_min_size(t.pos, t.galley.size());
+                        assert!(
+                            rect.left() >= bounds.left() && rect.right() <= bounds.right() + 0.1,
+                            "{rect:?} outside {bounds:?}"
+                        );
+                        rect
+                    })
+                    .collect::<Vec<_>>();
+                for pair in rects.windows(2) {
+                    if width > 500.0 {
+                        assert_eq!(
+                            pair[0].top(),
+                            pair[1].top(),
+                            "A wide legend must share a row"
+                        );
+                        assert!(pair[0].right() < pair[1].left());
+                    } else {
+                        assert!(
+                            pair[0].bottom() < pair[1].top(),
+                            "Whole legend units must wrap to distinct rows"
+                        );
+                    }
+                }
+                let first_bar = output
+                    .shapes
+                    .iter()
+                    .find_map(|s| match &s.shape {
+                        egui::Shape::Rect(r) if r.fill == objective_color(0) => Some(r.rect),
+                        _ => None,
+                    })
+                    .unwrap();
+                assert!(
+                    first_bar.top() - rects.last().unwrap().bottom() < 40.0,
+                    "Healthy legend entries must not leave empty status rows"
+                );
+            }
+            let ctx = egui::Context::default();
+            ctx.set_visuals(crate::theme::tunny_visuals(dark));
+            let mut chart = ImportanceChart::default();
+            let mut results = vec![result(0, &[("a", 0.6)]), result(1, &[("a", 0.4)])];
+            results[0].name = "LongObjectiveName".repeat(10);
+            let names = results.iter().map(|r| r.name.clone()).collect::<Vec<_>>();
+            let output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(280.0, 600.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| chart.show_results(ui, &results, &names, false),
+            );
+            let legend = output
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::Shape::Text(t) if t.galley.text().starts_with("■ ") => Some(t),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(legend.len(), 2);
+            assert!(legend[0].galley.text().contains(&names[0]));
+            assert!(
+                legend[0].galley.rows.len() > 1,
+                "An overwide unit must wrap internally rather than clip"
+            );
+            for text in legend {
+                assert!(text.pos.x + text.galley.size().x <= 280.0);
+            }
+        }
+    }
+
+    #[test]
+    fn importance_all_bars_are_thin_and_compact_but_score_labels_do_not_overlap() {
+        for dark in [false, true] {
+            for font_size in [14.0, 24.0] {
+                let ctx = egui::Context::default();
+                ctx.set_visuals(crate::theme::tunny_visuals(dark));
+                let results = vec![
+                    result(0, &[("a", 0.91), ("b", 0.31)]),
+                    result(1, &[("a", 0.82), ("b", 0.22)]),
+                    result(2, &[("a", 0.73), ("b", 0.13)]),
+                ];
+                let mut row_height = 0.0;
+                let output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(700.0, 700.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        ui.style_mut()
+                            .text_styles
+                            .insert(egui::TextStyle::Body, egui::FontId::proportional(font_size));
+                        row_height =
+                            (ui.text_style_height(&egui::TextStyle::Body).ceil() + 1.0).max(18.0);
+                        paint_scores(ui, &results, true);
+                    },
+                );
+                let bars = output
+                    .shapes
+                    .iter()
+                    .filter_map(|s| match &s.shape {
+                        egui::Shape::Rect(r) if (0..3).any(|i| r.fill == objective_color(i)) => {
+                            Some(r.rect)
+                        }
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(bars.len(), 6);
+                assert!(bars.iter().all(|r| r.height() == 10.0));
+                assert_eq!(bars[1].top() - bars[0].top(), row_height);
+                assert_eq!(bars[3].top() - bars[0].top(), row_height * 3.0 + 4.0);
+                if font_size == 14.0 {
+                    assert_eq!(row_height, 18.0);
+                    assert_eq!(bars[3].top() - bars[0].top(), 58.0);
+                }
+                let labels = output
+                    .shapes
+                    .iter()
+                    .filter_map(|s| match &s.shape {
+                        egui::Shape::Text(t)
+                            if ["0.910", "0.820", "0.730", "0.310", "0.220", "0.130"]
+                                .contains(&t.galley.text()) =>
+                        {
+                            Some(egui::Rect::from_min_size(t.pos, t.galley.size()))
+                        }
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(labels.len(), 6);
+                for pair in labels.windows(2) {
+                    assert!(
+                        pair[0].bottom() < pair[1].top(),
+                        "Score labels need a readable gap: {pair:?}"
+                    );
+                }
+            }
+            let ctx = egui::Context::default();
+            ctx.set_visuals(crate::theme::tunny_visuals(dark));
+            let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                paint_scores(ui, &[result(0, &[("a", 0.8), ("b", 0.4)])], false)
+            });
+            let bars = output
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::Shape::Rect(r) if r.rect.height() == 18.0 => Some(r.rect),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(bars.len(), 2);
+            assert!(bars.iter().all(|r| r.height() == 18.0));
+            assert_eq!(bars[1].top() - bars[0].top(), 24.0);
         }
     }
 
@@ -419,6 +627,7 @@ mod tests {
             ];
             results[2].error = Some("Insufficient finite rows".into());
             results[2].r_squared = None;
+            results[1].unsupported = vec!["category".into()];
             let names = results.iter().map(|r| r.name.clone()).collect::<Vec<_>>();
             let output = ctx.run_ui(egui::RawInput::default(), |ui| {
                 chart.show_results(ui, &results, &names, false)
@@ -446,6 +655,7 @@ mod tests {
                 "Unavailable",
                 "Failed",
                 "Partial CSV export",
+                "objective 1: Unsupported (categorical): category",
                 "R² = 0.700",
                 "R² = 0.800",
             ] {

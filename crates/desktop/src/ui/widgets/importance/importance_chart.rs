@@ -301,47 +301,98 @@ impl ImportanceChart {
             return;
         }
         let all = self.objective_index == ALL_OBJECTIVES && obj_names.len() > 1;
-        for result in results {
+        if all {
             ui.horizontal_wrapped(|ui| {
-                if all {
-                    ui.colored_label(objective_color(result.index), "■");
-                    ui.label(&result.name);
-                }
-                if let Some(error) = &result.error {
-                    ui.label(format!("{}: Failed / unavailable: {error}", result.name));
-                } else if result.scores.is_empty() && result.unsupported.is_empty() {
-                    ui.label(format!(
-                        "{}: Unavailable (run the computation first)",
-                        result.name
-                    ));
-                } else if !result.scores.is_empty()
-                    && result.scores.iter().all(|(_, s)| !s.is_finite())
-                {
-                    ui.label(format!("{}: Unavailable (no finite scores)", result.name));
-                }
-                if let Some(r2) = result.r_squared {
-                    let (color, warning) = if r2 < 0.5 {
-                        (COLOR_FIT_LOW(), " (low fit)")
-                    } else if r2 < 0.8 {
-                        (COLOR_FIT_MID(), "")
-                    } else {
-                        (COLOR_FIT_HIGH(), "")
-                    };
-                    let scope = if self.metric == ImportanceMetric::Ridge {
-                        " (numerical-only)"
-                    } else {
-                        ""
-                    };
-                    ui.colored_label(color, format!("R²{scope} = {r2:.3}{warning}"));
+                for result in results {
+                    let font = egui::TextStyle::Body.resolve(ui.style());
+                    let mut job = egui::text::LayoutJob::default();
+                    job.append(
+                        "■ ",
+                        0.0,
+                        egui::TextFormat::simple(font.clone(), objective_color(result.index)),
+                    );
+                    job.append(
+                        &result.name,
+                        0.0,
+                        egui::TextFormat::simple(font.clone(), ui.visuals().text_color()),
+                    );
+                    if let Some(r2) = result.r_squared {
+                        let (label, color) = fit_label(self.metric, r2);
+                        job.append(
+                            &format!("  {label}"),
+                            0.0,
+                            egui::TextFormat::simple(font, color),
+                        );
+                    }
+                    // Lay out the complete entry before allocation so wrapping
+                    // moves its color, name and fit together to the next row.
+                    job.wrap.max_width = ui.available_width();
+                    let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
+                    ui.label(galley);
                 }
             });
-            show_unsupported(ui, &result.unsupported, result.scores.is_empty());
+        }
+        for result in results {
+            let has_status = result.error.is_some()
+                || (result.scores.is_empty() && result.unsupported.is_empty())
+                || (!result.scores.is_empty() && result.scores.iter().all(|(_, s)| !s.is_finite()));
+            if !all || has_status {
+                ui.horizontal_wrapped(|ui| {
+                    if let Some(error) = &result.error {
+                        ui.label(format!("{}: Failed / unavailable: {error}", result.name));
+                    } else if result.scores.is_empty() && result.unsupported.is_empty() {
+                        ui.label(format!(
+                            "{}: Unavailable (run the computation first)",
+                            result.name
+                        ));
+                    } else if !result.scores.is_empty()
+                        && result.scores.iter().all(|(_, s)| !s.is_finite())
+                    {
+                        ui.label(format!("{}: Unavailable (no finite scores)", result.name));
+                    }
+                    if let Some(r2) = result.r_squared.filter(|_| !all) {
+                        let (label, color) = fit_label(self.metric, r2);
+                        ui.colored_label(color, label);
+                    }
+                });
+            }
+            if all && !result.unsupported.is_empty() {
+                ui.label(format!(
+                    "{}: Unsupported (categorical): {}",
+                    result.name,
+                    result.unsupported.join(", ")
+                ));
+                if result.scores.is_empty() {
+                    ui.label(format!(
+                        "{}: No supported numerical parameters",
+                        result.name
+                    ));
+                }
+            } else {
+                show_unsupported(ui, &result.unsupported, result.scores.is_empty());
+            }
         }
         if all && results.iter().any(ObjectiveImportance::is_partial) {
             ui.label("Partial CSV export: only successful available scores are exported; failed, unavailable and unsupported results are omitted.");
         }
         paint_scores(ui, results, all);
     }
+}
+
+fn fit_label(metric: ImportanceMetric, r2: f64) -> (String, egui::Color32) {
+    let (color, warning) = if r2 < 0.5 {
+        (COLOR_FIT_LOW(), " (low fit)")
+    } else if r2 < 0.8 {
+        (COLOR_FIT_MID(), "")
+    } else {
+        (COLOR_FIT_HIGH(), "")
+    };
+    let scope = if metric == ImportanceMetric::Ridge {
+        " (numerical-only)"
+    } else {
+        ""
+    };
+    (format!("R²{scope} = {r2:.3}{warning}"), color)
 }
 
 fn group_header(text: &str) -> egui::RichText {
