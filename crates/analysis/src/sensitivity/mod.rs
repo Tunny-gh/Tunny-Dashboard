@@ -16,7 +16,7 @@ pub use metrics::{MdiMetric, PermutationMetric, RfAnovaMetric, ShapMetric};
 pub use ridge::compute_ridge;
 pub(crate) use ridge::compute_ridge_from_vecs;
 pub use ridge::RidgeMetric;
-pub use sobol::{compute_sobol, compute_sobol_from_df};
+pub use sobol::{compute_sobol, compute_sobol_checked_from_df, compute_sobol_from_df};
 pub use spearman::compute_spearman;
 pub use spearman::SpearmanMetric;
 pub use tree::mdi::compute_mdi_importances;

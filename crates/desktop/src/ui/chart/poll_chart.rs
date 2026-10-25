@@ -129,9 +129,33 @@ fn poll_importance_chart(
     widgets: &mut WidgetStates,
     tx: &mpsc::SyncSender<AppMessage>,
 ) {
-    let Some((metric, obj_idx, feasible_only)) = widgets.importance.pending_compute.take() else {
+    if let Some((metric, objective, feasible)) = widgets.importance.pending_compute.take() {
+        let count = app_state
+            .current_study
+            .as_ref()
+            .unwrap()
+            .meta
+            .objective_names
+            .len();
+        let objectives = if objective == crate::ui::widgets::importance_chart::ALL_OBJECTIVES {
+            (0..count).collect::<Vec<_>>()
+        } else {
+            vec![objective.min(count.saturating_sub(1))]
+        };
+        widgets.importance.queue = objectives
+            .into_iter()
+            .map(|i| (metric, i, feasible))
+            .collect();
+    }
+    if widgets.importance.active.is_some() {
+        return;
+    }
+    let Some((metric, obj_idx, feasible_only)) = widgets.importance.queue.pop_front() else {
+        widgets.importance.computing = false;
         return;
     };
+    widgets.importance.active = Some((metric, obj_idx, feasible_only));
+    widgets.importance.computing = true;
     use crate::state::results::{
         ArdResult, MdiResult, PermutationResult, RfAnovaResult, RidgeResult, SensitivityResult,
         ShapResult, SobolResult,
@@ -150,7 +174,7 @@ fn poll_importance_chart(
     };
     if cached {
         crate::state::analysis_job::supersede(app_state, AnalysisKind::Importance);
-        widgets.importance.computing = false;
+        widgets.importance.finish_objective(None);
         return;
     }
     let selection = Preparation::Sensitivity {
@@ -170,7 +194,7 @@ fn poll_importance_chart(
             let key = (metric.cache_id(), obj_idx, feasible_only);
             match metric {
                 ImportanceMetric::SobolFirst | ImportanceMetric::SobolTotal => {
-                    match tdashboard_analysis::sensitivity::compute_sobol_from_df(
+                    match tdashboard_analysis::sensitivity::compute_sobol_checked_from_df(
                         df,
                         SOBOL_SAMPLE_COUNT,
                     ) {
@@ -215,12 +239,7 @@ fn poll_importance_chart(
                 _ => {
                     let core = core_sensitivity_metric(metric)
                         .expect("A non-Sobol/ARD metric has a core method");
-                    let Some(r) = tdashboard_analysis::sensitivity::compute_sensitivity_single_obj(
-                        df,
-                        vec![core],
-                        obj_idx,
-                    )
-                    .pop() else {
+                    let Some(r) = core.compute_checked(df, obj_idx) else {
                         return AppMessage::SensitivityError(
                             "Sensitivity computation failed".into(),
                         );

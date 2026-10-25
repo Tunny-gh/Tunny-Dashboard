@@ -2,6 +2,95 @@ use super::files::has_discardable_state;
 use super::*;
 use crate::state::app_state::StudyMeta;
 
+#[test]
+fn importance_all_retains_sobol_objectives_and_reuses_first_total_across_canvas_frames() {
+    use crate::state::layout_state::{ChartId, PanelItem};
+    use crate::ui::widgets::importance_chart::{ImportanceMetric as M, ALL_OBJECTIVES};
+    let mut app = artifact_test_app(None);
+    app.app_state = crate::state::analysis_job::tests::importance_multi_state(false);
+    let id = app.layout.canvas.add(
+        PanelItem::Chart(ChartId::ImportanceChart),
+        0.0,
+        0.0,
+        700.0,
+        500.0,
+    );
+    let mut widgets = WidgetStates {
+        analysis_consumer: id + 1,
+        ..Default::default()
+    };
+    widgets.importance.metric = M::SobolFirst;
+    widgets.importance.pending_compute = Some((M::SobolFirst, ALL_OBJECTIVES, false));
+    app.canvas_widgets.insert(id, widgets);
+    let ctx = egui::Context::default();
+    let run = |app: &mut TunnyApp| {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            let tx = app.sender();
+            crate::ui::poll_chart::poll_chart_work(
+                &mut app.app_state,
+                app.canvas_widgets.get_mut(&id).unwrap(),
+                &ChartId::ImportanceChart,
+                &tx,
+            );
+            app.poll_messages(&ctx);
+            app.retain_analysis_interests();
+            let chart = &app.canvas_widgets[&id].importance;
+            if !chart.computing && chart.active.is_none() && chart.queue.is_empty() {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    };
+    run(&mut app);
+    let key = app
+        .app_state
+        .sobol_cache
+        .selected(&(0, false))
+        .unwrap()
+        .key()
+        .clone();
+    for i in 0..3 {
+        assert_eq!(
+            app.app_state
+                .sobol_cache
+                .selected(&(i, false))
+                .unwrap()
+                .key(),
+            &key,
+            "ALL must reuse the single all-objective Sobol calculation"
+        );
+    }
+    let scores = app.canvas_widgets[&id].importance.results(&app.app_state);
+    assert_eq!(scores.len(), 3);
+    assert_eq!(
+        scores[2].scores[0].1, 0.0,
+        "Constant output remains a genuine numerical zero"
+    );
+    let chart = &mut app.canvas_widgets.get_mut(&id).unwrap().importance;
+    chart.metric = M::SobolTotal;
+    chart.pending_compute = Some((M::SobolTotal, ALL_OBJECTIVES, false));
+    run(&mut app);
+    assert_eq!(
+        app.app_state
+            .sobol_cache
+            .selected(&(0, false))
+            .unwrap()
+            .key(),
+        &key
+    );
+    assert!(app
+        .app_state
+        .journal_studies
+        .as_ref()
+        .unwrap()
+        .analysis_jobs
+        .borrow()
+        .is_empty());
+    assert!(app.rx.try_recv().is_err());
+}
+
 fn enable_recording_reuse_checkbox(mut render: impl FnMut(&egui::Context)) {
     let ctx = egui::Context::default();
     let mut frame = |events| {

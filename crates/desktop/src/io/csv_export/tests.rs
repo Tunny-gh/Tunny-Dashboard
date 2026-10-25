@@ -253,6 +253,57 @@ fn importance_csv_has_expected_columns() {
 }
 
 #[test]
+fn all_importance_csv_exports_successful_finite_scores_only_and_preserves_individual_schema() {
+    use crate::state::results::SensitivityResult;
+    let mut state = AppState {
+        current_study: Some(make_study(
+            vec!["x".into()],
+            vec!["first,objective".into(), "second".into(), "failed".into()],
+            vec![Direction::Minimize; 3],
+        )),
+        ..Default::default()
+    };
+    let mut widgets = WidgetStates::default();
+    for (i, scores) in [(0, vec![0.9, 0.0]), (1, vec![0.3, f64::NAN])] {
+        state.importance_cache.select(
+            (0, i, false),
+            crate::state::analysis_job::fixture_result(SensitivityResult {
+                param_names: vec!["x".into(), "y".into()],
+                unsupported_categorical: vec!["cat".into()],
+                spearman: vec![scores],
+                ridge: vec![],
+                rf_anova: None,
+                mdi: None,
+                shap: None,
+                permutation: None,
+                ard: None,
+            }),
+        );
+    }
+    widgets
+        .importance
+        .errors
+        .insert((0, 2, false), "failed".into());
+    let csv = build_chart_csv(&ChartId::ImportanceChart, &state, &widgets).unwrap();
+    assert_eq!(
+        csv.lines().next(),
+        Some("objective,variable,importance_score,method")
+    );
+    assert!(csv.contains("\"first,objective\",x,0.9,Spearman"));
+    assert!(csv.contains("\"first,objective\",y,0,Spearman"));
+    assert!(csv.contains("second,x,0.3,Spearman"));
+    assert_eq!(csv.lines().count(), 4);
+    assert!(!csv.contains("NaN"));
+    assert!(!csv.contains("failed"));
+    widgets.importance.objective_index = 1;
+    let csv = build_chart_csv(&ChartId::ImportanceChart, &state, &widgets).unwrap();
+    assert_eq!(csv.lines().next(), Some("variable,importance_score,method"));
+    assert!(csv.contains("cat,Unsupported (categorical),Spearman"));
+    widgets.importance.computing = true;
+    assert!(build_chart_csv(&ChartId::ImportanceChart, &state, &widgets).is_none());
+}
+
+#[test]
 fn categorical_csv_outputs_are_explicit_for_mixed_and_all_categorical_inputs() {
     use crate::state::results::{HeatmapMatrix, RidgeResult, SensitivityResult};
     use crate::ui::widgets::importance_chart::ImportanceMetric;

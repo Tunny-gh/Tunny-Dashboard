@@ -1008,15 +1008,28 @@ impl TunnyApp {
                     Some(&widgets.mcdm_scatter_3d.controls)
                 }
                 PanelItem::Chart(ChartId::ImportanceChart) => {
-                    importance.insert((
-                        widgets.importance.metric.cache_id(),
-                        widgets.importance.objective_index,
-                        widgets.importance.feasible_only,
-                    ));
-                    sobol.insert((
-                        widgets.importance.objective_index,
-                        widgets.importance.feasible_only,
-                    ));
+                    let count = self
+                        .app_state
+                        .current_study
+                        .as_ref()
+                        .map_or(0, |s| s.meta.objective_names.len());
+                    for i in widgets.importance.objective_indices(count) {
+                        importance.insert((
+                            widgets.importance.metric.cache_id(),
+                            i,
+                            widgets.importance.feasible_only,
+                        ));
+                        sobol.insert((i, widgets.importance.feasible_only));
+                    }
+                    for &(metric, i, feasible) in widgets
+                        .importance
+                        .queue
+                        .iter()
+                        .chain(widgets.importance.active.iter())
+                    {
+                        importance.insert((metric.cache_id(), i, feasible));
+                        sobol.insert((i, feasible));
+                    }
                     None
                 }
                 PanelItem::Chart(ChartId::SensitivityHeatmap) => {

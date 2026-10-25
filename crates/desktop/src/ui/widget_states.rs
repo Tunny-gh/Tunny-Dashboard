@@ -552,7 +552,7 @@ impl WidgetStates {
         // Jobs may finish on their retained old input, but are not busy work for
         // the newly displayed input. No cancellation request is introduced.
         self.convergence.computing = false;
-        self.importance.computing = false;
+        self.importance.invalidate_input();
         self.sensitivity_heatmap.computing = false;
         self.pdp_chart.computing = false;
         self.pdp_2d.computing = false;

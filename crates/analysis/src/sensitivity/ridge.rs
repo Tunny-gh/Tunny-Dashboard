@@ -1,6 +1,6 @@
 use super::constants::{RIDGE_ALPHA, RIDGE_MAX_ROWS, RIDGE_SEED};
 use super::metric_trait::SensitivityMetric;
-use super::tree::common::{run_importances_pipeline, PreparedData};
+use super::tree::common::{prepare_training_data, run_importances_pipeline, PreparedData};
 use super::types::{RidgeResult, SensitivityResult};
 use crate::dataframe::DataFrame;
 use crate::math::stats::column_mean_std;
@@ -46,18 +46,46 @@ pub(super) fn compute_ridge_from_standardized_columns(
     RidgeResult { beta, r_squared }
 }
 
+pub(super) fn compute_ridge_from_standardized_columns_checked(
+    x_cols: &[f64],
+    n: usize,
+    y: &[f64],
+    alpha: f64,
+) -> Option<RidgeResult> {
+    if n == 0 || x_cols.iter().chain(y).any(|v| !v.is_finite()) {
+        return None;
+    }
+    let p = x_cols.len() / n;
+    let mean = y.iter().sum::<f64>() / n as f64;
+    let centered: Vec<_> = y.iter().map(|v| v - mean).collect();
+    let xtx = compute_xtx_matrix(x_cols, n, p, alpha);
+    let xty = compute_xty_vector(x_cols, &centered, n, p);
+    let beta = solve_ridge_checked(&xtx, &xty, p)?;
+    if beta.iter().any(|v| !v.is_finite()) {
+        return None;
+    }
+    let r_squared = compute_r_squared(x_cols, &centered, &beta, n);
+    r_squared
+        .is_finite()
+        .then_some(RidgeResult { beta, r_squared })
+}
+
 /// Solve the Ridge normal equations (X'X + αI)β = X'y using faer Cholesky.
 /// X'X + αI is always SPD when α > 0, making Cholesky the optimal solver.
 fn solve_ridge_normal_equations(xtx_flat: &[f64], xty: &[f64], p: usize) -> Vec<f64> {
+    solve_ridge_checked(xtx_flat, xty, p).unwrap_or_else(|| vec![0.0; p])
+}
+
+fn solve_ridge_checked(xtx_flat: &[f64], xty: &[f64], p: usize) -> Option<Vec<f64>> {
     if p == 0 {
-        return vec![];
+        return Some(vec![]);
     }
     let xtx_mat = faer::Mat::<f64>::from_fn(p, p, |i, j| xtx_flat[i * p + j]);
     let xty_mat = faer::Mat::<f64>::from_fn(p, 1, |i, _| xty[i]);
     use faer::prelude::Solve;
     match xtx_mat.llt(faer::Side::Lower) {
-        Ok(chol) => (0..p).map(|i| chol.solve(&xty_mat)[(i, 0)]).collect(),
-        Err(_) => vec![0.0; p],
+        Ok(chol) => Some((0..p).map(|i| chol.solve(&xty_mat)[(i, 0)]).collect()),
+        Err(_) => None,
     }
 }
 
@@ -81,6 +109,10 @@ fn standardize_rows_with_stats(rows: &[Vec<f64>], means: &[f64], stds: &[f64]) -
 /// RF-ANOVA/MDI/SHAP/PFI (`tree::common::run_importances_pipeline`). When the dataset is too
 /// small for a holdout split, `PreparedData` falls back to using all data for both.
 fn compute_ridge_from_prepared(data: &PreparedData) -> Option<(Vec<f64>, f64)> {
+    compute_ridge_prepared(data, false)
+}
+
+fn compute_ridge_prepared(data: &PreparedData, checked: bool) -> Option<(Vec<f64>, f64)> {
     let (x_train, x_eval, y_train, y_eval) = data.split();
     let p = x_train.first()?.len();
     let n_train = x_train.len();
@@ -103,7 +135,11 @@ fn compute_ridge_from_prepared(data: &PreparedData) -> Option<(Vec<f64>, f64)> {
 
     let xtx = compute_xtx_matrix(&x_train_cols, n_train, p, RIDGE_ALPHA);
     let xty = compute_xty_vector(&x_train_cols, &y_train_c, n_train, p);
-    let beta = solve_ridge_normal_equations(&xtx, &xty, p);
+    let beta = if checked {
+        solve_ridge_checked(&xtx, &xty, p)?
+    } else {
+        solve_ridge_normal_equations(&xtx, &xty, p)
+    };
 
     let r_squared = compute_r_squared(&x_eval_cols, &y_eval_c, &beta, x_eval.len());
     Some((beta, r_squared))
@@ -185,6 +221,52 @@ impl SensitivityMetric for RidgeMetric {
 
     fn name(&self) -> &'static str {
         "Ridge"
+    }
+
+    fn compute_checked(&self, df: &DataFrame, obj_idx: usize) -> Option<SensitivityResult> {
+        // Preserve the categorical-only result without inventing a numerical model.
+        let names: Vec<_> = df
+            .param_col_names()
+            .iter()
+            .filter(|n| df.get_numeric_column(n).is_some())
+            .cloned()
+            .collect();
+        if names.is_empty() {
+            return self.compute(df, obj_idx);
+        }
+        let objective = df.objective_col_names().get(obj_idx)?;
+        let y = df.get_numeric_column(objective)?;
+        let x: Vec<Vec<f64>> = (0..df.row_count())
+            .map(|r| {
+                names
+                    .iter()
+                    .map(|n| df.get_numeric_column(n).unwrap()[r])
+                    .collect()
+            })
+            .collect();
+        let data = prepare_training_data(
+            &x,
+            y,
+            RIDGE_MAX_ROWS,
+            RIDGE_SEED,
+            RIDGE_SEED.wrapping_add(1),
+        )?;
+        let (beta, r_squared) = compute_ridge_prepared(&data, true)?;
+        if beta.iter().any(|v| !v.is_finite()) || !r_squared.is_finite() {
+            return None;
+        }
+        Some(SensitivityResult {
+            unsupported_categorical: df
+                .param_col_names()
+                .iter()
+                .filter(|n| !names.contains(n))
+                .cloned()
+                .collect(),
+            param_names: names,
+            objective_names: vec![objective.clone()],
+            ridge: vec![RidgeResult { beta, r_squared }],
+            ..Default::default()
+        })
     }
 }
 

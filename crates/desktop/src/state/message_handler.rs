@@ -157,9 +157,19 @@ impl MessageHandler {
                     }
                     DeliverySlot::Importance => {
                         if app_state.importance_cache.adopt(result.clone()).is_err() {
-                            let _ = app_state.sobol_cache.adopt(result);
+                            if let Ok(((objective, feasible), shared)) = SharedResult::<
+                                crate::state::results::SobolResult,
+                            >::keyed::<(usize, bool)>(
+                                result
+                            ) {
+                                // Sobol already evaluates every objective in one calculation.
+                                for i in 0..shared.r_squared.len() {
+                                    app_state.sobol_cache.select((i, feasible), shared.clone());
+                                }
+                                app_state.sobol_cache.select((objective, feasible), shared);
+                            }
                         }
-                        widget_states.importance.computing = false;
+                        widget_states.importance.finish_objective(None);
                     }
                     DeliverySlot::Heatmap => {
                         let _ = app_state.sensitivity_heatmap_cache.adopt(result);
@@ -179,7 +189,7 @@ impl MessageHandler {
                     .select(key, crate::state::analysis_job::fixture_result(result));
                 #[cfg(not(test))]
                 let _ = (key, result);
-                widget_states.importance.computing = false;
+                widget_states.importance.finish_objective(None);
             }
             AppMessage::SensitivityHeatmapDone {
                 metric,
@@ -199,12 +209,16 @@ impl MessageHandler {
             AppMessage::SobolDone { key, result } => {
                 Self::fixture_delivery_only();
                 #[cfg(test)]
-                app_state
-                    .sobol_cache
-                    .select(key, crate::state::analysis_job::fixture_result(result));
+                {
+                    let shared = crate::state::analysis_job::fixture_result(result);
+                    for i in 0..shared.r_squared.len() {
+                        app_state.sobol_cache.select((i, key.1), shared.clone());
+                    }
+                    app_state.sobol_cache.select(key, shared);
+                }
                 #[cfg(not(test))]
                 let _ = (key, result);
-                widget_states.importance.computing = false;
+                widget_states.importance.finish_objective(None);
             }
             AppMessage::ClusteringDone {
                 source,
@@ -302,10 +316,18 @@ impl MessageHandler {
                     dialog.overwrote_paths = overwrote;
                 }
             }
-            AppMessage::SensitivityError(_e) => {
-                widget_states.importance.computing = false;
+            AppMessage::SensitivityError(error) => {
+                widget_states.importance.finish_objective(Some(error));
             }
             AppMessage::TaskPanicked(detail) => {
+                // Keyed delivery clears only its requesting slot before reaching
+                // this handler. An unrelated global panic must not finish ALL.
+                if !widget_states.importance.computing && widget_states.importance.active.is_some()
+                {
+                    widget_states
+                        .importance
+                        .finish_objective(Some(format!("Computation failed: {detail}")));
+                }
                 // A worker thread panicked. The widget responsible cannot be
                 // identified (spawn_task has no way to know which computation
                 // panicked), so surface the error to the user while only

@@ -3,13 +3,90 @@ use crate::state::app_state::AppState;
 use crate::ui::widget_states::WidgetStates;
 use tdashboard_io::csv::{CsvField, CsvWriter};
 
+pub(super) fn has_importance_csv(app_state: &AppState, widgets: &WidgetStates) -> bool {
+    use crate::ui::widgets::importance_chart::{
+        compute_sorted_importance, compute_sorted_sobol, ALL_OBJECTIVES,
+    };
+    let chart = &widgets.importance;
+    if chart.computing {
+        return false;
+    }
+    if chart.objective_index == ALL_OBJECTIVES
+        && app_state
+            .current_study
+            .as_ref()
+            .is_some_and(|s| s.meta.objective_names.len() > 1)
+    {
+        return chart
+            .results(app_state)
+            .iter()
+            .any(|r| r.error.is_none() && r.scores.iter().any(|(_, s)| s.is_finite()));
+    }
+    let objective = if chart.objective_index == ALL_OBJECTIVES {
+        0
+    } else {
+        chart.objective_index
+    };
+    if chart.metric.is_sobol() {
+        app_state
+            .sobol_cache
+            .get(&(objective, chart.feasible_only))
+            .is_some_and(|r| {
+                compute_sorted_sobol(r, objective, &chart.metric)
+                    .iter()
+                    .any(|(_, s)| s.is_finite())
+            })
+    } else {
+        app_state
+            .importance_cache
+            .get(&(chart.metric.cache_id(), objective, chart.feasible_only))
+            .is_some_and(|r| {
+                (chart.metric.is_signed() && !r.unsupported_categorical.is_empty())
+                    || compute_sorted_importance(r, &chart.metric, 0)
+                        .iter()
+                        .any(|(_, s)| s.is_finite())
+            })
+    }
+}
+
 pub(super) fn build_importance_csv(app_state: &AppState, widgets: &WidgetStates) -> Option<String> {
     if widgets.importance.computing {
         return None;
     }
     use crate::ui::widgets::importance_chart::{compute_sorted_importance, compute_sorted_sobol};
+    if widgets.importance.objective_index == crate::ui::widgets::importance_chart::ALL_OBJECTIVES
+        && app_state
+            .current_study
+            .as_ref()
+            .is_some_and(|s| s.meta.objective_names.len() > 1)
+    {
+        let mut w = CsvWriter::new();
+        w.header(["objective", "variable", "importance_score", "method"]);
+        let mut rows = 0;
+        for result in widgets.importance.results(app_state) {
+            if result.error.is_some() {
+                continue;
+            }
+            for (name, score) in result.scores.iter().filter(|(_, s)| s.is_finite()) {
+                w.row([
+                    CsvField::Text(&result.name),
+                    CsvField::Text(name),
+                    CsvField::Num(*score),
+                    CsvField::Text(widgets.importance.metric.label()),
+                ]);
+                rows += 1;
+            }
+        }
+        return (rows > 0).then(|| w.finish());
+    }
     let metric = &widgets.importance.metric;
-    let obj_idx = widgets.importance.objective_index;
+    let obj_idx = if widgets.importance.objective_index
+        == crate::ui::widgets::importance_chart::ALL_OBJECTIVES
+    {
+        0
+    } else {
+        widgets.importance.objective_index
+    };
     let feasible_only = widgets.importance.feasible_only;
     let method_name = metric.label();
     let pairs: Vec<(String, f64)> = if metric.is_sobol() {
@@ -27,12 +104,12 @@ pub(super) fn build_importance_csv(app_state: &AppState, widgets: &WidgetStates)
         .filter(|_| metric.is_signed())
         .map(|r| r.unsupported_categorical.as_slice())
         .unwrap_or_default();
-    if pairs.is_empty() && unsupported.is_empty() {
+    if pairs.iter().all(|(_, score)| !score.is_finite()) && unsupported.is_empty() {
         return None;
     }
     let mut w = CsvWriter::new();
     w.header(["variable", "importance_score", "method"]);
-    for (name, score) in &pairs {
+    for (name, score) in pairs.iter().filter(|(_, s)| s.is_finite()) {
         w.row([
             CsvField::Text(name),
             CsvField::Num(*score),

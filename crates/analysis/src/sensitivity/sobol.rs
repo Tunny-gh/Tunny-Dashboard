@@ -59,6 +59,7 @@ fn build_sobol_surrogate(
     y_matrix: &[Vec<f64>],
     n_params: usize,
     alpha: f64,
+    checked: bool,
 ) -> Option<SobolSurrogate> {
     let n = x_matrix.len();
     if n < 2 || n_params == 0 {
@@ -114,12 +115,25 @@ fn build_sobol_surrogate(
         .map(|y| {
             let y_mean = y.iter().sum::<f64>() / n as f64;
             let y_centered: Vec<f64> = y.iter().map(|&v| v - y_mean).collect();
-            let ridge_res = super::ridge::compute_ridge_from_standardized_columns(
-                &x_quad_std_cols,
-                n,
-                &y_centered,
-                alpha,
-            );
+            let ridge_res = if checked {
+                super::ridge::compute_ridge_from_standardized_columns_checked(
+                    &x_quad_std_cols,
+                    n,
+                    &y_centered,
+                    alpha,
+                )
+                .unwrap_or_else(|| super::RidgeResult {
+                    beta: vec![f64::NAN; n_quad],
+                    r_squared: f64::NAN,
+                })
+            } else {
+                super::ridge::compute_ridge_from_standardized_columns(
+                    &x_quad_std_cols,
+                    n,
+                    &y_centered,
+                    alpha,
+                )
+            };
             (ridge_res.beta, y_mean, ridge_res.r_squared)
         })
         .collect();
@@ -203,6 +217,23 @@ pub fn compute_sobol_from_df(
     df: &crate::dataframe::DataFrame,
     n_samples: usize,
 ) -> Option<SobolResult> {
+    compute_sobol_inner(df, n_samples, false)
+}
+
+/// Preserve failed surrogate fits as unavailable (NaN) objective columns, not
+/// zero importance. Successful fits use the same sampling and numerical method.
+pub fn compute_sobol_checked_from_df(
+    df: &crate::dataframe::DataFrame,
+    n_samples: usize,
+) -> Option<SobolResult> {
+    compute_sobol_inner(df, n_samples, true)
+}
+
+fn compute_sobol_inner(
+    df: &crate::dataframe::DataFrame,
+    n_samples: usize,
+    checked: bool,
+) -> Option<SobolResult> {
     let param_names = df.param_col_names().to_vec();
     let objective_names = df.objective_col_names().to_vec();
     let n = df.row_count();
@@ -257,7 +288,7 @@ pub fn compute_sobol_from_df(
         .map(|row| row[..n_params].to_vec())
         .collect();
 
-    let surrogate = build_sobol_surrogate(&x_matrix, &y_matrix, n_params, 1.0)?;
+    let surrogate = build_sobol_surrogate(&x_matrix, &y_matrix, n_params, 1.0, checked)?;
 
     let mut rng = SeededRng::from_seed(0xDEAD_BEEF_1234_5678);
 
@@ -326,7 +357,18 @@ pub fn compute_sobol_from_df(
             let mut fo_vec = Vec::with_capacity(n_objectives);
             let mut te_vec = Vec::with_capacity(n_objectives);
             for k in 0..n_objectives {
-                let (fo, te) = compute_sobol_index_pair(&f_a[k], &f_b[k], &f_ab_pi[k]);
+                let (fo, te) = if checked
+                    && (!surrogate.r_squared[k].is_finite()
+                        || f_a[k]
+                            .iter()
+                            .chain(&f_b[k])
+                            .chain(&f_ab_pi[k])
+                            .any(|v| !v.is_finite()))
+                {
+                    (f64::NAN, f64::NAN)
+                } else {
+                    compute_sobol_index_pair(&f_a[k], &f_b[k], &f_ab_pi[k])
+                };
                 fo_vec.push(fo);
                 te_vec.push(te);
             }

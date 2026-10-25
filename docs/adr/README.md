@@ -97,3 +97,4 @@ order:
 | 0023 | [Include supported attribute changes in RDB fingerprints](0023-include-supported-attribute-changes-in-rdb-fingerprints.md) | Accepted | 2026-10-18 |
 | 0024 | [Require explicit opt-in to reuse Journal Studies](0024-require-explicit-opt-in-to-reuse-journal-studies.md) | Accepted | 2026-10-22 |
 | 0025 | [Consolidate workspace crate placement](0025-consolidate-workspace-crate-placement.md) | Accepted | 2026-10-24 |
+| 0026 | [Retain partial ALL-objective importance results](0026-retain-partial-all-objective-importance-results.md) | Accepted | 2026-10-25 |
