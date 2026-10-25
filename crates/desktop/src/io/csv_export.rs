@@ -12,6 +12,9 @@ mod mcdm;
 mod surrogate;
 mod trial;
 
+#[cfg(test)]
+mod timeline_tests;
+
 use clustering::*;
 use distribution::*;
 use history::*;
@@ -304,7 +307,13 @@ pub fn has_csv_data(chart_id: &ChartId, app_state: &AppState, widgets: &WidgetSt
             .current_study
             .as_ref()
             .and_then(|s| s.view.extras())
-            .is_some_and(|e| e.has_datetimes()),
+            .is_some_and(|e| {
+                e.trials.iter().any(|t| {
+                    t.datetime_start.is_some()
+                        && (t.datetime_complete.is_some()
+                            || t.state == tdashboard_analysis::extras::TrialState::Running)
+                })
+            }),
         ChartId::EdfPlot => app_state.current_study.as_ref().is_some_and(|s| {
             s.meta
                 .objective_names

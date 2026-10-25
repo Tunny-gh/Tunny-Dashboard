@@ -1,0 +1,14 @@
+{"op_code":0,"study_name":"timeline-synthetic","directions":[1]}
+{"op_code":4,"study_id":0,"state":1,"datetime_start":"2026-01-01T00:00:00","datetime_complete":"2026-01-01T00:00:02","distributions":{},"params":{},"values":[1]}
+{"op_code":4,"study_id":0,"state":1,"datetime_start":"2026-01-01T00:00:03","datetime_complete":"2026-01-01T00:00:04","distributions":{},"params":{},"values":[2]}
+{"op_code":4,"study_id":0,"state":1,"datetime_start":"2026-01-01T00:00:01","datetime_complete":"2026-01-01T00:00:03","distributions":{},"params":{},"values":[3]}
+{"op_code":4,"study_id":0,"datetime_start":"2026-01-01T00:00:04"}
+{"op_code":6,"trial_id":3,"state":1,"values":[4],"datetime_complete":"2026-01-01T00:00:05"}
+{"op_code":4,"study_id":0,"state":2,"datetime_start":"2026-01-01T00:00:05","datetime_complete":"2026-01-01T00:00:06","distributions":{},"params":{}}
+{"op_code":4,"study_id":0,"state":3,"datetime_start":"2026-01-01T00:00:06","datetime_complete":"2026-01-01T00:00:07","distributions":{},"params":{}}
+{"op_code":4,"study_id":0,"state":1,"datetime_start":"2026-01-01T00:00:07","distributions":{},"params":{},"values":[5]}
+{"op_code":4,"study_id":0,"state":2,"datetime_start":"2026-01-01T00:00:07","datetime_complete":null,"distributions":{},"params":{}}
+{"op_code":4,"study_id":0,"state":3,"datetime_start":"2026-01-01T00:00:07","datetime_complete":"invalid","distributions":{},"params":{}}
+{"op_code":4,"study_id":0,"datetime_start":"2026-01-01T00:00:07"}
+{"op_code":4,"study_id":0,"state":4,"datetime_start":"2026-01-01T00:00:08","distributions":{},"params":{}}
+{"op_code":4,"study_id":0,"state":1,"datetime_complete":"2026-01-01T00:00:08","distributions":{},"params":{},"values":[6]}
