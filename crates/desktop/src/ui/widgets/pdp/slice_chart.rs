@@ -119,7 +119,7 @@ impl SliceChart {
             .unified_nav()
             .legend(egui_plot::Legend::default());
         if log_scale {
-            plot = crate::ui::widgets::common::log_scale::apply_log_y_axis(plot);
+            plot = crate::ui::widgets::common::log_scale::apply_log_y_axis(plot, ui);
         }
 
         let mut clicked_detail: Option<(u32, usize)> = None;

@@ -29,6 +29,11 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Fixed
 
+- Logarithmic axes in Slice, Optimization History, Intermediate Values, and EDF
+  show readable original-value labels even within a single decade. Rounded ticks
+  near the upper end, label precision, and subtle minor grids adapt to the visible
+  range and available space.
+
 - Parallel Coordinates rescales line colors to finite feasible values passing all
   active brushes, including all selected rows regardless of downsampling. Clearing
   brushes restores the full feasible color scale without changing axis ranges.

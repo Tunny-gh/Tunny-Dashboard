@@ -141,7 +141,7 @@ impl IntermediateValuesChart {
             .x_axis_label("step")
             .y_axis_label("value");
         if log_scale {
-            plot = crate::ui::widgets::common::log_scale::apply_log_y_axis(plot);
+            plot = crate::ui::widgets::common::log_scale::apply_log_y_axis(plot, ui);
         }
 
         let mut hovered_idx: Option<usize> = None;
