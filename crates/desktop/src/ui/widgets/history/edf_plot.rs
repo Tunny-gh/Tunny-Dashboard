@@ -152,7 +152,7 @@ impl EdfPlotChart {
             .include_y(0.0)
             .include_y(1.0);
         if log_x {
-            plot = crate::ui::widgets::common::log_scale::apply_log_x_axis(plot);
+            plot = crate::ui::widgets::common::log_scale::apply_log_x_axis(plot, ui);
         }
 
         // Nearest hovered point (legend name, original value, cumulative fraction).

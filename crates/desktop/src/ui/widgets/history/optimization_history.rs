@@ -215,10 +215,8 @@ impl OptimizationHistoryChart {
 
         // Since values are drawn with a log10 transform under log scale, the Y-axis
         // labels show the original pre-transform values (restored via 10^mark).
-        // Powers of 10 (1, 10, 100, ...) are used as major ticks, with minor ticks
-        // at 2-9x in between.
         if log_scale {
-            plot = crate::ui::widgets::common::log_scale::apply_log_y_axis(plot);
+            plot = crate::ui::widgets::common::log_scale::apply_log_y_axis(plot, ui);
         }
 
         plot.show(ui, |plot_ui| {
