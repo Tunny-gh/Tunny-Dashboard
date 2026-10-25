@@ -466,7 +466,7 @@ pub(crate) fn render_chart(
         ChartId::Histogram => {
             widgets
                 .histogram
-                .show(ui, &ctx.view, param_names, obj_names, &ctx.meta.name);
+                .show(ui, &ctx.view, param_names, obj_names);
         }
         ChartId::BoxPlot => {
             widgets.box_plot.show(ui, &ctx.view);
