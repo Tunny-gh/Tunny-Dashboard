@@ -59,8 +59,9 @@ specific advisory IDs is a reasonable documented acceptance of the unreachable
 extraction paths. Such exclusions would not mean the dependency is patched.
 Keep auditing ZIP so that new advisories are still detected, link exclusions to
 this assessment and #269, and reassess them when archive import, NPZ import,
-model loading, or dependency behavior changes. This PR currently adds no ZIP
-exclusions.
+model loading, or dependency behavior changes. CI and CONTRIBUTING now exclude
+exactly these four advisory IDs. Remove the exclusions when the ZIP dependency
+is fixed or removed; #269 tracks the remaining dependency cleanup.
 
 ## Other updates and release relevance
 
@@ -94,6 +95,9 @@ exclusions.
 - `cargo fmt --all -- --check` and `git diff --check`: passed.
 - `cargo audit` without exclusions: still fails on the four ZIP advisories,
   with 12 allowed warnings. XML and libz-sys vulnerability findings are removed.
+- CI's audit command excludes only RUSTSEC-2026-0367, RUSTSEC-2026-0368,
+  RUSTSEC-2026-0369, and RUSTSEC-2026-0429 as documented risk acceptance.
+  It passes with exit code 0 and 12 allowed warnings.
 - GHX coverage includes Unicode, escaped attribute names and text, numeric
   character references, and empty items. No malicious ZIP regression test was
   added because no application ZIP extraction behavior exists to exercise.

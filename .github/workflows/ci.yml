@@ -57,7 +57,17 @@ jobs:
           tool: cargo-audit
 
       - name: Audit dependencies
-        run: cargo audit
+        # ZIP extraction is unreachable through the app's egobox/ndarray-npy use.
+        # Accept only these four advisories; keep detecting new ZIP advisories.
+        # See docs/reports/2026-11-03_dependency-security-exposure.md and #269.
+        # Reassess when archive/model imports or dependency behavior change;
+        # remove these exclusions once the ZIP dependency is fixed or removed.
+        run: >-
+          cargo audit
+          --ignore RUSTSEC-2026-0367
+          --ignore RUSTSEC-2026-0368
+          --ignore RUSTSEC-2026-0369
+          --ignore RUSTSEC-2026-0429
 
   build-test:
     name: Build & Test

@@ -197,8 +197,15 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 **CI** (see the `audit` job; requires `cargo-audit` to be installed locally):
 
 ```bash
-cargo audit
+cargo audit --ignore RUSTSEC-2026-0367 --ignore RUSTSEC-2026-0368 --ignore RUSTSEC-2026-0369 --ignore RUSTSEC-2026-0429
 ```
+
+These four ZIP extraction advisories are accepted because no affected extraction
+API is reachable through the application's current dependency usage. See the
+[exposure assessment](docs/reports/2026-11-03_dependency-security-exposure.md)
+and #269. New ZIP advisories remain checked. Reassess these exclusions when
+archive/model imports or dependency behavior change, and remove them when ZIP
+is fixed or removed. Run `cargo audit` without flags to see all findings.
 
 ### Run the Application
 
