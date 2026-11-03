@@ -197,7 +197,7 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 **CI** (see the `audit` job; requires `cargo-audit` to be installed locally):
 
 ```bash
-cargo audit --ignore RUSTSEC-2026-0194 --ignore RUSTSEC-2026-0195
+cargo audit
 ```
 
 ### Run the Application
