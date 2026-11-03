@@ -11,14 +11,7 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ## [Unreleased]
 
-### Security
-
-- Update quick-xml and its Wayland/zbus dependency paths to resolve
-  RUSTSEC-2026-0194 and RUSTSEC-2026-0195, and remove their audit exclusions.
-- Update libz-sys to 1.1.31 to resolve RUSTSEC-2026-0418 (build environment
-  variables written to build logs on affected Unix builds).
-- Update the transitive ctutils dependency to 0.4.4 to resolve RUSTSEC-2026-0385
-  (non-constant-time mask generation and u128 comparisons).
+## [0.2.0] - 2026-11-03
 
 ### Added
 
@@ -44,6 +37,78 @@ and `Security` as needed — omit headings that have nothing under them.
   trial-prefix Pareto/history plots on fixed axes. Export GIF captures the same
   content presentation through a protected snapshot, with responsive cancellation
   and background encoding; controls and surrounding panels are excluded.
+
+- `-a` / `--artifact <directory>` sets a session-wide artifact root independently
+  of `--input`. It requires an existing directory; GUI Artifacts selections take
+  priority across source changes, study switches, and reload. DesignExplorer-format
+  CSV `img` paths resolve against the explicit root while preserving trial associations.
+- **Rank Plot 3D** displays three distinct parameters with objective rank colors,
+  shared 3D navigation, hover details, Trial Detail, and full-row CSV export.
+  The two-parameter chart is named **Rank Plot 2D**; both use the same rank and
+  Best/Worst color semantics.
+- Trial User Attributes now retain and display every JSON value, including
+  booleans, null, arrays, and objects, in one column per attribute key by default across
+  trial details, the All Trials table, CSV export, and HTML reports.
+- An **Expand lists** checkbox in All Trials adds `key[0]`, `key[1]`, and later
+  array element columns. Trial details can also expand array attributes into
+  indexed rows. The All Trials CSV export follows the checkbox setting.
+- Trial details now show numeric and text User Attributes. The All Trials table
+  and its CSV export include attribute columns, controlled by a visible-on-default
+  **User attrs** checkbox.
+
+### Changed
+
+- Artifact Animation's Frame skip is shared by widget preview and GIF export.
+  Playback, stepping, seeking, looping, and prefetch follow the same selected
+  chronological sequence, including both endpoints. Changing skip preserves the
+  current selected image or moves to its nearest selected predecessor. Trial
+  numbers and full trial-prefix analysis are unchanged.
+
+- Artifact Animation uses one live/GIF display duration (20–10000 ms in 10 ms
+  steps, default 330 ms), with a logarithmic slider, numeric input, and reference
+  FPS. Shared frame skipping preserves both endpoints and all trial-prefix
+  observations, and shows frame count and duration. Display/DPI-aware images are
+  reused across Animation widgets within a shared 256 MiB estimated retained
+  resource budget, with chronological prefetch and safe seek/invalidation.
+
+- Grasshopper/Rhino.Compute offers NSGA-II, CMA-ES, BO-GP-FITC, BO-GP-VFE, and
+  Random. BO (Bayesian optimization) fits the explicitly chosen GP, with EI for
+  one objective and EHVI for multiple objectives; GP Auto selection is removed
+  from this workflow. Surrogate Optimizer Auto is unchanged. CMA-ES is
+  single-objective only, starts from saved slider values, and exposes generations
+  (default 10) with an upper evaluation budget of `1 + lambda * generations`.
+  It reuses bound/precision handling, seed, parallelism, constraint penalties,
+  actual-value journal recording, and cancellation.
+
+- Box Plot and Violin Plot share a single Value, optional Group by, and global
+  Normalize selection. Grouping supports categorical and explicitly declared
+  Optuna integer/stepped parameters, not continuous parameters or CSV numeric
+  parameters without distribution metadata. Missing/non-finite data is excluded;
+  categorical identity and presence are retained, including empty-string choices.
+  Box plots include singleton/constant groups; violins report omitted groups.
+  CSV exports use the displayed groups and scale, and distribution caches refresh
+  when the underlying study snapshot changes.
+
+- Spearman and Ridge sensitivity now evaluate numerical parameters only. Nominal
+  categorical parameters (including numeric-looking Optuna choices) are explicitly
+  marked `Unsupported (categorical)` in charts, heatmaps, CSV and reports, never
+  scored or ranked. Ridge R² is labeled numerical-only and is absent when no
+  numerical parameters are supported. Existing numerical missingness handling is unchanged.
+
+- Auto surrogate selection now prefers Ridge, LightGBM, GP-FITC, then GP-VFE
+  among candidates within an inclusive absolute mean CV R² gap of 0.01 from
+  the maximum finite score. This explicit preference is not a universal cost
+  ranking; failed and non-finite candidates remain excluded.
+- Adaptive sampling now selects only GP-FITC then GP-VFE before final fitting,
+  because both single-objective EI and multi-objective EHVI require predictive
+  variance. The same inclusive 0.01 tolerance is measured against the best finite
+  eligible GP score, not unrestricted Auto's best score. No finite eligible GP
+  remains an error; reports list only evaluated GPs. This is an interim exception;
+  unrestricted adaptive Auto is tracked in #211. Adaptive fitting shares run
+  cancellation while keeping trial progress counters separate.
+- Trial details now use aligned key/value rows with subtle stripes and separators,
+  clearer section boundaries, and indented array elements. Expanded arrays show
+  an item count in the parent row.
 
 ### Fixed
 
@@ -134,82 +199,6 @@ and `Security` as needed — omit headings that have nothing under them.
 - Rank Plot 3D now fills the remaining chart area and resizes with the widget,
   with its vertical Best/Worst legend overlaid inside the canvas's right edge.
 
-### Changed
-
-- Artifact Animation's Frame skip is shared by widget preview and GIF export.
-  Playback, stepping, seeking, looping, and prefetch follow the same selected
-  chronological sequence, including both endpoints. Changing skip preserves the
-  current selected image or moves to its nearest selected predecessor. Trial
-  numbers and full trial-prefix analysis are unchanged.
-
-- Artifact Animation uses one live/GIF display duration (20–10000 ms in 10 ms
-  steps, default 330 ms), with a logarithmic slider, numeric input, and reference
-  FPS. Shared frame skipping preserves both endpoints and all trial-prefix
-  observations, and shows frame count and duration. Display/DPI-aware images are
-  reused across Animation widgets within a shared 256 MiB estimated retained
-  resource budget, with chronological prefetch and safe seek/invalidation.
-
-- Grasshopper/Rhino.Compute offers NSGA-II, CMA-ES, BO-GP-FITC, BO-GP-VFE, and
-  Random. BO (Bayesian optimization) fits the explicitly chosen GP, with EI for
-  one objective and EHVI for multiple objectives; GP Auto selection is removed
-  from this workflow. Surrogate Optimizer Auto is unchanged. CMA-ES is
-  single-objective only, starts from saved slider values, and exposes generations
-  (default 10) with an upper evaluation budget of `1 + lambda * generations`.
-  It reuses bound/precision handling, seed, parallelism, constraint penalties,
-  actual-value journal recording, and cancellation.
-
-- Box Plot and Violin Plot share a single Value, optional Group by, and global
-  Normalize selection. Grouping supports categorical and explicitly declared
-  Optuna integer/stepped parameters, not continuous parameters or CSV numeric
-  parameters without distribution metadata. Missing/non-finite data is excluded;
-  categorical identity and presence are retained, including empty-string choices.
-  Box plots include singleton/constant groups; violins report omitted groups.
-  CSV exports use the displayed groups and scale, and distribution caches refresh
-  when the underlying study snapshot changes.
-
-- Spearman and Ridge sensitivity now evaluate numerical parameters only. Nominal
-  categorical parameters (including numeric-looking Optuna choices) are explicitly
-  marked `Unsupported (categorical)` in charts, heatmaps, CSV and reports, never
-  scored or ranked. Ridge R² is labeled numerical-only and is absent when no
-  numerical parameters are supported. Existing numerical missingness handling is unchanged.
-
-- Auto surrogate selection now prefers Ridge, LightGBM, GP-FITC, then GP-VFE
-  among candidates within an inclusive absolute mean CV R² gap of 0.01 from
-  the maximum finite score. This explicit preference is not a universal cost
-  ranking; failed and non-finite candidates remain excluded.
-- Adaptive sampling now selects only GP-FITC then GP-VFE before final fitting,
-  because both single-objective EI and multi-objective EHVI require predictive
-  variance. The same inclusive 0.01 tolerance is measured against the best finite
-  eligible GP score, not unrestricted Auto's best score. No finite eligible GP
-  remains an error; reports list only evaluated GPs. This is an interim exception;
-  unrestricted adaptive Auto is tracked in #211. Adaptive fitting shares run
-  cancellation while keeping trial progress counters separate.
-- Trial details now use aligned key/value rows with subtle stripes and separators,
-  clearer section boundaries, and indented array elements. Expanded arrays show
-  an item count in the parent row.
-
-### Added
-
-- `-a` / `--artifact <directory>` sets a session-wide artifact root independently
-  of `--input`. It requires an existing directory; GUI Artifacts selections take
-  priority across source changes, study switches, and reload. DesignExplorer-format
-  CSV `img` paths resolve against the explicit root while preserving trial associations.
-- **Rank Plot 3D** displays three distinct parameters with objective rank colors,
-  shared 3D navigation, hover details, Trial Detail, and full-row CSV export.
-  The two-parameter chart is named **Rank Plot 2D**; both use the same rank and
-  Best/Worst color semantics.
-- Trial User Attributes now retain and display every JSON value, including
-  booleans, null, arrays, and objects, in one column per attribute key by default across
-  trial details, the All Trials table, CSV export, and HTML reports.
-- An **Expand lists** checkbox in All Trials adds `key[0]`, `key[1]`, and later
-  array element columns. Trial details can also expand array attributes into
-  indexed rows. The All Trials CSV export follows the checkbox setting.
-- Trial details now show numeric and text User Attributes. The All Trials table
-  and its CSV export include attribute columns, controlled by a visible-on-default
-  **User attrs** checkbox.
-
-### Fixed
-
 - MCDM Ranking bar labels now show Study-local trial numbers for TOPSIS, VIKOR,
   PROMETHEE I, and PROMETHEE II, matching tables and trial details while preserving
   failed/pruned trial gaps. Ranking order and Top N do not renumber trials; an
@@ -291,6 +280,15 @@ and `Security` as needed — omit headings that have nothing under them.
 - Fixed image artifacts failing to load from Windows file paths in the gallery
   and trial details.
 
+### Security
+
+- Update quick-xml and its Wayland/zbus dependency paths to resolve
+  RUSTSEC-2026-0194 and RUSTSEC-2026-0195, and remove their audit exclusions.
+- Update libz-sys to 1.1.31 to resolve RUSTSEC-2026-0418 (build environment
+  variables written to build logs on affected Unix builds).
+- Update the transitive ctutils dependency to 0.4.4 to resolve RUSTSEC-2026-0385
+  (non-constant-time mask generation and u128 comparisons).
+
 ## [0.1.2] - 2026-09-27
 
 ### Added
@@ -311,5 +309,6 @@ and `Security` as needed — omit headings that have nothing under them.
 - Reversed the Rank Plot colormap display so Best (rank 0) uses the high end and
   Worst (rank 1) uses the low end, matching the color-bar labels.
 
-[Unreleased]: https://github.com/Tunny-gh/Tunny-Dashboard/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/Tunny-gh/Tunny-Dashboard/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Tunny-gh/Tunny-Dashboard/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/Tunny-gh/Tunny-Dashboard/compare/v0.1.1...v0.1.2
