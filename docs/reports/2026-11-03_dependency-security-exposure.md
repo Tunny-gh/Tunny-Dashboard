@@ -54,9 +54,13 @@ tdashboard-analysis
 | [RUSTSEC-2026-0429](https://rustsec.org/advisories/RUSTSEC-2026-0429.html) | Extract a symlink with an attacker-declared huge size, causing allocation failure and process abort. | No ZIP extraction call identified, on Windows or macOS. |
 
 All four advisories require ZIP >=9.0.0. Updating only the application's egobox
-version does not currently provide that dependency path. Reassess reachability
-if archive import, NPZ import, model loading, or dependency behavior changes.
-Do not add audit exclusions based solely on this assessment.
+version does not currently provide that dependency path. Excluding these four
+specific advisory IDs is a reasonable documented acceptance of the unreachable
+extraction paths. Such exclusions would not mean the dependency is patched.
+Keep auditing ZIP so that new advisories are still detected, link exclusions to
+this assessment and #269, and reassess them when archive import, NPZ import,
+model loading, or dependency behavior changes. This PR currently adds no ZIP
+exclusions.
 
 ## Other updates and release relevance
 
@@ -85,7 +89,8 @@ Do not add audit exclusions based solely on this assessment.
 - `cargo test --workspace --locked --profile ci-test`: 1,943 passed,
   16 ignored, zero failures on Windows.
 - `cargo clippy --workspace --all-targets --locked -- -D warnings`: passed
-  on Windows; Linux/macOS compilation is left to CI.
+  on Windows. GitHub CI run 41595090824 also passed Linux Format & Clippy
+  and Windows/macOS Build & Test for code commit `a38d34f`.
 - `cargo fmt --all -- --check` and `git diff --check`: passed.
 - `cargo audit` without exclusions: still fails on the four ZIP advisories,
   with 12 allowed warnings. XML and libz-sys vulnerability findings are removed.
