@@ -13,6 +13,10 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ### Security
 
+- Update quick-xml and its Wayland/zbus dependency paths to resolve
+  RUSTSEC-2026-0194 and RUSTSEC-2026-0195, and remove their audit exclusions.
+- Update libz-sys to 1.1.31 to resolve RUSTSEC-2026-0418 (build environment
+  variables written to build logs on affected Unix builds).
 - Update the transitive ctutils dependency to 0.4.4 to resolve RUSTSEC-2026-0385
   (non-constant-time mask generation and u128 comparisons).
 

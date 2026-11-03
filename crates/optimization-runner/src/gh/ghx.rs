@@ -12,7 +12,7 @@
 //! forward compatibility.
 
 use quick_xml::events::{BytesStart, Event};
-use quick_xml::Reader;
+use quick_xml::{Reader, XmlVersion};
 
 /// An `<item>` element. For simple types (gh_double / gh_string / gh_guid,
 /// etc.) the value's text content goes straight into `text`. Child elements
@@ -121,11 +121,14 @@ enum ElemKind {
     Other,
 }
 
-fn attr_of(e: &BytesStart<'_>, key: &[u8]) -> Option<String> {
+fn attr_of(e: &BytesStart<'_>, key: &str) -> Option<String> {
     for attr in e.attributes() {
         let attr = attr.ok()?;
         if attr.key.as_ref() == key {
-            return attr.unescape_value().ok().map(|v| v.into_owned());
+            return attr
+                .normalized_value(XmlVersion::Implicit1_0)
+                .ok()
+                .map(|v| v.into_owned());
         }
     }
     None
@@ -145,18 +148,17 @@ pub(crate) fn parse_archive(xml: &str) -> Result<GhxChunk, String> {
                 let tag = e.local_name();
                 let tag = tag.as_ref();
                 match tag {
-                    b"Archive" | b"chunk" => {
-                        let name = attr_of(&e, b"name")
-                            .unwrap_or_else(|| String::from_utf8_lossy(tag).into_owned());
-                        let index = attr_of(&e, b"index").and_then(|v| v.parse().ok());
+                    "Archive" | "chunk" => {
+                        let name = attr_of(&e, "name").unwrap_or_else(|| tag.to_owned());
+                        let index = attr_of(&e, "index").and_then(|v| v.parse().ok());
                         chunk_stack.push(GhxChunk::new(name, index));
                         elem_stack.push(ElemKind::Chunk);
                     }
-                    b"item" if current_item.is_none() => {
+                    "item" if current_item.is_none() => {
                         current_item = Some(GhxItem {
-                            name: attr_of(&e, b"name").unwrap_or_default(),
-                            index: attr_of(&e, b"index").and_then(|v| v.parse().ok()),
-                            type_name: attr_of(&e, b"type_name").unwrap_or_default(),
+                            name: attr_of(&e, "name").unwrap_or_default(),
+                            index: attr_of(&e, "index").and_then(|v| v.parse().ok()),
+                            type_name: attr_of(&e, "type_name").unwrap_or_default(),
                             text: String::new(),
                         });
                         elem_stack.push(ElemKind::Item);
@@ -166,12 +168,12 @@ pub(crate) fn parse_archive(xml: &str) -> Result<GhxChunk, String> {
             }
             Ok(Event::Empty(e)) => {
                 // Self-closing element. An empty-string item can take this form.
-                if e.local_name().as_ref() == b"item" && current_item.is_none() {
+                if e.local_name().as_ref() == "item" && current_item.is_none() {
                     if let Some(chunk) = chunk_stack.last_mut() {
                         chunk.items.push(GhxItem {
-                            name: attr_of(&e, b"name").unwrap_or_default(),
-                            index: attr_of(&e, b"index").and_then(|v| v.parse().ok()),
-                            type_name: attr_of(&e, b"type_name").unwrap_or_default(),
+                            name: attr_of(&e, "name").unwrap_or_default(),
+                            index: attr_of(&e, "index").and_then(|v| v.parse().ok()),
+                            type_name: attr_of(&e, "type_name").unwrap_or_default(),
                             text: String::new(),
                         });
                     }
@@ -183,10 +185,7 @@ pub(crate) fn parse_archive(xml: &str) -> Result<GhxChunk, String> {
                 // falls under ElemKind::Other and is not captured).
                 if matches!(elem_stack.last(), Some(ElemKind::Item)) {
                     if let Some(item) = current_item.as_mut() {
-                        let decoded = t
-                            .decode()
-                            .map_err(|e| format!("Failed to decode XML text: {e}"))?;
-                        item.text.push_str(&decoded);
+                        item.text.push_str(&t);
                     }
                 }
             }
@@ -195,13 +194,10 @@ pub(crate) fn parse_archive(xml: &str) -> Result<GhxChunk, String> {
                 // from text, so resolve them and append to the item's text.
                 if matches!(elem_stack.last(), Some(ElemKind::Item)) {
                     if let Some(item) = current_item.as_mut() {
-                        let name = r
-                            .decode()
-                            .map_err(|e| format!("Failed to decode entity reference: {e}"))?;
+                        let name = r.as_ref();
                         if let Ok(Some(c)) = r.resolve_char_ref() {
                             item.text.push(c);
-                        } else if let Some(s) = quick_xml::escape::resolve_predefined_entity(&name)
-                        {
+                        } else if let Some(s) = quick_xml::escape::resolve_predefined_entity(name) {
                             item.text.push_str(s);
                         } else {
                             return Err(format!("Unsupported entity reference: &{name};"));
@@ -300,6 +296,18 @@ mod tests {
         // XML escapes are unescaped
         assert_eq!(objs[1].item_text("Name"), Some("A & B"));
         assert_eq!(objs[1].index, Some(1));
+    }
+
+    #[test]
+    fn preserves_unicode_and_escaped_names_and_values() {
+        let xml = r#"<Archive name="Root &amp; 枝">
+  <item name="名前 &quot;A&quot;" type_name="gh_string">値 &amp; &#x03B1; &#946;</item>
+  <item name="空" type_name="gh_string" />
+</Archive>"#;
+        let root = parse_archive(xml).unwrap();
+        assert_eq!(root.name, "Root & 枝");
+        assert_eq!(root.item_text("名前 \"A\""), Some("値 & α β"));
+        assert_eq!(root.item_text("空"), Some(""));
     }
 
     #[test]
