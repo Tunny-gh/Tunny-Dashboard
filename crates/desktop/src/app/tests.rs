@@ -1445,7 +1445,10 @@ fn d2_stale_same_path_scan_and_old_loader_cannot_populate_replaced_source() {
             source: old.source,
             scan: 1,
             path: "same.log".into(),
-            result: Ok((vec![], vec![])),
+            result: Ok((
+                tdashboard_io::storage::ReadSource::Sqlite("obsolete.db".into()),
+                vec![],
+            )),
         })
         .unwrap();
     let (reply, ack) = mpsc::sync_channel(1);
@@ -1474,7 +1477,7 @@ fn d2_stale_same_path_scan_and_old_loader_cannot_populate_replaced_source() {
         .journal_studies
         .as_ref()
         .unwrap()
-        .bytes
+        .read_source
         .is_none());
     assert!(app.is_loading);
     assert!(app.load_error.is_none());
@@ -2524,6 +2527,39 @@ fn d2_cached_journal_selection_and_comparison_complete_with_a_full_gui_channel()
     );
     assert_eq!(app.app_state.comparison_studies.len(), 1);
     assert!(app.load_error.is_none());
+}
+
+#[test]
+fn reload_allows_selecting_a_study_recreated_under_the_same_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("recreated.log");
+    let original = [
+        r#"{"op_code":0,"study_name":"recreated","directions":[1]}"#,
+        r#"{"op_code":0,"study_name":"survivor","directions":[1]}"#,
+        r#"{"op_code":4,"study_id":0}"#,
+        r#"{"op_code":6,"trial_id":0,"state":1,"values":[10]}"#,
+    ];
+    std::fs::write(&path, original.join("\n")).unwrap();
+    let mut app = artifact_test_app(None);
+    app.open_path(path.clone());
+    poll_until(&mut app, |a| !a.is_loading);
+    select_artifact_study(&mut app, 0);
+
+    let changes = [
+        r#"{"op_code":1,"study_id":0}"#,
+        r#"{"op_code":0,"study_name":"recreated","directions":[1]}"#,
+        r#"{"op_code":4,"study_id":2}"#,
+        r#"{"op_code":6,"trial_id":1,"state":1,"values":[20]}"#,
+    ];
+    std::fs::write(&path, [original, changes].concat().join("\n")).unwrap();
+    app.apply_toolbar_actions(vec![ToolbarAction::Reload]);
+    poll_until(&mut app, |a| !a.is_loading);
+    assert!(app.app_state.current_study.is_none());
+    assert_eq!(app.app_state.all_studies[1].name, "recreated");
+    select_artifact_study(&mut app, 2);
+    let study = app.app_state.current_study.as_ref().unwrap();
+    assert_eq!(study.meta.completed_trials, 1);
+    assert_eq!(study.view.trial_ids, [1]);
 }
 
 fn artifact_test_app(root: Option<std::path::PathBuf>) -> TunnyApp {

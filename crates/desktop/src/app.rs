@@ -413,8 +413,8 @@ impl TunnyApp {
                         continue;
                     };
                     match result {
-                        Ok((bytes, studies)) => {
-                            journal.bytes = Some(std::sync::Arc::new(bytes));
+                        Ok((read_source, studies)) => {
+                            journal.read_source = Some(read_source);
                             AppMessage::JournalParsed { studies, path }
                         }
                         Err(e) => AppMessage::Error(e),
@@ -915,7 +915,6 @@ fn dispatch_scan(
     }
     let journal = app_state.journal_studies.as_mut().unwrap();
     journal.invalidate_loaders(source_generation);
-    journal.path = Some(path.clone());
     let source = journal.source;
     crate::io::study_worker::dispatch_scan_journal(path, source, source_generation, tx);
     Ok(())
@@ -1129,11 +1128,10 @@ impl TunnyApp {
     ) {
         let tx = self.sender();
         if let Some(journal) = self.app_state.journal_studies.as_mut() {
-            if journal
-                .path
-                .as_deref()
-                .is_some_and(crate::io::flat_csv::is_csv_path)
-            {
+            if matches!(
+                &journal.read_source,
+                Some(tdashboard_io::storage::ReadSource::Csv { .. })
+            ) {
                 journal.csv_metadata = Some(meta.clone());
             }
             match journal.request(meta.study_id, comparison, force, tx) {

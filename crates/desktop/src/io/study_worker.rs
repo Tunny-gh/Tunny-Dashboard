@@ -1,7 +1,8 @@
 //! Scan dispatch only. No global worker store, installation or analysis.
 use crate::state::messages::AppMessage;
 use std::path::PathBuf;
-use std::sync::mpsc::SyncSender;
+use std::sync::{mpsc::SyncSender, Arc};
+use tdashboard_io::{journal::parser::JournalSnapshot, storage::ReadSource};
 
 pub fn dispatch_scan_journal(
     path: PathBuf,
@@ -11,27 +12,32 @@ pub fn dispatch_scan_journal(
 ) {
     std::thread::spawn(move || {
         let result = (|| {
-            let (bytes, studies) = if let Some(url) = crate::io::rdb::path_as_rdb_url(&path) {
-                (Vec::new(), tdashboard_io::rdb::scan_study_list_url(&url)?)
+            let (read_source, studies) = if let Some(url) = crate::io::rdb::path_as_rdb_url(&path) {
+                let studies = tdashboard_io::rdb::scan_study_list_url(&url)?;
+                (ReadSource::Rdb(url), studies)
             } else if crate::io::sqlite::is_sqlite_path(&path) {
-                (Vec::new(), tdashboard_io::sqlite::scan_study_list(&path)?)
+                (
+                    ReadSource::Sqlite(path.clone()),
+                    tdashboard_io::sqlite::scan_study_list(&path)?,
+                )
+            } else if crate::io::flat_csv::is_csv_path(&path) {
+                let bytes = Arc::new(tdashboard_io::storage::read_journal(&path)?);
+                let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("csv");
+                let meta = tdashboard_io::flat_csv::parse_flat_csv(&bytes, name)?.meta;
+                (
+                    ReadSource::Csv {
+                        bytes,
+                        name: name.to_string(),
+                    },
+                    vec![meta],
+                )
             } else {
-                let bytes = tdashboard_io::storage::read_journal(&path)?;
-                let studies = if crate::io::flat_csv::is_csv_path(&path) {
-                    vec![
-                        tdashboard_io::flat_csv::parse_flat_csv(
-                            &bytes,
-                            path.file_stem().and_then(|s| s.to_str()).unwrap_or("csv"),
-                        )?
-                        .meta,
-                    ]
-                } else {
-                    tdashboard_io::journal::parser::scan_study_list(&bytes)?
-                };
-                (bytes, studies)
+                let snapshot = JournalSnapshot::new(tdashboard_io::storage::read_journal(&path)?)?;
+                let studies = snapshot.studies().to_vec();
+                (ReadSource::Journal(Arc::new(snapshot)), studies)
             };
             Ok((
-                bytes,
+                read_source,
                 studies
                     .into_iter()
                     .map(crate::io::journal::convert_study_meta)

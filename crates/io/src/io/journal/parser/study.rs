@@ -129,12 +129,29 @@ pub fn read_batches_with_final(
     bytes: &[u8],
     key: StudyKey,
     batch_size: usize,
-    mut sink: impl FnMut(StudyBatch, bool) -> Result<(), String>,
+    sink: impl FnMut(StudyBatch, bool) -> Result<(), String>,
 ) -> Result<(), String> {
     if bytes.is_empty() {
         return Err("Empty journal data".into());
     }
-    let mut state = ParserState::new_with_target(key.stored_id);
+    replay(
+        String::from_utf8_lossy(bytes)
+            .lines()
+            .map(|line| (line, None)),
+        ParserState::new_with_target(key.stored_id),
+        key,
+        batch_size,
+        sink,
+    )
+}
+
+pub(super) fn replay<'a>(
+    records: impl Iterator<Item = (&'a str, Option<u32>)>,
+    mut state: ParserState,
+    key: StudyKey,
+    batch_size: usize,
+    mut sink: impl FnMut(StudyBatch, bool) -> Result<(), String>,
+) -> Result<(), String> {
     let mut params: BTreeMap<u32, BTreeMap<String, ParameterObservation>> = BTreeMap::new();
     let mut associations: BTreeMap<u32, Vec<ArtifactAssociation>> = BTreeMap::new();
     let mut dirty = BTreeSet::new();
@@ -143,7 +160,7 @@ pub fn read_batches_with_final(
     let mut order = 0_u64;
     let mut completions = 0;
     let mut first = true;
-    for line in String::from_utf8_lossy(bytes).lines() {
+    for (line, created_trial_id) in records {
         let Ok(record) = crate::optuna_json::record(line.trim()) else {
             continue;
         };
@@ -152,6 +169,9 @@ pub fn read_batches_with_final(
             continue;
         };
         let tid = if op == 4 {
+            if let Some(id) = created_trial_id {
+                state.next_trial_id = id;
+            }
             Some(state.next_trial_id)
         } else {
             get_u64(json, "trial_id").and_then(|n| u32::try_from(n).ok())
@@ -308,8 +328,25 @@ pub fn read_batches_with_final(
 /// replay without publishing a streaming prefix, and retain full-reader row order
 /// in acquisition evidence (ADR-0021).
 pub fn read_full(bytes: &[u8], key: StudyKey) -> Result<StudyBatch, String> {
+    if bytes.is_empty() {
+        return Err("Empty journal data".into());
+    }
+    replay_full(
+        String::from_utf8_lossy(bytes)
+            .lines()
+            .map(|line| (line, None)),
+        ParserState::new_with_target(key.stored_id),
+        key,
+    )
+}
+
+pub(super) fn replay_full<'a>(
+    records: impl Iterator<Item = (&'a str, Option<u32>)>,
+    state: ParserState,
+    key: StudyKey,
+) -> Result<StudyBatch, String> {
     let mut result = None;
-    read_batches(bytes, key, usize::MAX, |batch| {
+    replay(records, state, key, usize::MAX, |batch, _| {
         result = Some(batch);
         Ok(())
     })?;
@@ -343,6 +380,7 @@ fn batch(
     let study = state
         .studies
         .get(key.stored_id as usize)
+        .and_then(Option::as_ref)
         .ok_or_else(|| format!("study_id {} not found", key.stored_id))?;
     let mut metadata = StudyMetadata {
         name: study.name.clone(),

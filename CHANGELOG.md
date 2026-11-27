@@ -11,6 +11,17 @@ and `Security` as needed — omit headings that have nothing under them.
 
 ## [Unreleased]
 
+### Changed
+
+- Selecting a Study in an open Optuna Journal reads its indexed records, reducing
+  the wait for trials in large multi-Study files.
+
+### Fixed
+
+- Opening an Optuna Journal now restores Study IDs and trials correctly after a
+  Study is deleted and recreated with the same name. Deleted Studies are omitted
+  from the Study list. Reloading clears the current view if its Study was deleted.
+
 ## [0.2.0] - 2026-11-03
 
 ### Added
