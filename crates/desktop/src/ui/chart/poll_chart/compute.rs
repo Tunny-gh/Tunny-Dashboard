@@ -113,9 +113,11 @@ mod categorical_tests {
                 if mixed {
                     assert_eq!(result.param_names, vec!["x"]);
                     let core = core_sensitivity_metric(metric).unwrap();
-                    for obj in 0..2 {
+                    let scores = &result.values[0];
+                    assert_eq!(scores.len(), 2);
+                    for (obj, score) in scores.iter().enumerate() {
                         assert_eq!(
-                            result.values[0][obj],
+                            *score,
                             single_obj_param_score(&core.compute(&df, obj).unwrap(), metric, 0)
                         );
                     }
