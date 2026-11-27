@@ -185,15 +185,15 @@ themed_color!(
 themed_color!(
     /// Optimization group: light = amber-500 / dark = amber-300
     GROUP_OPTIMIZATION,
-    Color32::from_rgb(245, 158, 11),  // #F59E0B
-    Color32::from_rgb(252, 211, 77)   // #FCD34D
+    Color32::from_rgb(245, 158, 11), // #F59E0B
+    Color32::from_rgb(252, 211, 77)  // #FCD34D
 );
 
 themed_color!(
     /// Clustering group: light = teal-500 / dark = teal-300
     GROUP_CLUSTERING,
-    Color32::from_rgb(20, 184, 166),  // #14B8A6
-    Color32::from_rgb(94, 234, 212)   // #5EEAD4
+    Color32::from_rgb(20, 184, 166), // #14B8A6
+    Color32::from_rgb(94, 234, 212)  // #5EEAD4
 );
 
 themed_color!(
@@ -267,6 +267,6 @@ themed_color!(
 themed_color!(
     /// Warning display color (non-blocking notice): light = amber-600 / dark = amber-400
     WARNING_COLOR,
-    Color32::from_rgb(217, 119, 6),   // #D97706
-    Color32::from_rgb(251, 191, 36)   // #FBBF24
+    Color32::from_rgb(217, 119, 6),  // #D97706
+    Color32::from_rgb(251, 191, 36)  // #FBBF24
 );

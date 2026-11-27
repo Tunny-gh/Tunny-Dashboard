@@ -11,7 +11,7 @@
 use std::sync::mpsc;
 use std::time::Duration;
 
-use tdashboard_io::rdb::RdbUrl;
+use tdashboard_io::{rdb::RdbUrl, storage::ReadSource};
 use tunny_dashboard::state::messages::AppMessage;
 use tunny_dashboard::state::{
     app_state::AppState, journal_studies::JournalStudies, message_handler::MessageHandler,
@@ -44,8 +44,7 @@ fn load_single_study_task_loads_mo_constrained() {
 
     let (tx, rx) = mpsc::sync_channel::<AppMessage>(4);
     let mut loaded = JournalStudies::new(1).unwrap();
-    loaded.path = Some(TEST_DB_URL.into());
-    loaded.bytes = Some(std::sync::Arc::new(Vec::new()));
+    loaded.read_source = Some(ReadSource::Rdb(url));
     loaded.request(target.study_id, false, false, tx).unwrap();
     let mut state = AppState::new();
     state.journal_studies = Some(loaded);

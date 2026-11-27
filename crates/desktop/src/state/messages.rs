@@ -223,7 +223,7 @@ pub enum AppMessage {
         source: tdashboard_study::SourceInstanceId,
         scan: u64,
         path: std::path::PathBuf,
-        result: Result<(Vec<u8>, Vec<StudyMeta>), String>,
+        result: Result<(tdashboard_io::storage::ReadSource, Vec<StudyMeta>), String>,
     },
     JournalBatch {
         header: tdashboard_study::BatchHeader,

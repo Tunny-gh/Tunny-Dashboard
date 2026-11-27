@@ -10,7 +10,7 @@ use tdashboard_study::{StudyBatch, StudyKey};
 
 #[derive(Clone, Debug)]
 pub enum ReadSource {
-    Journal(Arc<Vec<u8>>),
+    Journal(Arc<parser::JournalSnapshot>),
     Csv { bytes: Arc<Vec<u8>>, name: String },
     Sqlite(PathBuf),
     Rdb(RdbUrl),
@@ -24,10 +24,7 @@ impl ReadSource {
     ) -> Result<(), String> {
         let mut sink = sink;
         match self {
-            Self::Journal(bytes) if streaming => {
-                parser::study::read_batches(bytes, key, 1000, sink)
-            }
-            Self::Journal(bytes) => sink(parser::study::read_full(bytes, key)?),
+            Self::Journal(snapshot) => snapshot.read(key, streaming, sink),
             Self::Csv { bytes, name } => {
                 if key.stored_id != 0 {
                     return Err(format!("study_id {} not found in CSV", key.stored_id));

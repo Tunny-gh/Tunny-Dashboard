@@ -8,12 +8,13 @@ use crate::io::datetime::parse_naive_datetime;
 
 /// Intermediate state of journal parsing (study builders, trial builders, trial_id counter).
 pub(super) struct ParserState {
-    pub(super) studies: Vec<StudyBuilder>,
+    // Deleted studies leave their ID slot behind because Journal IDs are never reused.
+    pub(super) studies: Vec<Option<StudyBuilder>>,
     pub(super) trial_builders: HashMap<u32, TrialBuilder>,
     pub(super) next_trial_id: u32,
     /// When Some(id), only create a TrialBuilder for trials with that study_id (used for Phase 2 on-demand parsing).
     pub(super) target_study_id: Option<u32>,
-    /// Set of already-registered study names (used to skip duplicate create_study lines in O(1)).
+    /// Names of active studies, used to reject duplicate creation attempts.
     study_names: HashSet<String>,
 }
 
@@ -42,17 +43,15 @@ impl ParserState {
 
     pub(super) fn new_with_target(target_study_id: u32) -> Self {
         ParserState {
-            studies: Vec::new(),
-            trial_builders: HashMap::with_capacity(1024),
-            next_trial_id: 0,
             target_study_id: Some(target_study_id),
-            study_names: HashSet::new(),
+            ..Self::new()
         }
     }
 
     pub(super) fn process_op(&mut self, op: u8, json: &Value) {
         match op {
             0 => self.process_create_study(json),
+            1 => self.process_delete_study(json),
             3 => self.process_set_study_system_attr(json),
             4 => self.process_create_trial(json),
             5 => self.process_set_trial_param(json),
@@ -180,28 +179,37 @@ impl ParserState {
             .unwrap_or_default();
 
         let study_id = self.studies.len() as u32;
-        self.studies.push(StudyBuilder {
+        self.studies.push(Some(StudyBuilder {
             study_id,
             name,
             directions,
             total_trials: 0,
             objective_names: Vec::new(),
             param_bounds: HashMap::new(),
-        });
+        }));
+    }
+
+    fn process_delete_study(&mut self, json: &Value) {
+        let Some(id) = get_u64(json, "study_id").and_then(|id| usize::try_from(id).ok()) else {
+            return;
+        };
+        if let Some(study) = self.studies.get_mut(id).and_then(Option::take) {
+            self.study_names.remove(&study.name);
+        }
     }
 
     fn process_create_trial(&mut self, json: &Value) {
         let study_id = get_u64(json, "study_id").unwrap_or(0) as u32;
-        if (study_id as usize) >= self.studies.len() {
+        let Some(Some(study)) = self.studies.get_mut(study_id as usize) else {
             return;
-        }
+        };
 
         let trial_id = self.next_trial_id;
         self.next_trial_id += 1;
         // Optuna's trial.number is the creation order within the study (0-based). The value of
         // total_trials before it is incremented becomes that trial's number.
-        let trial_number = self.studies[study_id as usize].total_trials;
-        self.studies[study_id as usize].total_trials += 1;
+        let trial_number = study.total_trials;
+        study.total_trials += 1;
 
         // Phase 2 on-demand parsing: skip TrialBuilder creation for studies other than the target.
         // Since ops 5/6/8/9 reference trial_id explicitly, updates to a trial whose builder
@@ -293,10 +301,7 @@ impl ParserState {
             if let Some(distributions) = dist_obj {
                 for (name, distribution_value) in distributions {
                     if let Some(bounds) = Distribution::from_json(distribution_value).bounds() {
-                        self.studies[study_id as usize]
-                            .param_bounds
-                            .entry(name.clone())
-                            .or_insert(bounds);
+                        study.param_bounds.entry(name.clone()).or_insert(bounds);
                     }
                 }
             }
@@ -402,7 +407,7 @@ impl ParserState {
         // Read the trial's study_id first, then update studies (to avoid overlapping borrows).
         if let Some(bounds) = distribution.bounds() {
             if let Some(study_id) = self.trial_builders.get(&trial_id).map(|t| t.study_id) {
-                if let Some(study) = self.studies.get_mut(study_id as usize) {
+                if let Some(Some(study)) = self.studies.get_mut(study_id as usize) {
                     study
                         .param_bounds
                         .entry(param_name.clone())
@@ -505,9 +510,9 @@ impl ParserState {
 
     fn process_set_study_system_attr(&mut self, json: &Value) {
         let study_id = get_u64(json, "study_id").unwrap_or(0) as u32;
-        if (study_id as usize) >= self.studies.len() {
+        let Some(Some(study)) = self.studies.get_mut(study_id as usize) else {
             return;
-        }
+        };
         let Some(attrs) = json.get("system_attr").and_then(|value| value.as_object()) else {
             return;
         };
@@ -521,7 +526,7 @@ impl ParserState {
                 .map(|name| name.to_string())
                 .collect();
             if !names.is_empty() {
-                self.studies[study_id as usize].objective_names = names;
+                study.objective_names = names;
             }
         }
     }

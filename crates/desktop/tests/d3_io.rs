@@ -1,7 +1,10 @@
 //! Cross-boundary contracts live above I/O and analysis, never as a reverse edge.
 use std::sync::Arc;
 use tdashboard_analysis::projection as study_projection;
-use tdashboard_io::{journal::parser::study, storage::ReadSource};
+use tdashboard_io::{
+    journal::parser::{study, JournalSnapshot},
+    storage::ReadSource,
+};
 use tdashboard_study::*;
 
 fn key() -> StudyKey {
@@ -21,7 +24,7 @@ fn recorded_nonfinite_numeric_parameters_remain_observations_not_missing_values(
 {"op_code":4,"study_id":0,"distributions":{"nan":{"name":"FloatDistribution","attributes":{"low":0,"high":10}}},"params":{"nan":NaN},"state":2}
 "#;
     let key = key();
-    let source = ReadSource::Journal(Arc::new(bytes.to_vec()));
+    let source = ReadSource::Journal(Arc::new(JournalSnapshot::new(bytes.to_vec()).unwrap()));
     let input = acquire(key, &source, false);
     assert_eq!(
         input.data().trials()[0].parameters["inline"].value,
@@ -120,7 +123,7 @@ fn repeated_objective_labels_keep_indexed_values_separate_from_parameters() {
 fn actual_optuna5_journal_retains_nonfinite_observations_without_conflating_null() {
     let bytes = include_bytes!("../../io/fixtures/optuna5-nonfinite.jsonl");
     let key = key();
-    let source = ReadSource::Journal(Arc::new(bytes.to_vec()));
+    let source = ReadSource::Journal(Arc::new(JournalSnapshot::new(bytes.to_vec()).unwrap()));
     let full = acquire(key, &source, false);
     let streaming = acquire(key, &source, true);
     assert_eq!(full.data(), streaming.data());
@@ -194,7 +197,7 @@ const JOURNAL: &[u8] = br#"{"op_code":0,"study_name":"a","directions":[1]}
 #[test]
 fn journal_bulk_streaming_reload_preserve_domain_and_path_order() {
     let key = key();
-    let source = ReadSource::Journal(Arc::new(JOURNAL.to_vec()));
+    let source = ReadSource::Journal(Arc::new(JournalSnapshot::new(JOURNAL.to_vec()).unwrap()));
     let full = acquire(key, &source, false);
     assert_eq!(full.data().trials().len(), 6);
     assert_eq!(full.data().constraint_schema().width, 6);

@@ -3,15 +3,15 @@
 use super::app_state::StudyContext;
 use super::messages::AppMessage;
 use std::collections::{HashMap, VecDeque};
-use std::sync::{mpsc, Arc};
+use std::sync::mpsc;
+use tdashboard_io::storage::ReadSource;
 use tdashboard_study::*;
 
 #[derive(Debug)]
 pub struct JournalStudies {
     pub source: SourceInstanceId,
     pub scan: u64,
-    pub bytes: Option<Arc<Vec<u8>>>,
-    pub path: Option<std::path::PathBuf>,
+    pub read_source: Option<ReadSource>,
     pub csv_metadata: Option<super::app_state::StudyMeta>,
     pub managers: HashMap<u32, StudyManager>,
     pub selected: Option<u32>,
@@ -39,8 +39,7 @@ impl JournalStudies {
         Ok(Self {
             source,
             scan,
-            bytes: None,
-            path: None,
+            read_source: None,
             csv_metadata: None,
             managers: HashMap::new(),
             selected: None,
@@ -52,7 +51,7 @@ impl JournalStudies {
     }
     pub fn invalidate_loaders(&mut self, scan: u64) {
         self.scan = scan;
-        self.bytes = None;
+        self.read_source = None;
         self.clear_comparisons();
         for manager in self.managers.values_mut() {
             if let Some(state) = manager
@@ -104,30 +103,10 @@ impl JournalStudies {
         force: bool,
         tx: mpsc::SyncSender<AppMessage>,
     ) -> Result<Option<AppMessage>, String> {
-        let bytes = self
-            .bytes
+        let source = self
+            .read_source
             .clone()
             .ok_or("No journal is loaded yet. Please open a journal first.")?;
-        let source = if let Some(path) = &self.path {
-            if let Some(url) = crate::io::rdb::path_as_rdb_url(path) {
-                tdashboard_io::storage::ReadSource::Rdb(url)
-            } else if crate::io::sqlite::is_sqlite_path(path) {
-                tdashboard_io::storage::ReadSource::Sqlite(path.clone())
-            } else if crate::io::flat_csv::is_csv_path(path) {
-                tdashboard_io::storage::ReadSource::Csv {
-                    bytes: bytes.clone(),
-                    name: path
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("csv")
-                        .to_string(),
-                }
-            } else {
-                tdashboard_io::storage::ReadSource::Journal(bytes.clone())
-            }
-        } else {
-            tdashboard_io::storage::ReadSource::Journal(bytes.clone())
-        };
         let csv_metadata = self.csv_metadata.clone();
         let key = StudyKey {
             source: self.source,

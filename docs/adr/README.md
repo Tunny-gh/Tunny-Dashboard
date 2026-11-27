@@ -98,3 +98,4 @@ order:
 | 0024 | [Require explicit opt-in to reuse Journal Studies](0024-require-explicit-opt-in-to-reuse-journal-studies.md) | Accepted | 2026-10-22 |
 | 0025 | [Consolidate workspace crate placement](0025-consolidate-workspace-crate-placement.md) | Accepted | 2026-10-24 |
 | 0026 | [Retain partial ALL-objective importance results](0026-retain-partial-all-objective-importance-results.md) | Accepted | 2026-10-25 |
+| 0027 | [Index Journal records for Study selection](0027-index-journal-records-for-study-selection.md) | Accepted | 2026-11-27 |

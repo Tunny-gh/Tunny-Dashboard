@@ -167,10 +167,18 @@ impl TunnyApp {
             .find(|s| s.study_id == restore.study_id)
             .cloned()
         else {
-            // The study is no longer in the storage (file replaced, study
-            // dropped). Abandon the reload and let the normal open handling
-            // decide what to show.
+            // A recreated Study can have the same name and a different ID.
+            // Clear the old view so the replacement can be selected normally.
+            if let Some(journal) = &mut self.app_state.journal_studies {
+                journal.selected = None;
+                journal.managers.remove(&restore.study_id);
+            }
             self.pending_reload = None;
+            self.app_state.current_study = None;
+            self.app_state.clear();
+            self.app_state.reset_comparison_session();
+            let previous = self.app_state.journal_display.take();
+            self.invalidate_canvas_input(previous);
             return false;
         };
         restore.reselect_dispatched = true;
