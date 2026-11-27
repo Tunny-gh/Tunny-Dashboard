@@ -22,6 +22,12 @@ and `Security` as needed — omit headings that have nothing under them.
   Study is deleted and recreated with the same name. Deleted Studies are omitted
   from the Study list. Reloading clears the current view if its Study was deleted.
 
+### Security
+
+- Update the bundled SQLite, zlib, and URL parsing dependencies to patched
+  releases. Update the Gaussian process dependencies to remove the unused ZIP
+  dependency.
+
 ## [0.2.0] - 2026-11-03
 
 ### Added

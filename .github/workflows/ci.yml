@@ -57,17 +57,7 @@ jobs:
           tool: cargo-audit
 
       - name: Audit dependencies
-        # ZIP extraction is unreachable through the app's egobox/ndarray-npy use.
-        # Accept only these four advisories; keep detecting new ZIP advisories.
-        # See docs/reports/2026-11-03_dependency-security-exposure.md and #269.
-        # Reassess when archive/model imports or dependency behavior change;
-        # remove these exclusions once the ZIP dependency is fixed or removed.
-        run: >-
-          cargo audit
-          --ignore RUSTSEC-2026-0367
-          --ignore RUSTSEC-2026-0368
-          --ignore RUSTSEC-2026-0369
-          --ignore RUSTSEC-2026-0429
+        run: cargo audit
 
   build-test:
     name: Build & Test
@@ -134,6 +124,11 @@ jobs:
           # ad-hoc signed, so --force is required to re-sign.
           codesign --force -s - libs/libomp.dylib
           codesign --force -s - libs/lib_lightgbm.dylib
+
+      - name: Add LightGBM to the test PATH (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Add-Content -LiteralPath $env:GITHUB_PATH -Value (Join-Path $env:GITHUB_WORKSPACE 'libs')
 
       # `cargo test` compiles every target (incl. the binary), so this both
       # verifies the build and runs the tests in a single pass — no redundant
